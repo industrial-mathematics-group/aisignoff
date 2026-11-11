@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AISIGNOFF_VERSION: "0.6.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.7.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   build:
@@ -38,6 +38,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/site"
           aisignoff report --html "$RUNNER_TEMP/site/index.html"
+          # add --with-source to show the text of each file in the report (it is then public, like the repository)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site

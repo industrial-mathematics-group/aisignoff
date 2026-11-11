@@ -80,7 +80,7 @@ Fails if any file lacks a valid declaration, falls below the policy, or if no fi
 ```bash
 aisignoff report [--files] [--json]
 aisignoff report --tree [--depth N] [--weight files|lines] [--files] [--markdown | --json]
-aisignoff report --html PATH [--title TITLE]
+aisignoff report --html PATH [--title TITLE] [--with-source] [--since BASE]
 ```
 
 A summary per axis by default (with `[history]`: by lines). Invalid declarations count as "undeclared", as in the badges.
@@ -88,7 +88,7 @@ A summary per axis by default (with `[history]`: by lines). Invalid declarations
 - `--files`: one line per file, with its levels, where they come from, and any problems.
 - `--json`: the same per file, machine-readable.
 - `--tree`: the level mix of each folder. With `--markdown` a Markdown table (for job summaries), with `--json` the whole tree with its counts.
-- `--html PATH`: an interactive folder report in a single HTML file.
+- `--html PATH`: an interactive folder report in a single HTML file. `--with-source` embeds the text of each file for its line view, `--since BASE` marks what changed since `BASE`.
 
 Both are described in [Folder report](report.md).
 

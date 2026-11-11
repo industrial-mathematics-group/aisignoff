@@ -48,7 +48,7 @@ Then, in *Settings → Branches*, require the check `aisignoff / lint` on the de
 
 ### Check (`signoff-lint.yml`)
 
-Runs `aisignoff lint` on every push to `main` and every pull request, and adds the level mix of each folder (`aisignoff report --tree --markdown`) to the job summary of the run. The interactive [folder report](report.md) is uploaded as the artifact `aisignoff-report` of the run. The check fails when a file has no valid declaration or falls below the [policy](signoff-toml.md#minimum-levels).
+Runs `aisignoff lint` on every push to `main` and every pull request, and adds the level mix of each folder (`aisignoff report --tree --markdown`) to the job summary of the run. The interactive [folder report](report.md) is uploaded as the artifact `aisignoff-report` of the run, with the text of each file and, in a pull request, the lines it changes. The check fails when a file has no valid declaration or falls below the [policy](signoff-toml.md#minimum-levels).
 
 ### Check and badges (`signoff-badges.yml`)
 

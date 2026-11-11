@@ -35,7 +35,85 @@ def _new_dir(name: str, path: str) -> dict:
             "errors": 0, "children": {}}
 
 
-def build_tree(root: Path, results) -> dict:
+SOURCE_LIMIT = 512 * 1024  # bytes per file embedded with --with-source
+
+
+def _runs(numbers) -> list[list[int]]:
+    """[1, 2, 3, 7] -> [[1, 3], [7, 7]]"""
+    out: list[list[int]] = []
+    for n in sorted(numbers):
+        if out and n == out[-1][1] + 1:
+            out[-1][1] = n
+        else:
+            out.append([n, n])
+    return out
+
+
+def _source(root: Path, path: str) -> tuple[str | None, str | None]:
+    """(text, None) of a text file, or (None, why it isn't embedded)."""
+    try:
+        data = (root / path).read_bytes()
+    except OSError:
+        return None, "unreadable"
+    if b"\x00" in data[:16384]:
+        return None, "binary"
+    if len(data) > SOURCE_LIMIT:
+        return None, f"larger than {SOURCE_LIMIT // 1024} KB"
+    return data.decode("utf-8", "replace"), None
+
+
+def build_tree(root: Path, results, source: bool = False, changes: dict | None = None) -> dict:
+    """See _build_tree. With source, text files carry their content ("source"); with changes
+    ({path: (added line numbers, removed line count)}, see changed_since), files and folders
+    carry what changed ("changed" runs, "added", "removed")."""
+    tree = _build_tree(root, results)
+    if source or changes is not None:
+        _decorate(tree, Path(root), source, changes)
+    return tree
+
+
+def _decorate(node: dict, root: Path, source: bool, changes: dict | None) -> tuple[int, int, int]:
+    if node["type"] == "file":
+        if source:
+            text, why = _source(root, node["path"])
+            if text is not None:
+                node["source"] = text
+            else:
+                node["source_skipped"] = why
+        if changes is None:
+            return 0, 0, 0
+        added, removed = changes.get(node["path"], ([], 0))
+        node["changed"] = _runs(added)
+        node["added"], node["removed"] = len(added), removed
+        return len(added), removed, int(bool(added or removed))
+    totals = [0, 0, 0]
+    for c in node["children"]:
+        for i, v in enumerate(_decorate(c, root, source, changes)):
+            totals[i] += v
+    if changes is not None:
+        node["added"], node["removed"], node["changed_files"] = totals
+    return tuple(totals)
+
+
+def changed_since(root: Path, base: str, files) -> tuple[str, dict]:
+    """(sha of base, {path: (added line numbers, removed line count)}) for the given files,
+    comparing base with the working tree; untracked files count as added in full."""
+    from .diff import DiffError, _git, changed_lines
+    sha = _git(Path(root), "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
+    if not sha:
+        raise DiffError(f"{base} is not a commit")
+    out = {}
+    for (_, new), (removed, added) in changed_lines(Path(root), sha).items():
+        if new:
+            out[new] = (added, len(removed))
+    tracked = set(_git(Path(root), "ls-files", "-z").split("\0"))
+    for f in files:
+        if f not in out and f not in tracked:
+            out[f] = (list(range(1, line_count(Path(root), f) + 1)), 0)
+    return sha, out
+
+
+def _build_tree(root: Path, results) -> dict:
     """Nested folders with weighted level counts per axis; files are the leaves.
 
     Every folder carries, per axis and weight ("files" or "lines"), how much of it is at each
@@ -66,6 +144,7 @@ def build_tree(root: Path, results) -> dict:
         }
         if r.parts is not None and len(r.parts) > 1:
             leaf["counts"] = {key: {w: _ordered(key, file_counts[key][w]) for w in WEIGHTS} for key, _, _ in AXES}
+        if r.parts is not None:
             leaf["parts"] = [{"lines": p.lines, "runs": p.runs, "declaration": p.declaration.as_dict(),
                               "levels": {key: UNDECLARED if p.errors else p.declaration.get(key) for key, _, _ in AXES},
                               "errors": p.errors} for p in r.parts]
@@ -204,7 +283,7 @@ def _git(root: Path, *args: str) -> str | None:
     return out.stdout.strip() or None if out.returncode == 0 else None
 
 
-def report_meta(root: Path, title: str | None = None, link: str | None = None) -> dict:
+def report_meta(root: Path, title: str | None = None, link: str | None = None, since: dict | None = None) -> dict:
     """Header facts for the HTML report. On GitHub Actions, files link to the commit's blob view."""
     root = Path(root)
     commit = os.environ.get("GITHUB_SHA") or _git(root, "rev-parse", "HEAD")
@@ -219,6 +298,7 @@ def report_meta(root: Path, title: str | None = None, link: str | None = None) -
         "version": __version__,
         "link": link,
         "axes": [{"key": key, "title": title_, "levels": levels} for key, title_, levels in AXES],
+        "since": since,  # {"name": "origin/main", "commit": sha} with --since
     }
 
 

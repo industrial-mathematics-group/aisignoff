@@ -32,7 +32,7 @@ jobs:
       - name: Add the folder report of aisignoff itself (site/signoff/)
         run: |
           pip install .
-          aisignoff report --html site/signoff/index.html --title "aisignoff"
+          aisignoff report --html site/signoff/index.html --title "aisignoff" --with-source
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:

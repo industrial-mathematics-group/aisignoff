@@ -127,6 +127,8 @@ Like a coverage diff, it shows only what changed: the levels of the added lines 
 | `--json` | Everything, including the levels of the removed lines |
 | `-g`, `-H`, `-a` and the name options | Declare the change: lines after the base without a declaration of their own take these levels |
 
+For the same change in the [folder report](report.md), with each changed line in its file: `aisignoff report --html report.html --with-source --since origin/main`.
+
 The last row is for pull requests: before the merge, their lines have no squash commit yet, so a workflow can pass the levels from the pull request description. [`signoff-pr-diff.yml`](integration.md) does that.
 
 ## Where history isn't available
