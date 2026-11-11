@@ -1,0 +1,60 @@
+# Example workflow: show reviewers the declarations of just the lines a pull request changes.
+# Copy it to .github/workflows/ in your repository. Most useful with [history] in SIGNOFF.toml
+# (line-by-line declarations from git, aisignoff >= 0.6); without it, the changed lines take the
+# file-level declarations.
+#
+#   - writes "aisignoff diff" to the job summary: the levels of the added and removed lines per
+#     folder, attestations the pull request adds, and how the repository's shares move
+#   - declares the pull request's lines from trailer lines in its description (AI-Generation,
+#     Human-Review, AI-Review and the names, written "Key: value" as in a commit message), the
+#     same lines that end up in the squash commit when the repository's default commit message
+#     is "Pull request title and description"
+#
+# It only reads the repository, so it also works for pull requests from forks. It doesn't
+# fail the check on its own: that's the job of "aisignoff lint".
+name: aisignoff PR diff
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  AISIGNOFF_VERSION: "0.6.0"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base commit and the history behind each line
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Declarations of the changed lines
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # the pull request's own declaration: trailer lines in its description, as options for aisignoff diff
+          python3 - "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/declare" <<'PY'
+          import json, re, sys
+
+          body = json.load(open(sys.argv[1], encoding="utf-8"))["pull_request"].get("body") or ""
+          options = {"ai-generation": "--generation", "human-review": "--human", "ai-review": "--ai",
+                     "assisted-by": "--assisted-by", "reviewed-by": "--reviewed-by",
+                     "ai-reviewed-by": "--ai-reviewed-by"}
+          for line in body.splitlines():
+              m = re.match(r"^\s*([A-Za-z-]+):\s*(\S.*?)\s*$", line)
+              if m and m.group(1).lower() in options and m.group(2) != "TODO":
+                  print(options[m.group(1).lower()])
+                  print(m.group(2))
+          PY
+          mapfile -t DECLARE < "$RUNNER_TEMP/declare"
+          {
+            echo '### AI signoff of the changed lines'
+            aisignoff diff "$BASE" --markdown --depth 2 "${DECLARE[@]}" || echo "aisignoff diff failed, see the log"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -19,13 +19,15 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.5.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.6.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the whole history, for line-by-line declarations ([history])
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

@@ -6,6 +6,7 @@ Ready-to-copy files for adding aisignoff to a repository are in [`examples/`](ht
 |---|---|---|
 | [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | Fails the check when a file has no valid declaration; writes the level mix per folder to the job summary and uploads the [folder report](report.md) | `.github/workflows/` |
 | [`signoff-badges.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-badges.yml) | The same check, plus README badges published to a `badges` branch | `.github/workflows/` |
+| [`signoff-pr-diff.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-diff.yml) | Shows the declarations of the lines a pull request changes ([line by line](history.md)) | `.github/workflows/` |
 | [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | Shows the declarations of the files a pull request changes | `.github/workflows/` |
 | [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | Attaches the declarations of all files and the folder report to each GitHub release | `.github/workflows/` |
 | [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | Publishes the folder report to GitHub Pages (only for repositories without another Pages site) | `.github/workflows/` |
@@ -40,6 +41,7 @@ Then, in *Settings → Branches*, require the check `aisignoff / lint` on the de
 - **Default branch.** The examples run on pushes to `main`. Change `branches: [main]` (and `refs/heads/main` in `signoff-badges.yml`) if yours is called differently.
 - **Version.** `AISIGNOFF_VERSION` pins the release that CI installs, so a new version can't fail your checks unannounced. Raise it when you update aisignoff locally. Dependabot doesn't see this pin.
 - **Stricter lint.** `aisignoff lint --strict` also fails on annotations in `SIGNOFF.toml` that match no file, e.g. after a file was renamed.
+- **History.** The examples check out the whole history (`fetch-depth: 0`), which [line-by-line declarations](history.md) need. Without `[history]` in `SIGNOFF.toml`, a shallow checkout is enough.
 - **Badge weight.** In `signoff-badges.yml`, `WEIGHT: lines` weights each file by its number of lines instead of counting files.
 
 ## The workflows
@@ -53,6 +55,12 @@ Runs `aisignoff lint` on every push to `main` and every pull request, and adds t
 The check above, plus a second job on pushes to `main`. It writes the three badge files with [`aisignoff badge`](commands.md#badge) and commits them to the branch `badges`, which it creates on its first run. The badges also update when the check fails, showing the undeclared share in red. Add them to the README as in [Badges](ci.md#badges).
 
 raw.githubusercontent.com only serves files of public repositories, so the badges need a public repository.
+
+### Changed lines of a pull request (`signoff-pr-diff.yml`)
+
+For reviewers: which levels do the lines this pull request adds and removes have? It writes [`aisignoff diff`](history.md#showing-a-change-aisignoff-diff) against the base branch to the job summary: per folder, the levels of the added and removed lines, attestations the pull request adds, and how the shares of the whole repository move.
+
+Before the merge, the pull request's lines have no squash commit with trailers yet. The workflow takes their levels from trailer lines in the pull request description (`AI-Generation: G2`, `Assisted-by: …`), the same lines that land in the squash commit when the repository's default commit message is *Pull request title and description*. It only reads the repository and never fails on its own.
 
 ### Changed files of a pull request (`signoff-pr-files.yml`)
 

@@ -4,6 +4,8 @@
 |---|---|
 | `aisignoff init` | Create `SIGNOFF.toml`, optionally with a default for all files |
 | `aisignoff annotate PATHS …` | Append an annotation, or tag the files themselves with `--inline` |
+| `aisignoff attest PATHS …` | Re-declare whole files as reviewed now ([line by line](history.md)) |
+| `aisignoff diff BASE` | The levels of the lines changed since `BASE` |
 | `aisignoff lint` | Fail if any file lacks a valid declaration |
 | `aisignoff report` | Summarise the declarations, per folder with `--tree`, as an interactive page with `--html` |
 | `aisignoff badge` | Write shields.io badge files |
@@ -45,13 +47,31 @@ aisignoff annotate PATHS -g G -H H -a A [--assisted-by …] [--ai-reviewed-by �
 
 Appends one annotation for all `PATHS` (files, folders or quoted globs), or with `--inline` writes [inline tags](inline-tags.md) into each file. See [What annotate checks](getting-started.md#what-annotate-checks).
 
+## attest
+
+```bash
+aisignoff attest PATHS [-g G] [-H H] [-a A] [--assisted-by …] [--ai-reviewed-by …] [--reviewed-by …] [--at REV]
+```
+
+Appends one `[[attestations]]` entry per file (directories: every declared file below), with the git blob hash of its content. Give at least one level, with the names it needs; TODO isn't allowed. Counts only with `[history]` enabled. See [Re-declaring a whole file](history.md#re-declaring-a-whole-file).
+
+- `--at REV` attests the files as they were at commit `REV`.
+
+## diff
+
+```bash
+aisignoff diff BASE [--depth N | --files] [--markdown | --json] [-g G -H H -a A --assisted-by … …]
+```
+
+The levels of the lines added since `BASE` (a commit, branch or tag), the removed lines, new attestations and how the repository's shares move. Compares the working tree with `BASE`; the state at `BASE` is read from a temporary git worktree. The level options declare lines after `BASE` that have no declaration of their own. See [Showing a change](history.md#showing-a-change-aisignoff-diff).
+
 ## lint
 
 ```bash
 aisignoff lint [--strict] [--max-files N]
 ```
 
-Fails if any file lacks a valid declaration, falls below the policy, or if no files were found. Problems are grouped, with up to `N` files listed each (default 10).
+Fails if any file lacks a valid declaration, falls below the policy, or if no files were found. Problems are grouped, with up to `N` files listed each (default 10). With [`[history]`](history.md), it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere.
 
 - `--strict` also fails on annotations that match no file.
 
@@ -63,7 +83,7 @@ aisignoff report --tree [--depth N] [--weight files|lines] [--files] [--markdown
 aisignoff report --html PATH [--title TITLE]
 ```
 
-A summary per axis by default. Invalid declarations count as "undeclared", as in the badges.
+A summary per axis by default (with `[history]`: by lines). Invalid declarations count as "undeclared", as in the badges.
 
 - `--files`: one line per file, with its levels, where they come from, and any problems.
 - `--json`: the same per file, machine-readable.

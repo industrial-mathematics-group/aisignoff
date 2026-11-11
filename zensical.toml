@@ -20,6 +20,7 @@ nav = [
   { "Getting started" = "getting-started.md" },
   { "SIGNOFF.toml" = "signoff-toml.md" },
   { "Inline tags" = "inline-tags.md" },
+  { "Line by line" = "history.md" },
   { "Commands" = "commands.md" },
   { "CI and badges" = "ci.md" },
   { "Folder report" = "report.md" },
