@@ -19,6 +19,54 @@ For each axis, the newest of these wins:
 2. **An attestation of the file** whose checked content already contained the line: "this whole file was reviewed, as it was then". See [Re-declaring a whole file](#re-declaring-a-whole-file).
 3. **Otherwise, the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags.
 
+As a flow, for one line and one axis:
+
+```mermaid
+flowchart TD
+    start(["One line, one axis"]) --> att{"Does an attestation of the file<br/>whose content has the line<br/>give this axis?"}
+    att -- "yes" --> attested(["The attestation's level"])
+    att -- "no" --> merge{"Was the line landed on main<br/>by a merge commit?"}
+    merge -- "yes" --> branch["The branch commit that wrote the line,<br/>else the merge commit (the pull request)"]
+    merge -- "no" --> own["The commit that landed it"]
+    branch --> decl{"Does it declare this axis?"}
+    own --> decl
+    decl -- "yes" --> commit(["The commit's level"])
+    decl -- "no" --> required{"Is that commit after<br/>require-trailers-since?"}
+    required -- "yes" --> fail(["lint fails"])
+    required -- "no" --> file(["The file-level declaration:<br/>SIGNOFF.toml annotation or inline tags"])
+```
+
+An attestation comes first because the content it checked already had the line, so it is always at least as new as the line's commit. "The commit that landed the line" is what `git blame --first-parent` finds on `main`.
+
+A commit declares an axis with a trailer or a ticked checkbox (one way per commit), and a `[[commits]]` entry corrects it. So the layers, from the bottom:
+
+| Layer | Set by | Covers |
+|---|---|---|
+| File-level declaration | `[[annotations]]` in `SIGNOFF.toml`, inline tags | Lines that nothing below declares: the baseline |
+| Commit declaration | Trailers or checkboxes of the commit that landed the line; for a merge, of the pull request, overridden per axis by the branch commit that wrote the line; corrected by `[[commits]]` | The lines that commit added or changed |
+| Attestation | `aisignoff attest` (`[[attestations]]`) | Every line of the file as it was when attested, until the line changes again |
+
+For example, a pull request with two commits, merged with a merge commit, while `main` moved on with a direct commit:
+
+```mermaid
+gitGraph
+    commit id: "before"
+    branch feature
+    checkout feature
+    commit id: "by hand: G0 H2"
+    commit id: "no trailers"
+    checkout main
+    commit id: "direct: G3 H1 A1"
+    merge feature id: "PR: G3 H1 A2"
+```
+
+| Lines from | Get | Because |
+|---|---|---|
+| `before` | the file-level declaration | that commit declares nothing |
+| `by hand: G0 H2` | G0 H2 A2 | generation and human review from the commit, AI review from the pull request |
+| `no trailers` | G3 H1 A2 | everything from the pull request |
+| `direct: G3 H1 A1` | G3 H1 A1 | its own trailers; it isn't part of the pull request |
+
 The axes stay separate. Generation follows the line: it only changes when the line changes. A review (human or AI) can be raised for a whole file by an attestation, without touching generation.
 
 For example, a 200-line `solver.py`:
