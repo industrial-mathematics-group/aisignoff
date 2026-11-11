@@ -7,10 +7,10 @@
 #     folder, attestations the pull request adds, and how the repository's shares move
 #   - declares the pull request's lines from the trailers at the end of its description
 #     (AI-Generation, Human-Review, AI-Review and the names, written "Key: value" as in a commit
-#     message, in the last paragraph), read as git reads them in the squash commit when the
+#     message, in the last paragraph), read as git reads them in the merge or squash commit when the
 #     repository's default commit message is "Pull request title and description". Invalid
 #     levels are skipped with a warning. Axes without a trailer are taken from the ticked
-#     checkboxes of the pull request template, as aisignoff reads them in the squash commit.
+#     checkboxes of the pull request template, as aisignoff reads them in that commit.
 #
 # It only reads the repository, so it also works for pull requests from forks. It doesn't
 # fail the check on its own: that's the job of "aisignoff lint".
@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.8.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.9.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   diff:

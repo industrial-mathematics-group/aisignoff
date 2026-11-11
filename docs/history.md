@@ -15,7 +15,7 @@ Nothing else has to change. Lines without a declaration from git keep the file-l
 
 For each axis, the newest of these wins:
 
-1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits), or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, the commits of the merged branch fill the axes it leaves out.
+1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits), or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, a commit of the merged branch that declares an axis itself overrides the merge on that axis, for the lines it wrote (see [Merge, squash or rebase](#merge-squash-or-rebase)).
 2. **An attestation of the file** whose checked content already contained the line: "this whole file was reviewed, as it was then". See [Re-declaring a whole file](#re-declaring-a-whole-file).
 3. **Otherwise, the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags.
 
@@ -46,7 +46,7 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 ```
 
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
-- **Pull requests:** set *Settings → General → Pull Requests → Default commit message* to **Pull request title and description** for squash (and merge) commits, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code.
+- **Pull requests:** set *Settings → General → Pull Requests* → the default commit message of merge commits (and of squash commits, if you allow them) to **Pull request title and description**, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code. GitHub's default message for merge commits holds only the title, so without this setting the declaration never reaches git.
 - **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in.
 
 ### Pull request checkboxes
@@ -70,6 +70,19 @@ A pull request template can declare the levels with checkboxes instead, as the t
 | AI review | the highest ticked `**A…**` box | the text after `Model:` in that box, or else the models that wrote the change |
 
 So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow with every pull request: it keeps the defaults for lines without a declaration, `[[commits]]` corrections and attestations.
+
+### Merge, squash or rebase
+
+`git blame --first-parent` follows only the first parents of the default branch, so every line a pull request brought in belongs to the commit that landed it there, and lines that were on the branch before the pull request started never do. How a pull request lands decides what declares its lines:
+
+| Pull request lands as | Its lines are declared by |
+|---|---|
+| **Merge commit** (recommended) | The merge commit (the pull request description) for every line the branch adds. A commit of the branch that declares an axis itself (trailers in its message) overrides the merge on that axis, for the lines it wrote: the pull request is the default, a commit the exception, e.g. a hand-written G0 commit in an AI-written pull request |
+| **Squash** | The squash commit alone (the pull request description). The commits of the branch are gone, and so are their own declarations |
+| **Rebase** | Each commit on its own: they land on the default branch one by one, without the pull request description. A commit without a declaration falls back to `SIGNOFF.toml` (or fails `require-trailers-since`) |
+| **Commit on the default branch** | That commit |
+
+Commits that merge the default branch into the pull request's branch, and conflict resolutions, declare nothing themselves, so their lines take the pull request's declaration.
 
 ### Correcting a commit
 

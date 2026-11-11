@@ -5,8 +5,9 @@ Each line of a file takes, per axis, the newest of:
 - the declaration of the commit that landed the line on the current branch: its trailers
   (AI-Generation, Human-Review, ... in the commit message), corrected by a [[commits]] entry.
   'git blame --first-parent' finds that commit, so a squash commit or the merge commit of a
-  pull request carries the declaration of all its lines. For a merge commit, the commits of the
-  merged branch fill the axes it leaves out;
+  pull request carries the declaration of all its lines. For a merge commit, the commit of the
+  merged branch that wrote the line overrides it, axis by axis, where it declares one: the
+  pull request is the default, a commit of it the exception;
 - an [[attestations]] entry of the file whose content (a git blob) already contained the line:
   "this whole file was checked, as it was then".
 
@@ -480,7 +481,7 @@ class History:
             return [UNCOMMITTED] * n, None
         landing = self._blame(path, first_parent=True)
         needs_branch = {c for c in set(landing) if c and len(self.parents.get(c, [])) > 1
-                        and len(self.commit_pieces(c)) < len(AXES) and self._branch_declares(c)}
+                        and self._branch_declares(c)}
         original = self._blame(path, first_parent=False) if needs_branch else None
         if original is not None and len(original) != len(landing):
             original = None
@@ -530,10 +531,10 @@ class History:
         else:
             ordinal = self.order.get(commit, 0)
             own = self.commit_pieces(commit)
-            if orig and orig != commit:  # the merge commit is newer: the branch commit only fills its gaps
+            if orig and orig != commit:  # the merge declares the branch; a commit of it overrides, per axis
                 own = dict(own)
                 for i, p in self.commit_pieces(orig).items():
-                    own.setdefault(i, Piece(p.level, p.names, p.source, "branch", p.problems))
+                    own[i] = Piece(p.level, p.names, p.source, "branch", p.problems)
         out = []
         for i, (level, _) in enumerate(AXES):
             best, best_rank = None, None
