@@ -84,7 +84,7 @@ Human-Review = "H2"
 Reviewed-by = "Jane Doe"
 ```
 
-- **`[history]`:** `enabled` (default `true` once the table is there), `require-trailers-since` (a commit), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists).
+- **`[history]`:** `enabled` (default `true` once the table is there), `require-trailers-since` (a commit), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists), `merge-method` (`"merge"`, the default, `"squash"` or `"rebase"`: how pull requests land, for their CI run's preview), `ignore-whitespace` (default `true`: `git blame -w`).
 - **`[[commits]]` and `[[attestations]]`** take the declaration keys like an annotation, but only whole axes: at least one level, and a name list only next to its level.
 - With history, the annotations and inline tags become the fallback for lines that git doesn't declare.
 

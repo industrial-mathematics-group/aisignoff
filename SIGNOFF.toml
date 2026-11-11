@@ -2,8 +2,9 @@ version = 3
 exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
 # Line-level declarations from git history (aisignoff >= 0.6): each line takes the declaration of the
-# commit that landed it (trailers, or the ticked boxes of the PR template in its squash commit); the
-# annotations below are the fallback for lines without one.
+# commit that landed it (Key: value lines, or the ticked boxes of the PR template in its merge or
+# squash commit) and of the commits inside a merge; the annotations below are the fallback for
+# lines without one.
 [history]
 enabled = true
 
@@ -180,3 +181,26 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generat
 # Fixes for the independent review of 0.7.0 (blame failures, diff parsing, subfolder roots, merge base, symlinks,
 # attestations across renames and copies, shallow clones, example workflows), version 0.7.1. Written by Claude
 # and only self-checked; the human review is still open.
+
+# The agent's own commits in PRs #12 to #14 wrote "Human-Review: H1" before any person had read
+# them; the pull requests declare the human review (H0, ticked by the maintainer). Since review
+# levels take the highest declaration that saw a line, the agent's claim is corrected to H0 here.
+[[commits]]
+commit = "aa413af"   # PR #12
+Human-Review = "H0"
+
+[[commits]]
+commit = "63e0c96"   # PR #13
+Human-Review = "H0"
+
+[[commits]]
+commit = "9570410"   # PR #14
+Human-Review = "H0"
+
+[[commits]]
+commit = "a241b35"   # PR #14
+Human-Review = "H0"
+
+[[commits]]
+commit = "cadf7f4"   # PR #14
+Human-Review = "H0"
