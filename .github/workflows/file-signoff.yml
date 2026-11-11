@@ -14,6 +14,8 @@ permissions:
 jobs:
   file-signoff:
     uses: industrial-mathematics-group/.github/.github/workflows/file-signoff.yml@main
-    # with:
+    with:
+      # aisignoff checks itself with its own code at this commit, so a pull request can use
+      # SIGNOFF.toml features that main doesn't know yet
+      aisignoff-ref: ${{ github.event.pull_request.head.sha || github.sha }}
     #   weight: lines            # weight the badges by lines instead of files
-    #   aisignoff-ref: v0.4.0    # pin a release of aisignoff

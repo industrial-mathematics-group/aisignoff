@@ -188,7 +188,7 @@ path = ["src/aisignoff/history.py", "src/aisignoff/diff.py", "src/aisignoff/cli.
         "src/aisignoff/project.py", "src/aisignoff/visualize.py", "src/aisignoff/report.html", "tests/test_history.py",
         "docs/history.md", "docs/signoff-toml.md", "docs/commands.md", "docs/report.md", "docs/index.md", "docs/ci.md",
         "docs/integration.md", "README.md", "zensical.toml", "pyproject.toml", "uv.lock", "examples/**",
-        ".github/workflows/ci.yml", ".github/workflows/docs.yml"]
+        ".github/workflows/ci.yml", ".github/workflows/docs.yml", ".github/workflows/file-signoff.yml"]
 AI-Generation = "G3"
 Human-Review = "H1"
 AI-Review = "A1"
