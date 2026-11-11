@@ -4,13 +4,14 @@ Ready-to-copy files for adding aisignoff to a repository are in [`examples/`](ht
 
 | File | What it does | Copy to |
 |---|---|---|
-| [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | Fails the check when a file has no valid declaration; writes the summary to the job summary | `.github/workflows/` |
+| [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | Fails the check when a file has no valid declaration; writes the level mix per folder to the job summary and uploads the [folder report](report.md) | `.github/workflows/` |
 | [`signoff-badges.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-badges.yml) | The same check, plus README badges published to a `badges` branch | `.github/workflows/` |
 | [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | Shows the declarations of the files a pull request changes | `.github/workflows/` |
-| [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | Attaches the declarations of all files to each GitHub release | `.github/workflows/` |
+| [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | Attaches the declarations of all files and the folder report to each GitHub release | `.github/workflows/` |
+| [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | Publishes the folder report to GitHub Pages (only for repositories without another Pages site) | `.github/workflows/` |
 | [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) | Runs `aisignoff lint` before each commit | `.pre-commit-config.yaml` |
 
-Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the other two add to either.
+Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to either.
 
 !!! tip "Industrial Mathematics Group"
     Repositories of the group use the organisation's ready-made **File-signoff**, **PR-signoff** and **Signoff-Badges** workflows instead of the first two (*Actions → New workflow*, section "By Industrial Mathematics Group"); see [CI and badges](ci.md). `signoff-pr-files.yml`, `signoff-release.yml` and the pre-commit hook work next to them.
@@ -45,7 +46,7 @@ Then, in *Settings → Branches*, require the check `aisignoff / lint` on the de
 
 ### Check (`signoff-lint.yml`)
 
-Runs `aisignoff lint` on every push to `main` and every pull request, and adds the output of `aisignoff report` to the job summary of the run. The check fails when a file has no valid declaration or falls below the [policy](signoff-toml.md#minimum-levels).
+Runs `aisignoff lint` on every push to `main` and every pull request, and adds the level mix of each folder (`aisignoff report --tree --markdown`) to the job summary of the run. The interactive [folder report](report.md) is uploaded as the artifact `aisignoff-report` of the run. The check fails when a file has no valid declaration or falls below the [policy](signoff-toml.md#minimum-levels).
 
 ### Check and badges (`signoff-badges.yml`)
 
@@ -65,7 +66,11 @@ It only reads the repository, so it works for pull requests from forks too. It n
 
 ### Release report (`signoff-release.yml`)
 
-When a release is published, it adds `aisignoff-report.txt` (the summary) and `aisignoff-report.json` (every file, from [`aisignoff report --json`](commands.md#report)) to the release, describing the code at its tag. It warns, but still uploads, when files are undeclared.
+When a release is published, it adds `aisignoff-report.txt` (the summary and the folder tree), `aisignoff-report.json` (every file, from [`aisignoff report --json`](commands.md#report)) and `aisignoff-report.html` (the [folder report](report.md)) to the release, describing the code at its tag. It warns, but still uploads, when files are undeclared.
+
+### Folder report on Pages (`signoff-pages.yml`)
+
+Publishes the [folder report](report.md) to GitHub Pages on every push to `main`. Needs *Settings → Pages → Build and deployment → Source: GitHub Actions*. A repository has a single Pages site, so use it only when Pages isn't used for anything else; a repository with a documentation site writes the report into that site instead ([Publishing the report](report.md#publishing-the-report)).
 
 ### pre-commit hook
 
@@ -74,7 +79,7 @@ aisignoff provides a hook for [pre-commit](https://pre-commit.com), so undeclare
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.4.3   # the hook exists from the first release after v0.4.2
+    rev: v0.5.0   # the hook exists from the first release after v0.4.2
     hooks:
       - id: aisignoff-lint
 ```

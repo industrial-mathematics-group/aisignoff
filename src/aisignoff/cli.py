@@ -174,8 +174,37 @@ def cmd_lint(args) -> int:
 
 # ---------------------------------------------------------------- report
 def cmd_report(args) -> int:
+    if args.markdown and not args.tree:
+        raise UsageError("--markdown needs --tree")
+    if args.depth is not None and not args.tree:
+        raise UsageError("--depth needs --tree")
+    if args.depth is not None and args.depth < 0:
+        raise UsageError("--depth must be 0 or more")
+    if args.tree and args.json and args.markdown:
+        raise UsageError("give --json or --markdown, not both")
     project = _open(args.root)
     results = _results(project)
+    if args.html or args.tree:
+        from . import visualize
+        tree = visualize.build_tree(project.root, results)
+        if args.html:
+            meta = visualize.report_meta(project.root, title=args.title)
+            target = Path(args.html)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(visualize.render_html(tree, meta), encoding="utf-8")
+            except OSError as e:
+                raise UsageError(f"cannot write {target}: {e}")
+            print(f"Wrote {args.html}", file=sys.stderr if args.tree else sys.stdout)
+        if not args.tree:
+            return 0
+        if args.json:
+            print(json.dumps(tree, indent=2, ensure_ascii=False))
+        elif args.markdown:
+            print(visualize.render_markdown(tree, args.weight, args.depth, args.files))
+        else:
+            print(visualize.render_text(tree, args.weight, args.depth, args.files))
+        return 0
     if args.json:
         print(json.dumps([{"path": r.path, **r.declaration.as_dict(), "errors": r.errors} for r in results],
                          indent=2, ensure_ascii=False))
@@ -738,6 +767,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="summary of the declarations")
     p.add_argument("--files", action="store_true", help="one line per file")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--tree", action="store_true", help="the level mix of each folder (with --files: and each file)")
+    p.add_argument("--markdown", action="store_true", help="with --tree: a Markdown table, e.g. for a CI job summary")
+    p.add_argument("--depth", type=int, metavar="N", help="with --tree: show folders down to depth N")
+    p.add_argument("--weight", choices=["files", "lines"], default="files", help="with --tree: what the shares count")
+    p.add_argument("--html", metavar="PATH", help="write an interactive folder report (a single HTML file)")
+    p.add_argument("--title", help="title of the HTML report (default: the repository or folder name)")
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("annotate", help=f"declare files in {FILENAME} (or inline with --inline)")

@@ -1,9 +1,10 @@
 # Example workflow: attach the AI declarations of all files to each GitHub release.
 # Copy it to .github/workflows/ in your repository.
 #
-# Adds two files to every published release, describing the code at the release tag:
-#   aisignoff-report.txt   the summary per axis, as "aisignoff report" prints it
+# Adds three files to every published release, describing the code at the release tag:
+#   aisignoff-report.txt   the summary per axis and the level mix per folder ("aisignoff report", "--tree")
 #   aisignoff-report.json  every file with its levels, names and source ("aisignoff report --json")
+#   aisignoff-report.html  the interactive folder report ("aisignoff report --html")
 #
 # So anyone can see how a release was made and reviewed without cloning the repository.
 name: aisignoff release report
@@ -16,7 +17,7 @@ permissions:
   contents: write   # to upload the release assets
 
 env:
-  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.5.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   report:
@@ -30,8 +31,9 @@ jobs:
       - name: Write the reports
         run: |
           # outside the work tree, or lint would count the reports as undeclared files
-          aisignoff report > "$RUNNER_TEMP/aisignoff-report.txt"
+          { aisignoff report; aisignoff report --tree; } > "$RUNNER_TEMP/aisignoff-report.txt"
           aisignoff report --json > "$RUNNER_TEMP/aisignoff-report.json"
+          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html"
           aisignoff lint || echo "::warning title=aisignoff::Some files in this release have no valid declaration; the reports list them as undeclared."
       - name: Upload to the release
         env:
@@ -39,4 +41,5 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           gh release upload "$TAG" --clobber \
-            "$RUNNER_TEMP/aisignoff-report.txt" "$RUNNER_TEMP/aisignoff-report.json"
+            "$RUNNER_TEMP/aisignoff-report.txt" "$RUNNER_TEMP/aisignoff-report.json" \
+            "$RUNNER_TEMP/aisignoff-report.html"

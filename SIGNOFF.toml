@@ -75,3 +75,16 @@ AI-Review = "A1"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+# Folder report: aisignoff report --tree / --html, its documentation, example workflows using it, version 0.5.0.
+# Written by Claude and only self-checked; the human review is still open.
+[[annotations]]
+path = ["src/aisignoff/visualize.py", "src/aisignoff/report.html", "src/aisignoff/cli.py", "tests/test_visualize.py",
+        "docs/report.md", "docs/assets/**", "docs/commands.md", "docs/ci.md", "docs/integration.md", "README.md",
+        "zensical.toml", "pyproject.toml", "uv.lock", ".github/workflows/docs.yml", "examples/**"]
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]

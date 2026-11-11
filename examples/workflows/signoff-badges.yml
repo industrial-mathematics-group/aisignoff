@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.5.0"   # pin a release, so a new version can't break your CI unannounced
   WEIGHT: files                # or "lines": weight each file by its number of lines
 
 jobs:
@@ -37,14 +37,18 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
-      - name: Summary
+      - name: Summary and folder report
         run: |
           {
             echo '### AI signoff'
-            echo '```'
-            aisignoff report || true
-            echo '```'
+            aisignoff report --tree --markdown --depth 3 || true
           } >> "$GITHUB_STEP_SUMMARY"
+          # outside the work tree, or lint would count the report as an undeclared file
+          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aisignoff-report
+          path: ${{ runner.temp }}/aisignoff-report.html
       - name: Check declarations
         run: aisignoff lint
 
