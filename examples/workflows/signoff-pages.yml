@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AISIGNOFF_VERSION: "0.7.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.7.1"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   build:

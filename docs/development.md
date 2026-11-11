@@ -8,6 +8,8 @@ pytest
 aisignoff lint      # the tool declares its own files, too (see SIGNOFF.toml)
 ```
 
+With [uv](https://docs.astral.sh/uv/), `uv run pytest` installs the package and pytest (the `dev` dependency group) into `.venv` first.
+
 Contributions follow the [contributing guidelines](https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md) of the Industrial Mathematics Group, including the AI declaration in each pull request. Update `SIGNOFF.toml` in the same pull request when a change alters how a file was created or reviewed.
 
 ## Documentation

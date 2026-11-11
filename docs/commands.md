@@ -63,7 +63,7 @@ Appends one `[[attestations]]` entry per file (directories: every declared file 
 aisignoff diff BASE [--depth N | --files] [--markdown | --json] [-g G -H H -a A --assisted-by … …]
 ```
 
-The levels of the lines added since `BASE` (a commit, branch or tag), the removed lines, new attestations and how the repository's shares move. Compares the working tree with `BASE`; the state at `BASE` is read from a temporary git worktree. The level options declare lines after `BASE` that have no declaration of their own. See [Showing a change](history.md#showing-a-change-aisignoff-diff).
+The levels of the lines added since `BASE` (a commit, branch or tag), the removed lines, new attestations and how the repository's shares move. Compares the working tree with the merge base of `BASE` and `HEAD`, as a pull request's diff on GitHub does, so commits `BASE` got since don't count; the state there is read from a temporary git worktree. The level options declare lines after `BASE` that have no declaration of their own. See [Showing a change](history.md#showing-a-change-aisignoff-diff).
 
 ## lint
 
@@ -88,7 +88,7 @@ A summary per axis by default (with `[history]`: by lines). Invalid declarations
 - `--files`: one line per file, with its levels, where they come from, and any problems.
 - `--json`: the same per file, machine-readable.
 - `--tree`: the level mix of each folder. With `--markdown` a Markdown table (for job summaries), with `--json` the whole tree with its counts.
-- `--html PATH`: an interactive folder report in a single HTML file. `--with-source` embeds the text of each file for its line view, `--since BASE` marks what changed since `BASE`.
+- `--html PATH`: an interactive folder report in a single HTML file. `--with-source` embeds the text of each file for its line view, `--since BASE` marks what changed since `BASE` (since its merge base with `HEAD`, as `diff`).
 
 Both are described in [Folder report](report.md).
 

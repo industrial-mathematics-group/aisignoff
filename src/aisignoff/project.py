@@ -64,14 +64,17 @@ class FileResult:
 
 
 def line_count(root: Path, path: str) -> int:
-    """Lines of a file (binary files count as one line, unreadable ones as zero)."""
+    """Lines of a file. Binary and empty files and symlinks count as one line (one unit, as in
+    [history]); unreadable files as zero. A last line without a newline counts."""
+    if (root / path).is_symlink():
+        return 1
     try:
         data = (root / path).read_bytes()
     except OSError:
         return 0
-    if b"\x00" in data[:16384]:
+    if not data or b"\x00" in data[:16384]:
         return 1
-    return max(1, data.count(b"\n"))
+    return data.count(b"\n") + (not data.endswith(b"\n"))
 
 
 def weighted_parts(root: Path, result: FileResult, weight: str):
@@ -184,6 +187,10 @@ class Project:
             if not quiet:
                 print(f"warning: [history] is enabled, but this is a {reason}; using the file-level declarations",
                       file=sys.stderr)
+            if self.config.history.require_trailers_since is not None:
+                # the check that lint exists for can't run: fail instead of passing unnoticed
+                self.history_problems = [f"[history] require-trailers-since is set, but this is a {reason}, "
+                                         "so the commits can't be checked"]
             return None
         try:
             history = History(self.root, self.config, declared, declared_after)

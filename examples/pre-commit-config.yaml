@@ -3,17 +3,17 @@
 # then run "pre-commit install".
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.5.0   # a release tag; the hook exists from the first release after v0.4.2
+    rev: v0.7.1   # a release tag, the same version as in your workflows ([history] needs v0.6.0 or later)
     hooks:
       - id: aisignoff-lint
 
-  # Works with any release, including v0.4.2 and earlier: pre-commit installs aisignoff from PyPI.
+  # Or install aisignoff from PyPI (also works for v0.4.2 and earlier, which have no hook):
   # - repo: local
   #   hooks:
   #     - id: aisignoff-lint
   #       name: aisignoff lint
   #       entry: aisignoff lint
   #       language: python
-  #       additional_dependencies: ["aisignoff==0.4.2"]
+  #       additional_dependencies: ["aisignoff==0.7.1"]
   #       pass_filenames: false
   #       always_run: true

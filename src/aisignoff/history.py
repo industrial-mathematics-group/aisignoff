@@ -156,18 +156,26 @@ class History:
         self.parents: dict[str, list[str]] = {}
         self._trailers: dict[str, dict[int, Piece]] = {}
         self._branch_cache: dict[str, bool] = {}
+        self._renames: list[tuple[str, str]] | None = None
         self._load_chain()
         self.newest = len(self.order) + 1  # uncommitted changes
+        # files in HEAD, relative to root: the others are new, so all their lines are uncommitted
+        self.committed = set((_git(self.root, "ls-tree", "-r", "-z", "--name-only", "HEAD", check=False) or "")
+                             .split("\0")) - {""} if self.order else set()
         self.corrections = self._load_corrections()
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.attestations = self._load_attestations()
-        revs = config.history.ignore_revs_file
-        if revs is None and (self.root / ".git-blame-ignore-revs").is_file():
-            revs = ".git-blame-ignore-revs"
-        self.blame_options = ["-w", "--root"] + (["--ignore-revs-file", revs] if revs else [])
+        self.blame_options = ["-w", "--root"] + self._ignore_revs()
         # 'aisignoff diff --declare': the declaration of changes after declared_after that carry none
         self.declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared") if declared else {}
-        self.declared_after = self.order.get(declared_after, 0) if declared_after else self.newest
+        self.declared_after = self.newest
+        if declared_after:
+            if declared_after in self.order:
+                self.declared_after = self.order[declared_after]
+            elif self.declared:
+                self.problems.append(f"--declare: {short(declared_after)} is not on the first-parent history of HEAD, "
+                                     "so it's unclear which lines are new; the declaration was not applied")
+                self.declared = {}
 
     # ------------------------------------------------------------ commits
     def _load_chain(self) -> None:
@@ -205,6 +213,33 @@ class History:
             out.setdefault(sha, {}).update(pieces_from_values(entry.values, source, "commit"))
         return out
 
+    def _ignore_revs(self) -> list[str]:
+        """--ignore-rev options from .git-blame-ignore-revs (or [history] ignore-revs-file).
+
+        Each entry is resolved first: git blame stops at an entry it can't resolve (an
+        abbreviated hash, a commit of other history), which must not pass for "not committed"."""
+        name = self.config.history.ignore_revs_file
+        if name is None:
+            if not (self.root / ".git-blame-ignore-revs").is_file():
+                return []
+            name = ".git-blame-ignore-revs"
+        try:
+            text = (self.root / name).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            self.problems.append(f"[history] ignore-revs-file: {name} does not exist")
+            return []
+        options = []
+        for line in text.splitlines():
+            rev = line.split("#", 1)[0].strip()
+            if not rev:
+                continue
+            sha = self._resolve(rev)
+            if sha is None:
+                self.problems.append(f"{name}: {rev} is not a commit of this repository; remove it, or give the full hash")
+            else:
+                options += ["--ignore-rev", sha]
+        return options
+
     def _ordinal_of_setting(self, rev: str | None) -> int | None:
         if rev is None:
             return None
@@ -241,50 +276,81 @@ class History:
         out: dict[str, list] = {}
         for a in self.config.attestations:
             where = f"{a.filename} [[attestations]] entry {a.index}"
-            if not (self.root / a.path).is_file():
-                self.problems.append(f"{where}: {a.path} does not exist")
+            names = self._names_since(a.path)  # the attested file's names, the current one last
+            path = names[-1]
+            if not (self.root / path).is_file():
+                self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
                 continue
-            ordinal = self._blob_ordinal(a.path, a.blob)
+            ordinal = self._blob_ordinal(set(names), path, a.blob)
             if ordinal is None:
                 self.problems.append(f"{where}: the checked content of {a.path} ({a.blob[:7]}) is neither in the "
-                                     f"history of this branch nor the current file; run 'aisignoff attest' again")
+                                     f"history of this file on this branch nor its current content; run 'aisignoff attest' "
+                                     f"again")
                 continue
             pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
-            out.setdefault(a.path, []).append((ordinal, pieces))
+            out.setdefault(path, []).append((ordinal, pieces))
         return out
 
-    def _blob_ordinal(self, path: str, blob: str) -> int | None:
-        """When the checked content last appeared on this branch (ordinal of that commit).
+    def renames(self) -> list[tuple[str, str]]:
+        """(old, new) paths relative to root of the renames on this branch, oldest first,
+        then those not committed yet."""
+        if self._renames is None:
+            rows: list[str] = []
+            if self.order:
+                log = _git(self.root, "-c", "core.quotePath=false", "log", "--first-parent", "--diff-merges=first-parent",
+                           "-M", "--diff-filter=R", "--name-status", "--relative", "--format=", "--reverse", "HEAD",
+                           check=False)
+                rows += (log or "").splitlines()
+                rows += (_git(self.root, "-c", "core.quotePath=false", "diff", "-M", "--diff-filter=R", "--name-status",
+                              "--relative", "HEAD", check=False) or "").splitlines()
+            from .diff import _unquote
+            self._renames = [(_unquote(f[1]), _unquote(f[2])) for f in (r.split("\t") for r in rows)
+                             if len(f) == 3 and f[0].startswith("R")]
+        return self._renames
 
-        The content is looked up anywhere in the tree, so an attestation survives renames; the
-        current file counts as newest (an attestation written before its commit)."""
+    def _names_since(self, path: str) -> list[str]:
+        """The names of a file, oldest first: the names it had before path, path, and the names it
+        was renamed to since (the last is its current name)."""
+        names = [path]
+        renames = self.renames()
+        for old, new in reversed(renames):
+            if new == names[0] and old not in names:
+                names.insert(0, old)
+        if not (self.root / path).is_file():
+            for old, new in renames:
+                if old == names[-1] and new not in names:
+                    names.append(new)
+        return names
+
+    def _blob_ordinal(self, names: set[str], path: str, blob: str) -> int | None:
+        """When the checked content last appeared at the attested file on this branch (ordinal of
+        that commit), under any of its names. The same content in another file doesn't count, so
+        a copy can't extend an attestation to lines added since. The current file counts as newest
+        (an attestation written before its commit): then every line is the checked content."""
+        current = _git(self.root, "hash-object", "--", path, check=False)
+        if current and current.strip() == blob:
+            return self.newest
         if self.order:
-            args = ["log", "--first-parent", "--no-abbrev", "--raw", "--no-renames", "--format=%x1e%H",
-                    f"--find-object={blob}", "HEAD"]
+            args = ["log", "--first-parent", "--no-abbrev", "--raw", "--no-renames", "--relative", "-z",
+                    "--format=%x1e%H", f"--find-object={blob}", "HEAD"]
             out = _git(self.root, args[0], "--diff-merges=first-parent", *args[1:], check=False)
             if out is None:  # git older than 2.31
                 out = _git(self.root, *args, check=False) or ""
             for record in out.split("\x1e"):
-                lines = record.strip().splitlines()
-                if not lines:
-                    continue
-                sha = lines[0].strip()
-                for raw in lines[1:]:
-                    meta = raw.split("\t", 1)[0].split()
-                    if len(meta) >= 4 and meta[3] == blob and sha in self.order:
+                fields = record.strip("\n\0").split("\0")
+                sha = fields[0].strip()
+                # with -z: ":meta" and the path alternate
+                for meta, name in zip(fields[1::2], fields[2::2]):
+                    meta = meta.split()
+                    if len(meta) >= 4 and meta[3] == blob and name in names and sha in self.order:
                         return self.order[sha]
-        current = _git(self.root, "hash-object", "--", path, check=False)
-        if current and current.strip() == blob:
-            return self.newest
         return None
 
     # ------------------------------------------------------------ blame
-    def _blame(self, path: str, first_parent: bool) -> list[str | None] | None:
-        """The commit of each line (None: a shallow boundary), or None if the file has no history."""
+    def _blame(self, path: str, first_parent: bool) -> list[str | None]:
+        """The commit of each line (None: a shallow boundary) of a file that is in HEAD."""
         args = ["blame", "--porcelain", *self.blame_options] + (["--first-parent"] if first_parent else [])
-        out = _git(self.root, *args, "--", path, check=False)
-        if out is None:
-            return None
+        out = _git(self.root, *args, "--", path)
         commits: list[str | None] = []
         current, boundary = None, set()
         for row in out.split("\n"):
@@ -307,16 +373,18 @@ class History:
 
     def line_commits(self, path: str) -> tuple[list[str | None], list[str | None] | None]:
         """Landing commit of each line, and (if needed) the original commit of each line."""
+        if (self.root / path).is_symlink():  # one unit, as git sees it (never read what it points to)
+            return [self._whole_file_commit(path)], None
         try:
             data = (self.root / path).read_bytes()
         except OSError:
             data = b""
         if not data or b"\x00" in data[:BINARY_PROBE]:
             return [self._whole_file_commit(path)], None
-        landing = self._blame(path, first_parent=True)
-        if landing is None:  # not committed yet
+        if path not in self.committed:  # a new file: every line is uncommitted
             n = data.count(b"\n") + (not data.endswith(b"\n"))
             return [UNCOMMITTED] * n, None
+        landing = self._blame(path, first_parent=True)
         needs_branch = {c for c in set(landing) if c and len(self.parents.get(c, [])) > 1
                         and len(self.commit_pieces(c)) < len(AXES) and self._branch_declares(c)}
         original = self._blame(path, first_parent=False) if needs_branch else None

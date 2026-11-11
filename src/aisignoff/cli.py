@@ -13,7 +13,7 @@ from . import __version__, inline
 from .config import FILENAME, LEGACY_FILENAME, VERSION, ConfigError, LegacyConfig, config_path, load, read_toml
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, KEYS, LIST_KEYS, REVIEWED,
-                    TODO, Declaration, Policy, canonical_key, validate)
+                    TODO, Declaration, Policy, canonical_key, printable, validate)
 from .project import Project, ProjectError, list_files, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
@@ -148,11 +148,11 @@ def cmd_lint(args) -> int:
     unused = project.unused_annotations(files)
 
     for problem in project.history_problems:
-        print(f"✗ {problem}")
+        print(f"✗ {printable(problem)}")
     for error, paths in sorted(by_error.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        print(f"✗ {error}: {len(paths)} file(s)")
+        print(f"✗ {printable(error)}: {len(paths)} file(s)")
         for p in paths[: args.max_files]:
-            print(f"    {p}")
+            print(f"    {printable(p)}")
         if len(paths) > args.max_files:
             print(f"    … and {len(paths) - args.max_files} more")
     for index in unused:
@@ -422,7 +422,7 @@ def cmd_attest(args) -> int:
     block = []
     for rel in chosen:
         if args.at:
-            blob = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.at}:{rel}")
+            blob = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.at}:./{rel}")  # relative to root
             if not blob:
                 raise UsageError(f"{rel} does not exist at {args.at} (for a file renamed since, write the entry "
                                  "by hand with the blob of its old path)")

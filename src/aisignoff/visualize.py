@@ -8,13 +8,14 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 from collections import Counter
 from importlib import resources
 from pathlib import Path
 
 from . import __version__
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN
+from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, printable
 from .project import line_count, weighted_parts
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
@@ -51,6 +52,8 @@ def _runs(numbers) -> list[list[int]]:
 
 def _source(root: Path, path: str) -> tuple[str | None, str | None]:
     """(text, None) of a text file, or (None, why it isn't embedded)."""
+    if (root / path).is_symlink():  # never what it points to: that may be outside the project, or .git/config
+        return None, "symlink"
     try:
         data = (root / path).read_bytes()
     except OSError:
@@ -97,11 +100,10 @@ def _decorate(node: dict, root: Path, source: bool, changes: dict | None) -> tup
 
 def changed_since(root: Path, base: str, files) -> tuple[str, dict]:
     """(sha of base, {path: (added line numbers, removed line count)}) for the given files,
-    comparing base with the working tree; untracked files count as added in full."""
-    from .diff import DiffError, _git, changed_lines
-    sha = _git(Path(root), "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
-    if not sha:
-        raise DiffError(f"{base} is not a commit")
+    comparing the merge base of base and HEAD with the working tree; untracked files count as
+    added in full."""
+    from .diff import _git, changed_lines, merge_base
+    sha = merge_base(Path(root), base)
     out = {}
     for (_, new), (removed, added) in changed_lines(Path(root), sha).items():
         if new:
@@ -229,7 +231,7 @@ def render_text(tree: dict, weight: str = "files", max_depth: int | None = None,
             cells = [file_cell(n, key, weight) for key, _, _ in AXES]
         else:
             cells = [mix(n["counts"][key][weight]) for key, _, _ in AXES]
-        table.append([n["_label"], number(n[weight]), *cells])
+        table.append([printable(n["_label"]), number(n[weight]), *map(printable, cells)])
     widths = [max(len(r[i]) for r in table) for i in range(len(header) - 1)]
     out = []
     for r in table:
@@ -239,7 +241,7 @@ def render_text(tree: dict, weight: str = "files", max_depth: int | None = None,
 
 
 def _md(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
+    return printable(text).replace("\\", "\\\\").replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render_markdown(tree: dict, weight: str = "files", max_depth: int | None = None, files: bool = False) -> str:
@@ -290,7 +292,8 @@ def report_meta(root: Path, title: str | None = None, link: str | None = None, s
     repo = os.environ.get("GITHUB_REPOSITORY")
     if link is None and repo and commit:
         server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-        link = f"{server}/{repo}/blob/{commit}/"
+        prefix = _git(root, "rev-parse", "--show-prefix") or ""  # a project root below the top of the repo
+        link = f"{server}/{repo}/blob/{commit}/{prefix}"
     return {
         "title": title or repo or root.name,
         "commit": commit,
@@ -308,4 +311,6 @@ def render_html(tree: dict, meta: dict) -> str:
     # inside <script>: '<' escaped, so no file name can close the element or open a comment
     data = data.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     page_title = meta["title"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return template.replace("__AISIGNOFF_TITLE__", page_title).replace("__AISIGNOFF_DATA__", data)
+    # one pass, so a title can't contain the data placeholder
+    fill = {"__AISIGNOFF_TITLE__": page_title, "__AISIGNOFF_DATA__": data}
+    return re.sub("__AISIGNOFF_(?:TITLE|DATA)__", lambda m: fill[m.group(0)], template)
