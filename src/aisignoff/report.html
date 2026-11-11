@@ -88,6 +88,10 @@ td.name .dir { font-weight: 600; }
 .panel dt { color: var(--muted); }
 .panel dd { margin: 0; }
 .panel .errors { color: var(--undeclared); margin: 8px 0 0; padding-left: 18px; }
+.panel h3 { font-size: 13px; margin: 12px 0 4px; }
+.panel .parts { margin: 0; padding-left: 18px; font-size: 13px; }
+.panel .parts a { color: var(--accent); }
+.panel .runs { color: var(--muted); font-size: 12px; }
 .panel .close { float: right; border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; }
 #tip { position: fixed; pointer-events: none; z-index: 10; background: var(--bg); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.15); display: none;
@@ -175,11 +179,20 @@ function prepare(n, parent) {
   byPath.set(n.path, n);
   n.gap = { files: [0, 0], lines: [0, 0] };  // [sum of weighted gaps, declared weight]
   if (n.type === "file") {
-    if (n.levels[GEN] !== UNDECLARED) {
-      n.fileGap = Math.max(0, levelIndex(GEN, n.levels[GEN]) - levelIndex(HUM, n.levels[HUM]));
-      n.gap = { files: [n.fileGap, 1], lines: [n.fileGap * n.lines, n.lines] };
+    // with line-level declarations (history), a file has parts: runs of lines with one declaration
+    const parts = n.parts || [{ lines: n.lines, levels: n.levels }];
+    let sum = 0, declared = 0;
+    for (const p of parts) {
+      if (p.levels[GEN] === UNDECLARED || p.levels[HUM] === UNDECLARED) continue;
+      sum += Math.max(0, levelIndex(GEN, p.levels[GEN]) - levelIndex(HUM, p.levels[HUM])) * p.lines;
+      declared += p.lines;
     }
-    n.counts = Object.fromEntries(meta.axes.map(a => [a.key, {
+    if (declared) {
+      const g = sum / declared, total = n.lines || 1;
+      n.fileGap = Math.round(g * 10) / 10;
+      n.gap = { files: [sum / total, declared / total], lines: [sum, declared] };
+    }
+    if (!n.counts) n.counts = Object.fromEntries(meta.axes.map(a => [a.key, {
       files: { [n.levels[a.key]]: 1 }, lines: { [n.levels[a.key]]: n.lines } }]));
     return;
   }
@@ -307,7 +320,7 @@ function showTip(e, n) {
   const tip = $("tip");
   const lines = [el("b", { text: (n.path || meta.title) + (n.type === "dir" ? "/" : "") })];
   if (n.type === "file") {
-    lines.push(el("div", { text: meta.axes.map(a => n.levels[a.key]).join(" · ") + (n.fileGap != null ? ` · gap ${n.fileGap}` : "") }));
+    lines.push(el("div", { text: (mixed(n) ? `${AXIS[state.axis].title}: ${mixText(n, state.axis)}` : meta.axes.map(a => n.levels[a.key]).join(" · ")) + (n.fileGap != null ? ` · gap ${n.fileGap}` : "") }));
     if (n.errors.length) lines.push(el("div", { class: "bad-name", text: n.errors.join("; ") }));
   } else {
     lines.push(el("div", { text: `${fmt(n.files)} files · ${fmt(n.lines)} lines` }));
@@ -358,10 +371,11 @@ function sortValue(n, col) {
   if (col === "gap") return n.type === "file" ? (n.fileGap ?? 10) : (meanGap(n) ?? 10);
   return score(n, col);
 }
+const mixed = n => n.type === "file" && Array.isArray(n.parts) && n.parts.length > 1;
 function bar(n, key) {
   const counts = n.counts[key][state.weight];
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (n.type === "file") {
+  if (n.type === "file" && (!mixed(n) || Object.keys(counts).length === 1)) {
     const lv = n.levels[key];
     return el("span", { class: "chip", title: lv === UNDECLARED ? "undeclared or invalid" : AXIS[key].levels[lv] },
       el("i", { class: "sw", style: `background:${levelColour(key, lv)}` }), lv === UNDECLARED ? "✗" : lv);
@@ -432,10 +446,19 @@ function drawPanel() {
   add("Reviewed-by", d["Reviewed-by"]);
   add("AI-Reviewed-by", d["AI-Reviewed-by"]);
   add("Review gap", n.fileGap != null ? String(n.fileGap) : null);
-  add("Declared in", d.source === "none" ? "nowhere" : d.source);
+  add(mixed(n) ? "Most lines from" : "Declared in", d.source === "none" ? "nowhere" : d.source);
   add("Size", `${fmt(n.lines)} lines`);
   const kids = [el("button", { class: "close", "aria-label": "Close", text: "×", onclick: () => { state.file = null; render(); } }),
     el("h2", {}, title), dl];
+  if (mixed(n)) {
+    kids.push(el("h3", { text: "Line by line" }));
+    kids.push(el("ul", { class: "parts" }, ...n.parts.map(p => {
+      const ranges = p.runs.slice(0, 4).map(([a, b]) => a === b ? String(a) : `${a}–${b}`).join(", ") + (p.runs.length > 4 ? ", …" : "");
+      const title = meta.link ? el("a", { href: meta.link + n.path.split("/").map(encodeURIComponent).join("/") + `#L${p.runs[0][0]}` + (p.runs[0][1] > p.runs[0][0] ? `-L${p.runs[0][1]}` : ""), target: "_blank", rel: "noopener", text: `${fmt(p.lines)} lines` }) : `${fmt(p.lines)} lines`;
+      return el("li", {}, el("b", {}, title), ` · ${meta.axes.map(a => p.levels[a.key]).join(" ")} · ${p.declaration.source === "none" ? "undeclared" : p.declaration.source}`,
+        el("div", { class: "runs", text: `lines ${ranges}` }));
+    })));
+  }
   if (n.errors.length) kids.push(el("ul", { class: "errors" }, ...n.errors.map(e => el("li", { text: e }))));
   panel.replaceChildren(...kids);
   panel.style.display = "block";

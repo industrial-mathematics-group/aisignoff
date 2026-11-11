@@ -1,4 +1,4 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | badge | migrate."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | diff | badge | migrate."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ from .config import FILENAME, LEGACY_FILENAME, VERSION, ConfigError, LegacyConfi
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, KEYS, LIST_KEYS, REVIEWED,
                     TODO, Declaration, Policy, canonical_key, validate)
-from .project import Project, ProjectError, list_files
+from .project import Project, ProjectError, list_files, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
             "CONTRIBUTING.md#ai-assisted-contributions")
@@ -82,11 +82,6 @@ def _results(project: Project):
         raise UsageError(str(e))
 
 
-def _status_level(r, key: str) -> str:
-    """Level for counting: the declared level if the declaration is valid, else 'undeclared'."""
-    return "undeclared" if r.errors else r.declaration.get(key)
-
-
 # ---------------------------------------------------------------- init
 def cmd_init(args) -> int:
     root = Path(args.root)
@@ -152,6 +147,8 @@ def cmd_lint(args) -> int:
             by_error[e].append(r.path)
     unused = project.unused_annotations(files)
 
+    for problem in project.history_problems:
+        print(f"✗ {problem}")
     for error, paths in sorted(by_error.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         print(f"✗ {error}: {len(paths)} file(s)")
         for p in paths[: args.max_files]:
@@ -164,7 +161,11 @@ def cmd_lint(args) -> int:
     bad = sum(1 for r in results if r.errors)
     print()
     print(f"{len(results) - bad} of {len(results)} files have a valid declaration.")
-    failed = bad > 0 or (args.strict and unused)
+    if project.history_used:
+        lines = sum(p.lines for r in results for p in r.parts or ())
+        bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors)
+        print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
+    failed = bad > 0 or bool(project.history_problems) or (args.strict and unused)
     if failed:
         print(f"See {SPEC_URL}")
     else:
@@ -206,28 +207,51 @@ def cmd_report(args) -> int:
             print(visualize.render_text(tree, args.weight, args.depth, args.files))
         return 0
     if args.json:
-        print(json.dumps([{"path": r.path, **r.declaration.as_dict(), "errors": r.errors} for r in results],
-                         indent=2, ensure_ascii=False))
+        print(json.dumps([_result_json(r) for r in results], indent=2, ensure_ascii=False))
         return 0
     if args.files:
         width = max((len(r.path) for r in results), default=4)
         for r in results:
             status = "✓" if not r.errors else "✗"
-            line = f"{status} {r.path:<{width}}  {r.declaration.short()}  ({r.declaration.source})"
+            if r.parts is not None and len(r.parts) > 1:
+                total = sum(p.lines for p in r.parts)
+                shares = Counter()
+                for p in r.parts:
+                    shares["undeclared" if p.errors else p.declaration.short()] += p.lines
+                what = " · ".join(f"{k} {100 * n / total:.0f}%" for k, n in shares.most_common())
+                line = f"{status} {r.path:<{width}}  {what}"
+            else:
+                line = f"{status} {r.path:<{width}}  {r.declaration.short()}  ({r.declaration.source})"
             if r.errors:
                 line += "  " + "; ".join(r.errors)
             print(line)
         return 0
-    total = len(results) or 1
-    print(f"{len(results)} files\n")
+    weight = "lines" if project.history_used else "files"
+    units = defaultdict(float)
+    for r in results:
+        for _, _, w in weighted_parts(project.root, r, weight):
+            units["all"] += w
+    total = units["all"] or 1
+    print(f"{len(results)} files" + (f", {int(total)} lines, declared line by line" if weight == "lines" else "") + "\n")
     for key, _, title, levels, _, _ in AXIS_INFO:
-        counts = Counter(_status_level(r, key) for r in results)
+        counts = Counter()
+        for r in results:
+            for d, errors, w in weighted_parts(project.root, r, weight):
+                counts["undeclared" if errors else d.get(key)] += w
         print(title)
         for level, name in list(levels.items()) + [("undeclared", "missing or invalid declaration")]:
             if counts[level]:
-                print(f"  {level:<10} {name:<38} {counts[level]:>5}  {100 * counts[level] / total:5.1f}%")
+                print(f"  {level:<10} {name:<38} {counts[level]:>5g}  {100 * counts[level] / total:5.1f}%")
         print()
     return 0
+
+
+def _result_json(r) -> dict:
+    out = {"path": r.path, **r.declaration.as_dict(), "errors": r.errors}
+    if r.parts is not None:
+        out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(), "errors": p.errors}
+                        for p in r.parts]
+    return out
 
 
 # ---------------------------------------------------------------- annotate
@@ -271,6 +295,16 @@ def _pattern(root: Path, arg: str) -> str:
 
 def _append_annotation(root: Path, patterns: list[str], values: dict, precedence: str | None,
                        comments: list[str] = ()) -> Path:
+    block = ["", *[f"# {c}" for c in comments], "[[annotations]]",
+             f"path = {_toml_value(patterns[0] if len(patterns) == 1 else patterns)}"]
+    if precedence:
+        block.append(f'precedence = "{precedence}"')
+    block += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
+    return _append_toml(root, block)
+
+
+def _append_toml(root: Path, block: list[str]) -> Path:
+    """Append lines to SIGNOFF.toml; restore it if the result is no longer valid."""
     try:
         target = config_path(root)  # AIDECL.toml in a repository that isn't migrated yet
     except ConfigError as e:
@@ -279,11 +313,6 @@ def _append_annotation(root: Path, patterns: list[str], values: dict, precedence
     text = old if old is not None else f"version = {VERSION}\n"
     if not text.endswith("\n"):
         text += "\n"
-    block = ["", *[f"# {c}" for c in comments], "[[annotations]]",
-             f"path = {_toml_value(patterns[0] if len(patterns) == 1 else patterns)}"]
-    if precedence:
-        block.append(f'precedence = "{precedence}"')
-    block += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
     target.write_text(text + "\n".join(block) + "\n", encoding="utf-8")
     try:
         load(root)  # make sure the result is still a valid SIGNOFF.toml
@@ -332,19 +361,101 @@ def cmd_annotate(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------- badge
-def _weight(root: Path, path: str, mode: str) -> int:
-    if mode == "files":
-        return 1
+# ---------------------------------------------------------------- attest
+def _git_out(root: Path, *args: str) -> str | None:
+    import subprocess
     try:
-        data = (root / path).read_bytes()
-    except OSError:
-        return 0
-    if b"\x00" in data[:16384]:
-        return 1  # binary files count as one line
-    return max(1, data.count(b"\n"))
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    except FileNotFoundError:
+        raise UsageError("git is not installed")
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
+def cmd_attest(args) -> int:
+    project = _open(args.root)
+    root = project.root
+    if _git_out(root, "rev-parse", "--is-inside-work-tree") != "true":
+        raise UsageError("attestations need a git repository")
+    values = _values(args)
+    given = [k for k in (GEN, HUM, AIR) if k in values]
+    if not given:
+        raise UsageError("give at least one level to attest (-g, -H or -a)")
+    if any(v == TODO or (isinstance(v, list) and TODO in v) for v in values.values()):
+        raise UsageError("an attestation records a check that was done: TODO isn't allowed")
+    problems = [e for e in validate(Declaration.from_mapping(values, "command line"))
+                if not any(e == f"missing {k}" for k in (GEN, HUM, AIR))]
+    if problems:
+        raise UsageError("incomplete declaration: " + "; ".join(problems))
+
+    files = set(project.files())
+    chosen: list[str] = []
+    for arg in args.paths:
+        if not os.path.lexists(arg):
+            raise UsageError(f"{arg} does not exist")
+        rel = os.path.relpath(_real(arg), str(root))
+        if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel):
+            raise UsageError(f"{arg} is outside the project root {root}")
+        rel = "" if rel == "." else Path(rel).as_posix()
+        if os.path.isdir(arg) and not os.path.islink(arg):
+            found = sorted(f for f in files if not rel or f.startswith(rel + "/"))
+            if not found:
+                raise UsageError(f"{arg} contains no declared files")
+            chosen += [f for f in found if f not in chosen]
+        elif rel in files:
+            if rel not in chosen:
+                chosen.append(rel)
+        else:
+            raise UsageError(f"{arg} is not a file that needs a declaration (excluded or ignored?)")
+
+    block = []
+    for rel in chosen:
+        if args.at:
+            blob = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.at}:{rel}")
+            if not blob:
+                raise UsageError(f"{rel} does not exist at {args.at} (for a file renamed since, write the entry "
+                                 "by hand with the blob of its old path)")
+        else:
+            blob = _git_out(root, "hash-object", "--", rel)
+        if not blob:
+            raise UsageError(f"cannot hash {rel}")
+        block += ["", "[[attestations]]", f"path = {_toml_str(rel)}", f'blob = "{blob}"']
+        block += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
+    target = _append_toml(root, block)
+    what = " ".join(values[k] for k in given)
+    print(f"Attested {len(chosen)} file(s) at {what}" + (f" as of {args.at}" if args.at else "") + f" in {target.name}")
+    if not project.config.history.enabled:
+        print("note: attestations count only with [history] enabled in SIGNOFF.toml")
+    return 0
+
+
+# ---------------------------------------------------------------- diff
+def cmd_diff(args) -> int:
+    from . import diff
+    if args.json and args.markdown:
+        raise UsageError("give --json or --markdown, not both")
+    if args.depth < 0:
+        raise UsageError("--depth must be 0 or more")
+    project = _open(args.root)
+    declared = None
+    values = {k: v for k, v in _values(args).items()}
+    if values:
+        if TODO in values.values():
+            raise UsageError("--declare levels can't be TODO")
+        declared = Declaration.from_mapping(values, "declared for this change")
+    try:
+        data = diff.compute(project, args.base, declared, depth=args.depth, by_file=args.files)
+    except (diff.DiffError, ProjectError) as e:
+        raise UsageError(str(e))
+    if args.json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    elif args.markdown:
+        print(diff.render_markdown(data))
+    else:
+        print(diff.render_text(data))
+    return 0
+
+
+# ---------------------------------------------------------------- badge
 def percentages(counts: dict) -> dict:
     """Integer percentages that sum to 100 (largest-remainder method)."""
     total = sum(counts.values())
@@ -372,12 +483,12 @@ def cmd_badge(args) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     suffix = "" if args.weight == "files" else f" ({args.weight})"
-    weights = {r.path: _weight(project.root, r.path, args.weight) for r in results}
     written = []
     for key, _, title, levels, filename, color in AXIS_INFO:
         counts = Counter()
         for r in results:
-            counts[_status_level(r, key)] += weights[r.path]
+            for d, errors, w in weighted_parts(project.root, r, args.weight):
+                counts["undeclared" if errors else d.get(key)] += w
         label = {GEN: "AI generation", HUM: "human review", AIR: "AI review"}[key] + suffix
         (out / filename).write_text(json.dumps(badge_json(label, counts, [*levels, "undeclared"], color),
                                                ensure_ascii=False))
@@ -781,6 +892,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--inline", action="store_true", help="write tag comments into the files instead")
     p.add_argument("--precedence", choices=["closest", "override"])
     p.set_defaults(func=cmd_annotate)
+
+    p = sub.add_parser("attest", help="re-declare whole files as checked now ([history])")
+    p.add_argument("paths", nargs="+", help="files or directories")
+    _add_values(p, required=False)
+    p.add_argument("--at", metavar="REV", help="attest the files as they were at this commit instead")
+    p.set_defaults(func=cmd_attest)
+
+    p = sub.add_parser("diff", help="declarations of the lines changed since a commit")
+    p.add_argument("base", help="the commit, branch or tag to compare with, e.g. origin/main")
+    p.add_argument("--files", action="store_true", help="one row per file instead of per folder")
+    p.add_argument("--depth", type=int, default=1, metavar="N", help="group by folders down to depth N (default 1)")
+    p.add_argument("--markdown", action="store_true", help="a Markdown table, e.g. for a CI job summary")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    g = p.add_argument_group("declaring the change", "levels for changed lines that carry no declaration of their "
+                             "own yet, e.g. from the pull request's template")
+    g.add_argument("-g", "--generation", choices=[*GENERATION])
+    g.add_argument("-H", "--human", choices=[*HUMAN])
+    g.add_argument("-a", "--ai", choices=[*AI])
+    g.add_argument("--assisted-by", action="append", metavar="TOOL")
+    g.add_argument("--reviewed-by", action="append", metavar="PERSON")
+    g.add_argument("--ai-reviewed-by", action="append", metavar="MODEL")
+    p.set_defaults(func=cmd_diff)
 
     p = sub.add_parser("badge", help="write shields.io endpoint JSON files")
     p.add_argument("--out", default="badges", help="output directory (default: badges)")

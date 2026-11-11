@@ -1,6 +1,11 @@
 version = 3
 exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
+# Line-level declarations from git history (aisignoff >= 0.6): each line takes the declaration of the
+# commit that landed it (trailers), the annotations below are the fallback for lines without one.
+[history]
+enabled = true
+
 [[annotations]]
 path = "**"
 AI-Generation = "G3"
@@ -82,6 +87,108 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating ses
 path = ["src/aisignoff/visualize.py", "src/aisignoff/report.html", "src/aisignoff/cli.py", "tests/test_visualize.py",
         "docs/report.md", "docs/assets/**", "docs/commands.md", "docs/ci.md", "docs/integration.md", "README.md",
         "zensical.toml", "pyproject.toml", "uv.lock", ".github/workflows/docs.yml", "examples/**"]
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+# PR #1 (fixes for the findings in reviews/815acaf.md): its commit 3832a1e left the human review TODO,
+# which cf049e5 in the same PR filled in as H1 in AIDECL.toml.
+[[commits]]
+commit = "3832a1e"
+Human-Review = "H1"
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+
+# The three A2 reviews in reviews/05ff570.md covered the whole repository at 05ff570. Each entry is a file
+# as it was then (blob), under its current name; lines changed since fall back to the annotations above.
+[[attestations]]
+path = ".github/workflows/ci.yml"
+blob = "b00d73680442b099ed87bc81cff7f56145a2664e"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = ".gitignore"
+blob = "f09a2a4cf2a4174e03953f4bb859e05f03bb3adc"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "README.md"
+blob = "adb16fec95aeb24c02ea6d89aa6c9f3f4dd62179"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "pyproject.toml"
+blob = "edcd4d5f1504670b5ecd267ee2c247836bad66c4"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/__init__.py"
+blob = "5bc2573775c980837b3298d8864877500d5489d5"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/__main__.py"
+blob = "dd8a8c90e6b7af74ed3657ef5b74aaa5ebf0abd4"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/cli.py"
+blob = "d2bb9464e8bf69a0d57d2b6dc1e0b108475ce1cf"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/config.py"
+blob = "cb6591783a91509820f5ce8e56e55071a2644545"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/globbing.py"
+blob = "38c47348701e566a70c4c8d280d3e4a025ec4be8"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/inline.py"
+blob = "8a7a3829621f1376fbc6ddb0157725e7f2c203f6"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/model.py"
+blob = "72b931ba6fcd1828aea96eb94da6b4cef35fa778"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "src/aisignoff/project.py"
+blob = "5140d601c044690fe83c2372e5700e39f380b10a"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+[[attestations]]
+path = "tests/test_aisignoff.py"
+blob = "e0129e8625c9d876fae7b6e3f428b27230ff7723"
+AI-Review = "A2"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
+
+# Line-level declarations from git history: [history], attest, diff, their documentation and the
+# signoff-pr-diff.yml example, version 0.6.0. Written by Claude and only self-checked; the human review is still open.
+[[annotations]]
+path = ["src/aisignoff/history.py", "src/aisignoff/diff.py", "src/aisignoff/cli.py", "src/aisignoff/config.py",
+        "src/aisignoff/project.py", "src/aisignoff/visualize.py", "src/aisignoff/report.html", "tests/test_history.py",
+        "docs/history.md", "docs/signoff-toml.md", "docs/commands.md", "docs/report.md", "docs/index.md", "docs/ci.md",
+        "docs/integration.md", "README.md", "zensical.toml", "pyproject.toml", "uv.lock", "examples/**",
+        ".github/workflows/ci.yml", ".github/workflows/docs.yml", ".github/workflows/file-signoff.yml"]
 AI-Generation = "G3"
 Human-Review = "H1"
 AI-Review = "A1"

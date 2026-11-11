@@ -27,7 +27,7 @@ jobs:
       - run: aisignoff lint
 ```
 
-Then require the check in the branch protection of `main`, so no file goes undeclared.
+Then require the check in the branch protection of `main`, so no file goes undeclared. With [line-by-line declarations](history.md), check out the whole history: `actions/checkout` with `fetch-depth: 0`.
 
 More complete versions, with badges, a summary of the files a pull request changes, release reports and a pre-commit hook, are in [Example workflows](integration.md).
 

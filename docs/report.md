@@ -43,6 +43,8 @@ writes a single HTML file. It needs no server and no internet connection, so it 
 - **Find.** Type part of a path to jump to a file or folder.
 - **Links.** The address keeps the folder, axis and colouring, so a link opens the same view.
 
+With [`[history]`](history.md), a file can mix levels like a folder: the table shows bars for it, and its details list the lines behind each level (with links to them on GitHub Actions). Shares by *files* then count each file once, split by its lines.
+
 Files excluded in `SIGNOFF.toml` (`exclude = [...]`) never appear, as in `lint`. Without a valid declaration, a file counts as *undeclared* on all three axes and is shown in red.
 
 ### Folder colour

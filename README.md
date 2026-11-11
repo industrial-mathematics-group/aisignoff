@@ -57,6 +57,10 @@ Reviewed-by = ["Jane Doe"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), same session"]
 ```
 
+## Line by line
+
+With `[history]` in `SIGNOFF.toml`, aisignoff declares each line by the commit that brought it in (trailers like `AI-Generation: G2` in the squash commit of a pull request), keeps the file-level declarations as the fallback, and `aisignoff attest` re-declares a whole file after a review. `aisignoff diff origin/main` shows the levels of just the lines a change touches. See [Line by line](https://industrial-mathematics-group.github.io/aisignoff/history/).
+
 ## Folder report
 
 The badges summarise the whole repository; `aisignoff report --tree` shows the level mix of every folder, and `aisignoff report --html report.html` writes an interactive page with a sunburst and a folder table, like a coverage report for AI use. See [Folder report](https://industrial-mathematics-group.github.io/aisignoff/report/) and [aisignoff's own](https://industrial-mathematics-group.github.io/aisignoff/signoff/).
@@ -69,6 +73,7 @@ Copy one of these into `.github/workflows/` to check the declarations in CI (det
 |---|---|
 | [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | fails when a file has no valid declaration, with the folder tree in the job summary and the folder report as an artifact |
 | [`signoff-badges.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-badges.yml) | the same, plus README badges on a `badges` branch |
+| [`signoff-pr-diff.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-diff.yml) | shows reviewers the declarations of the lines a pull request changes |
 | [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | shows reviewers the declarations of the files a pull request changes |
 | [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the declarations of all files and the folder report to each GitHub release |
 | [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | publishes the folder report to GitHub Pages |
@@ -81,6 +86,7 @@ Repositories of the Industrial Mathematics Group use the organisation's ready-ma
 **[industrial-mathematics-group.github.io/aisignoff](https://industrial-mathematics-group.github.io/aisignoff/)**, with:
 - [the levels](https://industrial-mathematics-group.github.io/aisignoff/#the-levels);
 - [the `SIGNOFF.toml` format](https://industrial-mathematics-group.github.io/aisignoff/signoff-toml/) and [inline tags](https://industrial-mathematics-group.github.io/aisignoff/inline-tags/);
+- [line-by-line declarations from git history](https://industrial-mathematics-group.github.io/aisignoff/history/);
 - [all commands](https://industrial-mathematics-group.github.io/aisignoff/commands/);
 - [the folder report](https://industrial-mathematics-group.github.io/aisignoff/report/);
 - [CI and badges](https://industrial-mathematics-group.github.io/aisignoff/ci/) and [example workflows](https://industrial-mathematics-group.github.io/aisignoff/integration/);

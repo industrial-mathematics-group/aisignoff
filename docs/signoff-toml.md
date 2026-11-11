@@ -63,6 +63,31 @@ G1–G3 always need at least **A1**: AI-written content must at least be self-ch
 
 For G0, a minimum of A1 means A2, since human-written content has no self-check.
 
+## Line by line
+
+Three more tables declare lines instead of files, from git history. They're described in [Line by line](history.md):
+
+```toml
+[history]
+enabled = true
+require-trailers-since = "a1b2c3d"   # optional
+
+[[commits]]                          # corrects the declaration of a commit
+commit = "6686c01"
+Human-Review = "H2"
+Reviewed-by = "Jane Doe"
+
+[[attestations]]                     # written by 'aisignoff attest'
+path = "src/solver.py"
+blob = "3f1c9e0d5b6a7c8e9f0a1b2c3d4e5f6a7b8c9d0e"
+Human-Review = "H2"
+Reviewed-by = "Jane Doe"
+```
+
+- **`[history]`:** `enabled` (default `true` once the table is there), `require-trailers-since` (a commit), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists).
+- **`[[commits]]` and `[[attestations]]`** take the declaration keys like an annotation, but only whole axes: at least one level, and a name list only next to its level.
+- With history, the annotations and inline tags become the fallback for lines that git doesn't declare.
+
 ## Which files are checked
 
 - **In a git repository:** all tracked files plus untracked files that aren't ignored, so `.gitignore` is respected. If git can't be run there, aisignoff stops with an error rather than ignoring `.gitignore`.
