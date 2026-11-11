@@ -15,9 +15,57 @@ Nothing else has to change. Lines without a declaration from git keep the file-l
 
 For each axis, the newest of these wins:
 
-1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits), or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, the commits of the merged branch fill the axes it leaves out.
+1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits), or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, a commit of the merged branch that declares an axis itself overrides the merge on that axis, for the lines it wrote (see [Merge, squash or rebase](#merge-squash-or-rebase)).
 2. **An attestation of the file** whose checked content already contained the line: "this whole file was reviewed, as it was then". See [Re-declaring a whole file](#re-declaring-a-whole-file).
 3. **Otherwise, the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags.
+
+As a flow, for one line and one axis:
+
+```mermaid
+flowchart TD
+    start(["One line, one axis"]) --> att{"Does an attestation of the file<br/>whose content has the line<br/>give this axis?"}
+    att -- "yes" --> attested(["The attestation's level"])
+    att -- "no" --> merge{"Was the line landed on main<br/>by a merge commit?"}
+    merge -- "yes" --> branch["The branch commit that wrote the line,<br/>else the merge commit (the pull request)"]
+    merge -- "no" --> own["The commit that landed it"]
+    branch --> decl{"Does it declare this axis?"}
+    own --> decl
+    decl -- "yes" --> commit(["The commit's level"])
+    decl -- "no" --> required{"Is that commit after<br/>require-trailers-since?"}
+    required -- "yes" --> fail(["lint fails"])
+    required -- "no" --> file(["The file-level declaration:<br/>SIGNOFF.toml annotation or inline tags"])
+```
+
+An attestation comes first because the content it checked already had the line, so it is always at least as new as the line's commit. "The commit that landed the line" is what `git blame --first-parent` finds on `main`.
+
+A commit declares an axis with a trailer or a ticked checkbox (one way per commit), and a `[[commits]]` entry corrects it. So the layers, from the bottom:
+
+| Layer | Set by | Covers |
+|---|---|---|
+| File-level declaration | `[[annotations]]` in `SIGNOFF.toml`, inline tags | Lines that nothing below declares: the baseline |
+| Commit declaration | Trailers or checkboxes of the commit that landed the line; for a merge, of the pull request, overridden per axis by the branch commit that wrote the line; corrected by `[[commits]]` | The lines that commit added or changed |
+| Attestation | `aisignoff attest` (`[[attestations]]`) | Every line of the file as it was when attested, until the line changes again |
+
+For example, a pull request with two commits, merged with a merge commit, while `main` moved on with a direct commit:
+
+```mermaid
+gitGraph
+    commit id: "before"
+    branch feature
+    checkout feature
+    commit id: "by hand: G0 H2"
+    commit id: "no trailers"
+    checkout main
+    commit id: "direct: G3 H1 A1"
+    merge feature id: "PR: G3 H1 A2"
+```
+
+| Lines from | Get | Because |
+|---|---|---|
+| `before` | the file-level declaration | that commit declares nothing |
+| `by hand: G0 H2` | G0 H2 A2 | generation and human review from the commit, AI review from the pull request |
+| `no trailers` | G3 H1 A2 | everything from the pull request |
+| `direct: G3 H1 A1` | G3 H1 A1 | its own trailers; it isn't part of the pull request |
 
 The axes stay separate. Generation follows the line: it only changes when the line changes. A review (human or AI) can be raised for a whole file by an attestation, without touching generation.
 
@@ -46,12 +94,12 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 ```
 
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
-- **Pull requests:** set *Settings → General → Pull Requests → Default commit message* to **Pull request title and description** for squash (and merge) commits, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code.
+- **Pull requests:** set *Settings → General → Pull Requests* → the default commit message of merge commits (and of squash commits, if you allow them) to **Pull request title and description**, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code. GitHub's default message for merge commits holds only the title, so without this setting the declaration never reaches git.
 - **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in.
 
 ### Pull request checkboxes
 
-A pull request template can declare the levels with checkboxes instead, as the template of the Industrial Mathematics Group does. With the squash commit message *Pull request title and description*, the ticked boxes land in the commit message, and aisignoff reads them for the axes that no trailer gives:
+A pull request template can declare the levels with checkboxes instead, as the template of the Industrial Mathematics Group does. With the squash commit message *Pull request title and description*, the ticked boxes land in the commit message, and aisignoff reads them like trailers. A commit declares itself one way or the other: one with both trailers and ticked level boxes is reported by `lint`.
 
 ```markdown
 - [x] **G3** AI-autonomous: an agent produced it largely end to end
@@ -70,6 +118,29 @@ A pull request template can declare the levels with checkboxes instead, as the t
 | AI review | the highest ticked `**A…**` box | the text after `Model:` in that box, or else the models that wrote the change |
 
 So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow with every pull request: it keeps the defaults for lines without a declaration, `[[commits]]` corrections and attestations.
+
+### Merge, squash or rebase
+
+`git blame --first-parent` follows only the first parents of the default branch, so every line a pull request brought in belongs to the commit that landed it there, and lines that were on the branch before the pull request started never do. How a pull request lands decides what declares its lines:
+
+| Pull request lands as | Its lines are declared by |
+|---|---|
+| **Merge commit** (recommended) | The merge commit (the pull request description) for every line the branch adds. A commit of the branch that declares an axis itself (trailers in its message) overrides the merge on that axis, for the lines it wrote: the pull request is the default, a commit the exception, e.g. a hand-written G0 commit in an AI-written pull request |
+| **Squash** | The squash commit alone (the pull request description). The commits of the branch are gone, and so are their own declarations |
+| **Rebase** | Each commit on its own: they land on the default branch one by one, without the pull request description. A commit without a declaration falls back to `SIGNOFF.toml` (or fails `require-trailers-since`) |
+| **Commit on the default branch** | That commit |
+
+Commits that merge the default branch into the pull request's branch, and conflict resolutions, declare nothing themselves, so their lines take the pull request's declaration.
+
+Because this works axis by axis, a commit only needs to declare what is known when it's written. For example, a hand-written commit declares
+
+```
+AI-Generation: G0
+Human-Review: H2
+Reviewed-by: Jane Doe
+```
+
+and nothing on AI review. If the pull request is then reviewed as a whole by a fresh AI session and declares A2 (and G3 H1 for the rest), the lines of that commit end up G0 H2 A2, and the other lines of the pull request G3 H1 A2.
 
 ### Correcting a commit
 

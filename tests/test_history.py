@@ -133,16 +133,40 @@ def test_commits_entry_corrects_a_commit(repo):
     assert r.errors == [] and shares(r) == {"G0 H2 A0": 9, "G3 H2 A1": 1}
 
 
-def test_merge_commit_lines_take_the_merge_and_branch_declarations(repo):
+def test_merge_commit_declares_the_branch_and_its_commits_override(repo):
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [6])
     commit(repo, "AI on a branch", "AI-Generation: G2\nAssisted-by: Model A\nAI-Review: A1\nAI-Reviewed-by: Model A")
+    edit_lines(repo, [8], text="hand")
+    commit(repo, "by hand, no declaration")
     git(repo, "checkout", "-q", "main")
-    git(repo, "merge", "-q", "--no-ff", "feature", "-m", "Merge feature\n\nHuman-Review: H3\nReviewed-by: Rita")
+    edit_lines(repo, [1], text="main")
+    commit(repo, "main moves on", G3)
+    git(repo, "merge", "-q", "--no-ff", "feature", "-m",
+        "Merge feature\n\n" + G3.replace("Human-Review: H1", "Human-Review: H3").replace("Reviewed-by: Jane", "Reviewed-by: Rita"))
     r, _ = result(repo)
-    merged = next(p for p in r.parts if p.runs == [[6, 6]])
-    assert merged.declaration.short() == "G2 H3 A1"  # human review from the merge, the rest from the branch
-    assert merged.kinds == ("branch", "commit", "branch")
+    by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
+    # the commit that wrote line 6 declares generation and AI review; human review comes from the merge
+    assert by_line[6].declaration.short() == "G2 H3 A1" and by_line[6].kinds == ("branch", "commit", "branch")
+    # a branch commit without a declaration takes the merge's (the pull request's) levels
+    assert by_line[8].declaration.short() == "G3 H3 A1" and by_line[8].kinds == ("commit", "commit", "commit")
+    # main's own commit since the branch point, and lines from before it, aren't the merge's
+    assert by_line[1].declaration.short() == "G3 H1 A1"
+    assert by_line[2].declaration.short() == "G0 H2 A0"
+
+
+def test_rebased_commits_declare_themselves(repo):
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [3])
+    commit(repo, "declared", G3)
+    edit_lines(repo, [4])
+    commit(repo, "not declared")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--ff-only", "feature")  # what a rebase merge leaves on main: the commits, no merge
+    r, _ = result(repo)
+    by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
+    assert by_line[3].declaration.short() == "G3 H1 A1"
+    assert by_line[4].declaration.short() == "G0 H2 A0"  # the file-level fallback
 
 
 def test_require_trailers_since(repo):

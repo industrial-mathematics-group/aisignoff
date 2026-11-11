@@ -5,8 +5,9 @@ Each line of a file takes, per axis, the newest of:
 - the declaration of the commit that landed the line on the current branch: its trailers
   (AI-Generation, Human-Review, ... in the commit message), corrected by a [[commits]] entry.
   'git blame --first-parent' finds that commit, so a squash commit or the merge commit of a
-  pull request carries the declaration of all its lines. For a merge commit, the commits of the
-  merged branch fill the axes it leaves out;
+  pull request carries the declaration of all its lines. For a merge commit, the commit of the
+  merged branch that wrote the line overrides it, axis by axis, where it declares one: the
+  pull request is the default, a commit of it the exception;
 - an [[attestations]] entry of the file whose content (a git blob) already contained the line:
   "this whole file was checked, as it was then".
 
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .model import AXES, LEVEL_KEYS, LIST_KEYS, Declaration, canonical_key, validate
@@ -278,12 +279,17 @@ class History:
     FORMAT = "%H%x1f%P%x1f%s%x1f%an <%ae>%x1f%(trailers:unfold,only)%x1f%B"
 
     def _declaration(self, sha: str, rest: str) -> dict[int, Piece]:
-        """A commit's own declaration: its trailers, and for the axes they leave out, the
-        ticked checkboxes of a pull request template in its message."""
+        """A commit's own declaration: its trailers, or the ticked checkboxes of a pull request
+        template in its message. One or the other: a commit with both is a problem (its trailers
+        are used, so the lines still show what it says)."""
         author, trailers, message = (rest.split("\x1f", 2) + ["", ""])[:3]
-        pieces = parse_checkboxes(message, author.strip(), self.describe(sha))
-        pieces.update(parse_trailers(trailers, self.describe(sha)))
-        return pieces
+        from_trailers = parse_trailers(trailers, self.describe(sha))
+        from_boxes = parse_checkboxes(message, author.strip(), self.describe(sha))
+        if from_trailers and from_boxes:
+            problem = (f"{self.describe(sha)} declares levels both as trailers and as ticked checkboxes; "
+                       "use one of them (correct it with a [[commits]] entry)")
+            return {i: replace(p, problems=p.problems + (problem,)) for i, p in from_trailers.items()}
+        return from_trailers or from_boxes
 
     def describe(self, sha: str) -> str:
         subject = self.subjects.get(sha, "")
@@ -480,7 +486,7 @@ class History:
             return [UNCOMMITTED] * n, None
         landing = self._blame(path, first_parent=True)
         needs_branch = {c for c in set(landing) if c and len(self.parents.get(c, [])) > 1
-                        and len(self.commit_pieces(c)) < len(AXES) and self._branch_declares(c)}
+                        and self._branch_declares(c)}
         original = self._blame(path, first_parent=False) if needs_branch else None
         if original is not None and len(original) != len(landing):
             original = None
@@ -530,10 +536,10 @@ class History:
         else:
             ordinal = self.order.get(commit, 0)
             own = self.commit_pieces(commit)
-            if orig and orig != commit:  # the merge commit is newer: the branch commit only fills its gaps
+            if orig and orig != commit:  # the merge declares the branch; a commit of it overrides, per axis
                 own = dict(own)
                 for i, p in self.commit_pieces(orig).items():
-                    own.setdefault(i, Piece(p.level, p.names, p.source, "branch", p.problems))
+                    own[i] = Piece(p.level, p.names, p.source, "branch", p.problems)
         out = []
         for i, (level, _) in enumerate(AXES):
             best, best_rank = None, None

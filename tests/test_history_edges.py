@@ -306,11 +306,13 @@ def test_pr_diff_example_reads_the_trailers_of_the_description(tmp_path):
     assert out == ["--human=H1"] and "::warning::" in err
     out, err = options("x\n\nAI-Generation: G2\nAI-Generation: G3\n")
     assert out == [] and "conflicting" in err
-    out, _ = options(TEMPLATE.format(a2=" ", model="") + "\nHuman-Review: H2\nReviewed-by: Max\n")
+    out, _ = options(TEMPLATE.format(a2=" ", model=""))
     assert sorted(out) == ["--ai-reviewed-by=Claude Opus (Anthropic), self-check by the generating session",
                            "--ai-reviewed-by=Some Model 2, self-check by the generating session", "--ai=A1",
                            "--assisted-by=Claude Opus (Anthropic)", "--assisted-by=Some Model 2", "--generation=G3",
-                           "--human=H2", "--reviewed-by=Max"]
+                           "--human=H1"]  # no author in this event, so no --reviewed-by
+    out, err = options(TEMPLATE.format(a2=" ", model="") + "\nHuman-Review: H2\nReviewed-by: Max\n")
+    assert out == [] and "both" in err
 
 
 def test_examples_pin_the_current_version():
@@ -382,10 +384,30 @@ def test_parse_checkboxes():
 def test_squash_commit_with_checkboxes_declares_its_lines(repo):
     edit_lines(repo, [2, 3])
     commit(repo, TEMPLATE.format(a2=" ", model=""))
-    edit_lines(repo, [5], text="again")
-    commit(repo, TEMPLATE.format(a2=" ", model=""), "Human-Review: H2\nReviewed-by: Max")  # trailers win per axis
     r, project = result(repo)
-    assert shares(r) == {"G0 H2 A0": 7, "G3 H1 A1": 2, "G3 H2 A1": 1} and r.errors == []
+    assert shares(r) == {"G0 H2 A0": 8, "G3 H1 A1": 2} and r.errors == []
     part = next(p for p in r.parts if p.declaration.short() == "G3 H1 A1")
     assert part.declaration.reviewed_by == ("T <t@example.com>",)
     assert "pull request checkboxes" in part.declaration.source
+    edit_lines(repo, [5], text="again")
+    commit(repo, TEMPLATE.format(a2=" ", model=""), "Human-Review: H2\nReviewed-by: Max")  # both: one or the other
+    r, project = result(repo)
+    assert any(e.startswith("line 5:") and "both as trailers and as ticked checkboxes" in e for e in r.errors)
+
+
+def test_small_branch_commits_inherit_the_rest_from_the_merge(repo):
+    """A hand-written commit declares only what it knows (G0, H2); the merge of the pull request,
+    reviewed as a whole by a fresh AI session, adds the AI review."""
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [4])
+    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Pascal")
+    edit_lines(repo, [9], text="ai")
+    commit(repo, "AI part")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "feature", "-m",
+        "Merge feature\n\n" + TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"))
+    r, _ = result(repo)
+    by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
+    assert by_line[4].declaration.short() == "G0 H2 A2" and by_line[4].errors == []
+    assert by_line[4].kinds == ("branch", "branch", "commit")
+    assert by_line[9].declaration.short() == "G3 H1 A2"
