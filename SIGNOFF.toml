@@ -2,7 +2,8 @@ version = 3
 exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
 # Line-level declarations from git history (aisignoff >= 0.6): each line takes the declaration of the
-# commit that landed it (trailers), the annotations below are the fallback for lines without one.
+# commit that landed it (trailers, or the ticked boxes of the PR template in its squash commit); the
+# annotations below are the fallback for lines without one.
 [history]
 enabled = true
 
@@ -24,82 +25,79 @@ Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
 
 # Changed after the A2 reviews in reviews/05ff570.md (fixes for their findings): self-checked only.
-[[annotations]]
-path = ["README.md", "src/aisignoff/cli.py", "src/aisignoff/config.py", "src/aisignoff/model.py", "tests/test_aisignoff.py"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Rename aidecl -> aisignoff, SIGNOFF.toml with fallback to AIDECL.toml, PyPI publishing (0.4.0).
 # Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = [".github/workflows/ci.yml", ".github/workflows/publish.yml", "README.md", "pyproject.toml", "uv.lock",
-        "src/aisignoff/__init__.py", "src/aisignoff/cli.py", "src/aisignoff/config.py", "src/aisignoff/globbing.py",
-        "src/aisignoff/inline.py", "src/aisignoff/model.py", "src/aisignoff/project.py", "tests/test_aisignoff.py"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Documentation site (MkDocs on GitHub Pages), shorter README, callers of the renamed org workflows.
 # Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["README.md", "pyproject.toml", ".gitignore", "docs/**", ".github/workflows/docs.yml",
-        ".github/workflows/pr-signoff.yml", ".github/workflows/file-signoff.yml", ".github/workflows/signoff-badges.yml"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Docs moved from MkDocs to Zensical; version read from the package metadata (only pyproject.toml has it).
 # Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["zensical.toml", "docs/requirements.txt", "docs/development.md", ".github/workflows/docs.yml",
-        "src/aisignoff/__init__.py", "tests/test_aisignoff.py"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Example workflows and pre-commit hook for integrating aisignoff, with their documentation.
 # Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["examples/**", ".pre-commit-hooks.yaml", "docs/integration.md", "docs/ci.md", "README.md", "zensical.toml"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Folder report: aisignoff report --tree / --html, its documentation, example workflows using it, version 0.5.0.
 # Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["src/aisignoff/visualize.py", "src/aisignoff/report.html", "src/aisignoff/cli.py", "tests/test_visualize.py",
-        "docs/report.md", "docs/assets/**", "docs/commands.md", "docs/ci.md", "docs/integration.md", "README.md",
-        "zensical.toml", "pyproject.toml", "uv.lock", ".github/workflows/docs.yml", "examples/**"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # PR #1 (fixes for the findings in reviews/815acaf.md): its commit 3832a1e left the human review TODO,
 # which cf049e5 in the same PR filled in as H1 in AIDECL.toml.
 [[commits]]
 commit = "3832a1e"
 Human-Review = "H1"
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+
+# Commits without a declaration of their own whose lines changed after the A2 reviews in reviews/05ff570.md,
+# so the A2 fallback above doesn't fit them: PR #4 (fixes for the findings of those reviews) and edits
+# made on main directly. Pull requests since #5 declare themselves with the checkboxes of the PR template.
+[[commits]]
+commit = "d385147"   # PR #4
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+[[commits]]
+commit = "8a013cd"   # pr-signoff workflow
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+[[commits]]
+commit = "dbfc15a"   # badges workflow
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+[[commits]]
+commit = "45ed9d7"   # README badges
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+[[commits]]
+commit = "49108c2"   # README badges
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+[[commits]]
+commit = "12e832d"   # README badges
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
 
 # The three A2 reviews in reviews/05ff570.md covered the whole repository at 05ff570. Each entry is a file
 # as it was then (blob), under its current name; lines changed since fall back to the annotations above.
@@ -177,43 +175,8 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generat
 
 # Line-level declarations from git history: [history], attest, diff, their documentation and the
 # signoff-pr-diff.yml example, version 0.6.0. Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["src/aisignoff/history.py", "src/aisignoff/diff.py", "src/aisignoff/cli.py", "src/aisignoff/config.py",
-        "src/aisignoff/project.py", "src/aisignoff/visualize.py", "src/aisignoff/report.html", "tests/test_history.py",
-        "docs/history.md", "docs/signoff-toml.md", "docs/commands.md", "docs/report.md", "docs/index.md", "docs/ci.md",
-        "docs/integration.md", "README.md", "zensical.toml", "pyproject.toml", "uv.lock", "examples/**",
-        ".github/workflows/ci.yml", ".github/workflows/docs.yml", ".github/workflows/file-signoff.yml"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Line view in the HTML report: report --html --with-source / --since, binary files in diffs, its documentation,
 # the example workflows using it, version 0.7.0. Written by Claude and only self-checked; the human review is still open.
-[[annotations]]
-path = ["src/aisignoff/report.html", "src/aisignoff/visualize.py", "src/aisignoff/cli.py", "src/aisignoff/diff.py",
-        "tests/test_history.py", "docs/report.md", "docs/commands.md", "docs/history.md", "docs/integration.md",
-        "examples/**", ".github/workflows/docs.yml", "pyproject.toml", "uv.lock"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
-
 # Fixes for the independent review of 0.7.0 (blame failures, diff parsing, subfolder roots, merge base, symlinks,
 # attestations across renames and copies, shallow clones, example workflows), version 0.7.1. Written by Claude
 # and only self-checked; the human review is still open.
-[[annotations]]
-path = ["src/aisignoff/history.py", "src/aisignoff/diff.py", "src/aisignoff/cli.py", "src/aisignoff/model.py",
-        "src/aisignoff/project.py", "src/aisignoff/visualize.py", "tests/test_history_edges.py", "docs/history.md",
-        "docs/commands.md", "docs/report.md", "docs/integration.md", "docs/development.md", "examples/**",
-        "pyproject.toml", "uv.lock"]
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A1"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]

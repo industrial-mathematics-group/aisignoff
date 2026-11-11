@@ -306,6 +306,11 @@ def test_pr_diff_example_reads_the_trailers_of_the_description(tmp_path):
     assert out == ["--human=H1"] and "::warning::" in err
     out, err = options("x\n\nAI-Generation: G2\nAI-Generation: G3\n")
     assert out == [] and "conflicting" in err
+    out, _ = options(TEMPLATE.format(a2=" ", model="") + "\nHuman-Review: H2\nReviewed-by: Max\n")
+    assert sorted(out) == ["--ai-reviewed-by=Claude Opus (Anthropic), self-check by the generating session",
+                           "--ai-reviewed-by=Some Model 2, self-check by the generating session", "--ai=A1",
+                           "--assisted-by=Claude Opus (Anthropic)", "--assisted-by=Some Model 2", "--generation=G3",
+                           "--human=H2", "--reviewed-by=Max"]
 
 
 def test_examples_pin_the_current_version():
@@ -319,3 +324,68 @@ def test_examples_pin_the_current_version():
     assert f"rev: v{__version__}" in hook and f"aisignoff=={__version__}" in hook
     assert f"rev: v{__version__}" in (top / "docs/integration.md").read_text()
     assert re.search(r'^version = "' + re.escape(__version__) + '"', (top / "pyproject.toml").read_text(), re.M)
+
+
+# ------------------------------------------------------------------ pull request checkboxes
+TEMPLATE = """Add a thing (#7)
+
+Some description.
+
+## Checklist
+
+- [x] Tests pass locally (`pytest`), and new behaviour is covered by
+tests
+- [x] I take responsibility for this change, however it was created
+
+## AI declaration
+
+Generation (tick exactly one: the highest level of any substantial part):
+- [ ] **G0** Written by a human, without AI
+- [ ] **G2** AI-generated: AI wrote substantial parts, a human directed
+the work and edited the result
+- [x] **G3** AI-autonomous: an agent produced it largely end to end
+
+AI models that wrote parts of it (G1-G3, tick all that apply):
+- [x] **Claude Opus** (Anthropic)
+- [ ] **GPT Sol** (OpenAI)
+- [x] **Other:** Some Model 2
+
+Human review (at least H0 is required; the levels build on each other):
+- [x] **H0** I checked the result as a whole
+- [x] **H1** I ran the tests or reproduced the key results myself, and
+read the important parts
+- [ ] **H2** I read every changed line
+
+AI review (leave all unticked for A0):
+- [x] **A1** The AI that wrote the change checked its own work
+- [{a2}] **A2** A new AI session, without the generating conversation,
+reviewed the final change and ran the tests. Model, if not one of the
+above: {model}
+- [ ] **A3** A different model reviewed it. Model:
+"""
+
+
+def test_parse_checkboxes():
+    from aisignoff.history import parse_checkboxes
+    pieces = parse_checkboxes(TEMPLATE.format(a2=" ", model=""), "Jane <j@x>", "commit abc")
+    assert {i: p.level for i, p in pieces.items()} == {0: "G3", 1: "H1", 2: "A1"}
+    assert pieces[0].names == ("Claude Opus (Anthropic)", "Some Model 2")
+    assert pieces[1].names == ("Jane <j@x>",)
+    assert pieces[2].names[0] == "Claude Opus (Anthropic), self-check by the generating session"
+    pieces = parse_checkboxes(TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"), "J", "c")
+    assert pieces[2].level == "A2" and pieces[2].names == ("GPT Sol (OpenAI), fresh session",)
+    assert parse_checkboxes("Fix\n\n- [x] done\n- [ ] **G3** not ticked\n", "J", "c") == {}
+    two = parse_checkboxes("- [x] **G2** a\n- [x] **G3** b\n- [x] **Claude Opus** (Anthropic)\n", "J", "c")
+    assert two[0].level == "G3" and two[0].problems
+
+
+def test_squash_commit_with_checkboxes_declares_its_lines(repo):
+    edit_lines(repo, [2, 3])
+    commit(repo, TEMPLATE.format(a2=" ", model=""))
+    edit_lines(repo, [5], text="again")
+    commit(repo, TEMPLATE.format(a2=" ", model=""), "Human-Review: H2\nReviewed-by: Max")  # trailers win per axis
+    r, project = result(repo)
+    assert shares(r) == {"G0 H2 A0": 7, "G3 H1 A1": 2, "G3 H2 A1": 1} and r.errors == []
+    part = next(p for p in r.parts if p.declaration.short() == "G3 H1 A1")
+    assert part.declaration.reviewed_by == ("T <t@example.com>",)
+    assert "pull request checkboxes" in part.declaration.source
