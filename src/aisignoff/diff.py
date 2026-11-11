@@ -69,6 +69,13 @@ def changed_lines(root: Path, base: str) -> dict[tuple[str | None, str | None], 
             old = _unquote(line[len("rename from "):])
         elif line.startswith("rename to "):
             new = _unquote(line[len("rename to "):])
+        elif line.startswith("Binary files ") and line.endswith(" differ"):
+            # a binary file counts as one line, as everywhere else; this line names both sides
+            a, _, b = line[len("Binary files "):-len(" differ")].partition(" and ")
+            a, b = _unquote(a), _unquote(b)
+            old = old if old is not None else (None if a == "/dev/null" else a[2:])
+            new = new if new is not None else (None if b == "/dev/null" else b[2:])
+            removed, added = ([1] if old else []), ([1] if new else [])
         elif line.startswith("@@ "):
             a, b = line.split(" ")[1:3]
             start, _, count = a[1:].partition(",")

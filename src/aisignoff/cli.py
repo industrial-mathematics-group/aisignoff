@@ -185,15 +185,27 @@ def cmd_report(args) -> int:
         raise UsageError("give --json or --markdown, not both")
     project = _open(args.root)
     results = _results(project)
+    if (args.with_source or args.since) and not args.html:
+        raise UsageError("--with-source and --since need --html")
     if args.html or args.tree:
         from . import visualize
         tree = visualize.build_tree(project.root, results)
         if args.html:
-            meta = visualize.report_meta(project.root, title=args.title)
+            since = changes = None
+            if args.since:
+                from .diff import DiffError
+                try:
+                    sha, changes = visualize.changed_since(project.root, args.since, [r.path for r in results])
+                except DiffError as e:
+                    raise UsageError(str(e))
+                since = {"name": args.since, "commit": sha}
+            html_tree = visualize.build_tree(project.root, results, source=args.with_source, changes=changes) \
+                if (args.with_source or changes is not None) else tree
+            meta = visualize.report_meta(project.root, title=args.title, since=since)
             target = Path(args.html)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(visualize.render_html(tree, meta), encoding="utf-8")
+                target.write_text(visualize.render_html(html_tree, meta), encoding="utf-8")
             except OSError as e:
                 raise UsageError(f"cannot write {target}: {e}")
             print(f"Wrote {args.html}", file=sys.stderr if args.tree else sys.stdout)
@@ -884,6 +896,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--weight", choices=["files", "lines"], default="files", help="with --tree: what the shares count")
     p.add_argument("--html", metavar="PATH", help="write an interactive folder report (a single HTML file)")
     p.add_argument("--title", help="title of the HTML report (default: the repository or folder name)")
+    p.add_argument("--with-source", action="store_true",
+                   help="with --html: embed the text of each file, for a line-by-line view in the report")
+    p.add_argument("--since", metavar="BASE",
+                   help="with --html: mark the lines changed since commit BASE, e.g. origin/main or the last release tag")
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("annotate", help=f"declare files in {FILENAME} (or inline with --inline)")

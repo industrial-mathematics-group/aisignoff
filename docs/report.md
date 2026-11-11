@@ -37,11 +37,21 @@ aisignoff report --html aisignoff-report.html
 
 writes a single HTML file. It needs no server and no internet connection, so it can be opened locally, attached to a release or downloaded from a CI run.
 
+| Option | Effect |
+|---|---|
+| `--title TITLE` | The title of the page (default: the repository or folder name) |
+| `--with-source` | Embeds the text of each file (up to 512 KB each, not binary files), for the line view |
+| `--since BASE` | Marks what changed since commit `BASE`, e.g. `origin/main` in a pull request or the last release tag |
+
+`--with-source` puts the code into the report: share the file only with people who may read the repository.
+
 - **Sunburst.** Each ring is one folder level, and each arc is as large as its files (or lines). Click a folder to zoom in, the centre to go back up. Hover for the mix of a folder.
 - **Folder table.** The folders and files of the current folder, with a bar per axis. Click a column to sort, for example by *Human review* to find the least-reviewed folder first.
 - **File details.** Click a file for its levels, the names behind them, where the declaration comes from (`SIGNOFF.toml [4]` is the fourth annotation, `inline` a tag in the file) and any problems. On GitHub Actions the file name links to the file at that commit.
+- **Lines.** The file details end with a strip of the whole file, coloured by the level of each line: with [`[history]`](history.md), files mix levels line by line. With `--with-source`, the text of the file follows, each line with its level in the margin; hover the margin for where the declaration comes from, click a line number to open it on GitHub.
+- **Changes.** With `--since BASE`, the report also knows what changed since `BASE`: a *Changed* column, a switch to show only the changed files and folders (the rest fade in the sunburst), and in the file details the changed lines, marked `+`, with three lines around them.
 - **Find.** Type part of a path to jump to a file or folder.
-- **Links.** The address keeps the folder, axis and colouring, so a link opens the same view.
+- **Links.** The address keeps the folder, axis, colouring, selected file and line, so a link opens the same view.
 
 With [`[history]`](history.md), a file can mix levels like a folder: the table shows bars for it, and its details list the lines behind each level (with links to them on GitHub Actions). Shares by *files* then count each file once, split by its lines.
 

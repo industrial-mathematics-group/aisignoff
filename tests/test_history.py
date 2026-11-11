@@ -276,3 +276,31 @@ def test_diff_lists_new_attestations(repo, capsys):
     out = capsys.readouterr().out
     assert "Attested:" in out and "solver.py  H3" in out
     assert "Human review: H2 " in out and "H3" in out
+
+
+def test_html_report_with_source_and_since(repo, tmp_path_factory, capsys):
+    base = git(repo, "rev-parse", "HEAD")
+    edit_lines(repo, [3, 4])
+    (repo / "image.png").write_bytes(b"\x89PNG\x00\x01")
+    commit(repo, "AI change", G3)
+    write(repo, "notes.md", "a\nb\n")  # untracked: added in full
+    out = tmp_path_factory.mktemp("out") / "report.html"
+    assert main(["--root", str(repo), "report", "--html", str(out), "--with-source", "--since", base]) == 0
+    html = out.read_text()
+    data = json.loads(html.split('<script type="application/json" id="data">')[1].split("</script>")[0])
+    assert data["meta"]["since"] == {"name": base, "commit": base}
+    files = {c["name"]: c for c in data["tree"]["children"]}
+    solver = files["solver.py"]
+    assert solver["source"].startswith("line 1\nline 2\nnew 3\n")
+    assert solver["changed"] == [[3, 4]] and solver["added"] == 2 and solver["removed"] == 2
+    assert [p["runs"] for p in solver["parts"]] == [[[1, 2], [5, 10]], [[3, 4]]]
+    assert files["image.png"]["source_skipped"] == "binary"
+    assert files["notes.md"]["changed"] == [[1, 2]]
+    assert data["tree"]["added"] == 2 + 1 + 2 and data["tree"]["changed_files"] == 3
+    assert "Changed since" in html and "drawLines" in html
+
+
+def test_html_report_options_need_html(repo, capsys):
+    assert main(["--root", str(repo), "report", "--with-source"]) == 2
+    assert main(["--root", str(repo), "report", "--html", "x.html", "--since", "nope"]) == 2
+    assert "not a commit" in capsys.readouterr().err

@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.6.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.7.0"   # pin a release, so a new version can't break your CI unannounced
   WEIGHT: files                # or "lines": weight each file by its number of lines
 
 jobs:
@@ -45,8 +45,10 @@ jobs:
             echo '### AI signoff'
             aisignoff report --tree --markdown --depth 3 || true
           } >> "$GITHUB_STEP_SUMMARY"
-          # outside the work tree, or lint would count the report as an undeclared file
-          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html" || true
+          # outside the work tree, or lint would count the report as an undeclared file; with the text
+          # of each file, and in a pull request the lines it changes (aisignoff >= 0.7)
+          SINCE="${{ github.event.pull_request.base.sha }}"
+          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html" --with-source ${SINCE:+--since "$SINCE"} || true
       - uses: actions/upload-artifact@v4
         with:
           name: aisignoff-report

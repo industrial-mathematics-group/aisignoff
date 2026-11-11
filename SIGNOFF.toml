@@ -195,3 +195,16 @@ AI-Review = "A1"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+# Line view in the HTML report: report --html --with-source / --since, binary files in diffs, its documentation,
+# the example workflows using it, version 0.7.0. Written by Claude and only self-checked; the human review is still open.
+[[annotations]]
+path = ["src/aisignoff/report.html", "src/aisignoff/visualize.py", "src/aisignoff/cli.py", "src/aisignoff/diff.py",
+        "tests/test_history.py", "docs/report.md", "docs/commands.md", "docs/history.md", "docs/integration.md",
+        "examples/**", ".github/workflows/docs.yml", "pyproject.toml", "uv.lock"]
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
