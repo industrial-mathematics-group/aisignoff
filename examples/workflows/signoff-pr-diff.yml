@@ -9,8 +9,8 @@
 #     (AI-Generation, Human-Review, AI-Review and the names, written "Key: value" as in a commit
 #     message, in the last paragraph), read as git reads them in the merge or squash commit when the
 #     repository's default commit message is "Pull request title and description". Invalid
-#     levels are skipped with a warning. Axes without a trailer are taken from the ticked
-#     checkboxes of the pull request template, as aisignoff reads them in that commit.
+#     levels are skipped with a warning. Without trailers, the ticked checkboxes of the pull
+#     request template count instead, as aisignoff reads them in that commit (not both).
 #
 # It only reads the repository, so it also works for pull requests from forks. It doesn't
 # fail the check on its own: that's the job of "aisignoff lint".
@@ -56,7 +56,7 @@ jobs:
                     "ai-review": ("--ai", "A")}
           names = {"assisted-by": "--assisted-by", "reviewed-by": "--reviewed-by",
                    "ai-reviewed-by": "--ai-reviewed-by"}
-          found, named = {}, set()
+          out, found = [], {}
           for line in trailers.splitlines():
               key, _, value = line.partition(":")
               key, value = key.strip().lower(), value.strip()
@@ -73,27 +73,27 @@ jobs:
                       continue
                   found[option] = value
               elif key in names and value and value != "TODO":
-                  print(f"{names[key]}={value}")
-                  named.add(names[key])
-          for option, value in found.items():
-              if value:
-                  print(f"{option}={value}")
-          # axes without a trailer: the ticked boxes of the pull request template (aisignoff >= 0.8)
+                  out.append(f"{names[key]}={value}")
+          out += [f"{option}={value}" for option, value in found.items() if value]
+          # or else the ticked boxes of the pull request template (aisignoff >= 0.8); not both
           try:
               from aisignoff.history import parse_checkboxes
           except ImportError:
               parse_checkboxes = None
-          if parse_checkboxes:
-              author = (pr.get("user") or {}).get("login") or ""
+          boxes = parse_checkboxes(body, (pr.get("user") or {}).get("login") or "", "the description") \
+              if parse_checkboxes else {}
+          if found and boxes:
+              print("::warning::the description declares levels both as trailers and as ticked checkboxes; "
+                    "use one of them", file=sys.stderr)
+              out = []
+          elif boxes:
               axes = [("--generation", "--assisted-by"), ("--human", "--reviewed-by"), ("--ai", "--ai-reviewed-by")]
-              for i, piece in parse_checkboxes(body, author, "the description").items():
+              for i, piece in boxes.items():
                   level, who = axes[i]
-                  if level in found:
-                      continue
-                  print(f"{level}={piece.level}")
-                  if who not in named:
-                      for name in piece.names:
-                          print(f"{who}={name}")
+                  out.append(f"{level}={piece.level}")
+                  out += [f"{who}={name}" for name in piece.names]
+          if out:
+              print("\n".join(out))
           PY
           mapfile -t DECLARE < "$RUNNER_TEMP/declare"
           {

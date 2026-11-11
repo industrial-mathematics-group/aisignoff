@@ -51,7 +51,7 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 
 ### Pull request checkboxes
 
-A pull request template can declare the levels with checkboxes instead, as the template of the Industrial Mathematics Group does. With the squash commit message *Pull request title and description*, the ticked boxes land in the commit message, and aisignoff reads them for the axes that no trailer gives:
+A pull request template can declare the levels with checkboxes instead, as the template of the Industrial Mathematics Group does. With the squash commit message *Pull request title and description*, the ticked boxes land in the commit message, and aisignoff reads them like trailers. A commit declares itself one way or the other: one with both trailers and ticked level boxes is reported by `lint`.
 
 ```markdown
 - [x] **G3** AI-autonomous: an agent produced it largely end to end
@@ -83,6 +83,16 @@ So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow wit
 | **Commit on the default branch** | That commit |
 
 Commits that merge the default branch into the pull request's branch, and conflict resolutions, declare nothing themselves, so their lines take the pull request's declaration.
+
+Because this works axis by axis, a commit only needs to declare what is known when it's written. For example, a hand-written commit declares
+
+```
+AI-Generation: G0
+Human-Review: H2
+Reviewed-by: Jane Doe
+```
+
+and nothing on AI review. If the pull request is then reviewed as a whole by a fresh AI session and declares A2 (and G3 H1 for the rest), the lines of that commit end up G0 H2 A2, and the other lines of the pull request G3 H1 A2.
 
 ### Correcting a commit
 
