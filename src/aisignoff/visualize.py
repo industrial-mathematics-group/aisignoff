@@ -15,21 +15,13 @@ from pathlib import Path
 
 from . import __version__
 from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN
+from .project import line_count, weighted_parts
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
 UNDECLARED = "undeclared"
 WEIGHTS = ("files", "lines")
 
 
-def line_count(root: Path, path: str) -> int:
-    """Lines of a file (binary files count as one line, unreadable ones as zero)."""
-    try:
-        data = (root / path).read_bytes()
-    except OSError:
-        return 0
-    if b"\x00" in data[:16384]:
-        return 1
-    return max(1, data.count(b"\n"))
 
 
 def status_level(result, key: str) -> str:
@@ -53,24 +45,38 @@ def build_tree(root: Path, results) -> dict:
     top = _new_dir(Path(root).name or ".", "")
     for r in results:
         parts = r.path.split("/")
-        lines = line_count(Path(root), r.path)
-        levels = {key: status_level(r, key) for key, _, _ in AXES}
+        weighted = {w: weighted_parts(Path(root), r, w) for w in WEIGHTS}
+        lines = sum(w for _, _, w in weighted["lines"])
+        file_counts = {key: {w: Counter() for w in WEIGHTS} for key, _, _ in AXES}
+        for key, _, _ in AXES:
+            for w in WEIGHTS:
+                for d, errors, amount in weighted[w]:
+                    file_counts[key][w][UNDECLARED if errors else d.get(key)] += amount
+        # the level of most lines (with one part: the file's level)
+        levels = {key: max(file_counts[key]["lines"].items(), key=lambda kv: kv[1])[0]
+                  if lines else status_level(r, key) for key, _, _ in AXES}
         chain = [top]
         node = top
         for i, part in enumerate(parts[:-1]):
             node = node["children"].setdefault(part, _new_dir(part, "/".join(parts[: i + 1])))
             chain.append(node)
-        node["children"][parts[-1]] = {
+        leaf = {
             "name": parts[-1], "path": r.path, "type": "file", "files": 1, "lines": lines,
             "levels": levels, "declaration": r.declaration.as_dict(), "errors": list(r.errors),
         }
+        if r.parts is not None and len(r.parts) > 1:
+            leaf["counts"] = {key: {w: _ordered(key, file_counts[key][w]) for w in WEIGHTS} for key, _, _ in AXES}
+            leaf["parts"] = [{"lines": p.lines, "runs": p.runs, "declaration": p.declaration.as_dict(),
+                              "levels": {key: UNDECLARED if p.errors else p.declaration.get(key) for key, _, _ in AXES},
+                              "errors": p.errors} for p in r.parts]
+        node["children"][parts[-1]] = leaf
         for d in chain:
             d["files"] += 1
             d["lines"] += lines
             d["errors"] += bool(r.errors)
-            for key, level in levels.items():
-                d["counts"][key]["files"][level] += 1
-                d["counts"][key]["lines"][level] += lines
+            for key, _, _ in AXES:
+                for w in WEIGHTS:
+                    d["counts"][key][w].update(file_counts[key][w])
     return _finish(top, is_root=True)
 
 
@@ -105,6 +111,15 @@ def mix(counts: dict) -> str:
     return " · ".join(f"{lv} {pct[lv]}%" if pct[lv] else f"{lv} <1%" for lv in counts)
 
 
+def number(x) -> str:
+    return str(round(x)) if isinstance(x, float) else str(x)
+
+
+def file_cell(n: dict, key: str, weight: str) -> str:
+    """A file's level, or the mix of its lines when they differ (history mode)."""
+    return mix(n["counts"][key][weight]) if "counts" in n and len(n["counts"][key][weight]) > 1 else n["levels"][key]
+
+
 def _rows(node: dict, depth: int, max_depth: int | None, files: bool, prefix: str = ""):
     """Nodes in display order, each with its tree label (_label) and depth (_depth).
 
@@ -132,10 +147,10 @@ def render_text(tree: dict, weight: str = "files", max_depth: int | None = None,
         if n["type"] == "file" and n["errors"]:
             cells = ["✗", "✗", "✗ " + "; ".join(n["errors"])]  # the error text runs on in the last column
         elif n["type"] == "file":
-            cells = [n["levels"][key] for key, _, _ in AXES]
+            cells = [file_cell(n, key, weight) for key, _, _ in AXES]
         else:
             cells = [mix(n["counts"][key][weight]) for key, _, _ in AXES]
-        table.append([n["_label"], str(n[weight]), *cells])
+        table.append([n["_label"], number(n[weight]), *cells])
     widths = [max(len(r[i]) for r in table) for i in range(len(header) - 1)]
     out = []
     for r in table:
@@ -156,12 +171,12 @@ def render_markdown(tree: dict, weight: str = "files", max_depth: int | None = N
         indent = "&nbsp;&nbsp;&nbsp;&nbsp;" * n["_depth"]
         if n["type"] == "file":
             name = f"{indent}{'✗ ' if n['errors'] else ''}`{_md(n['name'])}`"
-            cells = [n["levels"][key] if n["levels"][key] != UNDECLARED else "✗" for key, _, _ in AXES]
+            cells = [file_cell(n, key, weight).replace(UNDECLARED, "✗") for key, _, _ in AXES]
         else:
             label = "." if n["_depth"] == 0 else n["name"] + "/"
             name = f"{indent}**{_md(label)}**" + (f" ✗ {n['errors']}" if n["errors"] else "")
             cells = [mix(n["counts"][key][weight]) for key, _, _ in AXES]
-        out.append(f"| {name} | {n[weight]} | " + " | ".join(cells) + " |")
+        out.append(f"| {name} | {number(n[weight])} | " + " | ".join(cells) + " |")
     problems = []
     _collect_errors(tree, problems)
     if problems:

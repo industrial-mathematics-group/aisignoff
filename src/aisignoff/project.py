@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass, replace
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import inline
@@ -51,9 +53,49 @@ def list_files(root: Path) -> list[str]:
 
 @dataclass
 class FileResult:
+    """The declaration of one file. With [history], also its parts: runs of lines that share one
+    declaration (then 'declaration' is the part with the most lines, 'errors' those of all parts)."""
+
     path: str
     declaration: Declaration
     errors: list[str]
+    parts: list | None = None  # list[history.Part] in history mode
+    line_parts: list[int] | None = field(default=None, repr=False)  # part index of each line
+
+
+def line_count(root: Path, path: str) -> int:
+    """Lines of a file (binary files count as one line, unreadable ones as zero)."""
+    try:
+        data = (root / path).read_bytes()
+    except OSError:
+        return 0
+    if b"\x00" in data[:16384]:
+        return 1
+    return max(1, data.count(b"\n"))
+
+
+def weighted_parts(root: Path, result: FileResult, weight: str):
+    """(declaration, errors, weight) per part of a file. Weight "lines" counts lines; "files"
+    counts the file as 1, split by the line shares of its parts."""
+    if result.parts is None:
+        w = 1 if weight == "files" else line_count(root, result.path)
+        return [(result.declaration, result.errors, w)]
+    total = sum(p.lines for p in result.parts) or 1
+    return [(p.declaration, p.errors, p.lines if weight == "lines" else p.lines / total) for p in result.parts]
+
+
+def _history_result(path: str, parts: list) -> FileResult:
+    from .history import format_runs
+    main = max(parts, key=lambda p: p.lines)
+    errors = []
+    for p in parts:
+        prefix = "" if len(parts) == 1 else format_runs(p.runs) + ": "
+        errors += [prefix + e for e in p.errors]
+    index = [0] * sum(p.lines for p in parts)
+    for i, p in enumerate(parts):
+        for a, b in p.runs:
+            index[a - 1:b] = [i] * (b - a + 1)
+    return FileResult(path, main.declaration, errors, parts, index)
 
 
 def _merge_closest(own: Declaration, fallback: Declaration | None) -> Declaration:
@@ -100,17 +142,56 @@ class Project:
             raise ProjectError(f"project root {root} is not a directory")
         self.root = root.resolve()
         self.config = load(self.root)
+        self.history_problems: list[str] = []
+        self.history_used = False
+
+    def history_wanted(self) -> bool:
+        return self.config.history.enabled
 
     def files(self) -> list[str]:
         return [f for f in list_files(self.root)
                 if f not in ALWAYS_SKIPPED and not self.config.is_excluded(f)]
 
-    def results(self) -> list[FileResult]:
-        out = []
-        for f in self.files():
-            d = resolve(self.root, self.config, f)
-            out.append(FileResult(f, d, validate(d, self.config.policy)))
-        return out
+    def results(self, declared: Declaration | None = None, declared_after: str | None = None,
+                quiet: bool = False) -> list[FileResult]:
+        """Every file's declaration. With [history] enabled (and full git history at hand), line
+        by line; 'declared' then declares the changes after 'declared_after' that carry no
+        declaration of their own (aisignoff diff --declare)."""
+        files = self.files()
+        fallback = {f: resolve(self.root, self.config, f) for f in files}
+        history = self._history(declared, declared_after, quiet)
+        if history is None:
+            return [FileResult(f, d, validate(d, self.config.policy)) for f, d in fallback.items()]
+
+        def one(f: str) -> FileResult:
+            annotation = self.config.match(f)
+            if annotation is not None and annotation.precedence == "override":
+                d = fallback[f]
+                return FileResult(f, d, validate(d, self.config.policy))
+            return _history_result(f, history.resolve_lines(f, fallback[f]))
+
+        with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
+            return list(pool.map(one, files))
+
+    def _history(self, declared, declared_after, quiet):
+        self.history_used = False
+        self.history_problems = []
+        if not self.history_wanted():
+            return None
+        from .history import History, HistoryError, unavailable_reason
+        reason = unavailable_reason(self.root)
+        if reason:
+            if not quiet:
+                print(f"warning: [history] is enabled, but this is a {reason}; using the file-level declarations",
+                      file=sys.stderr)
+            return None
+        try:
+            history = History(self.root, self.config, declared, declared_after)
+        except HistoryError as e:
+            raise ProjectError(str(e))
+        self.history_used = True
+        self.history_problems = history.problems
+        return history
 
     def unused_annotations(self, files: list[str]) -> list[int]:
         return [a.index for a in self.config.annotations if not any(a.matches(f) for f in files)]

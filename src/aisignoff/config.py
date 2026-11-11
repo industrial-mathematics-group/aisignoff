@@ -16,6 +16,21 @@ Format::
     Human-Review = "H2"
     AI-Review = "A0"
     Reviewed-by = "Jane Doe"             # string or list of strings
+
+    [history]                            # optional: line-level declarations from git history
+    enabled = true
+    require-trailers-since = "1a2b3c4"   # optional: newer commits must declare their levels
+
+    [[commits]]                          # corrects or adds the declaration of a commit
+    commit = "1a2b3c4"
+    Human-Review = "H2"
+    Reviewed-by = "Jane Doe"
+
+    [[attestations]]                     # re-declares a file as of the content that was checked
+    path = "src/solver.py"
+    blob = "<git blob hash of the checked content>"
+    Human-Review = "H2"
+    Reviewed-by = "Jane Doe"
 """
 from __future__ import annotations
 
@@ -25,12 +40,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .globbing import compile_glob, matches
-from .model import AIR, KEYS, LEGACY_AI_NONE, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key, parse_policy
+from .model import AIR, AXES, KEYS, LEGACY_AI_NONE, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key, parse_policy
 
 FILENAME = "SIGNOFF.toml"
 LEGACY_FILENAME = "AIDECL.toml"  # the name before aidecl became aisignoff; read until migrated
 VERSION = 3
 PRECEDENCES = ("closest", "override")
+HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file")
+_HEX = set("0123456789abcdef")
 
 
 class ConfigError(Exception):
@@ -57,11 +74,44 @@ class Annotation:
 
 
 @dataclass
+class HistorySettings:
+    """The [history] table: line-level declarations from git history."""
+
+    enabled: bool = False
+    require_trailers_since: str | None = None
+    ignore_revs_file: str | None = None  # default: .git-blame-ignore-revs if it exists
+
+
+@dataclass
+class CommitEntry:
+    """A [[commits]] entry: declares (or corrects) the levels of one commit."""
+
+    index: int
+    commit: str
+    values: dict
+    filename: str = FILENAME
+
+
+@dataclass
+class Attestation:
+    """An [[attestations]] entry: one file re-declared as of the content (git blob) that was checked."""
+
+    index: int
+    path: str
+    blob: str
+    values: dict
+    filename: str = FILENAME
+
+
+@dataclass
 class Config:
     path: Path | None
     annotations: list[Annotation] = field(default_factory=list)
     exclude: tuple[str, ...] = ()
     policy: Policy = field(default_factory=Policy)
+    history: HistorySettings = field(default_factory=HistorySettings)
+    commits: list[CommitEntry] = field(default_factory=list)
+    attestations: list[Attestation] = field(default_factory=list)
 
     def is_excluded(self, path: str) -> bool:
         return any(matches(p, path) for p in self.exclude)
@@ -128,7 +178,7 @@ def load(root: Path) -> Config:
                            f"it to version {VERSION}.")
     if type(version) is not int or version != VERSION:
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
-    unknown = set(data) - {"version", "exclude", "policy", "annotations"}
+    unknown = set(data) - {"version", "exclude", "policy", "annotations", "history", "commits", "attestations"}
     if unknown:
         raise ConfigError(f"{name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
     exclude = _str_list(data.get("exclude", []), f"{name}: 'exclude'")
@@ -153,23 +203,94 @@ def load(root: Path) -> Config:
         precedence = table.get("precedence", "closest")
         if precedence not in PRECEDENCES:
             raise ConfigError(f"{where}: precedence must be 'closest' or 'override'")
-        values = {}
-        for k, v in table.items():
-            if k in ("path", "precedence"):
-                continue
-            key = canonical_key(k)
-            if key is None:
-                raise ConfigError(f"{where}: unknown key '{k}' (allowed: {', '.join(KEYS)})")
-            if key in values:
-                raise ConfigError(f"{where}: '{key}' is given more than once")
-            if key in LIST_KEYS:
-                values[key] = _str_list(v, f"{where}: '{k}'")
-            else:
-                if not isinstance(v, str):
-                    raise ConfigError(f"{where}: '{k}' must be a string")
-                if v not in LEVELS[key] and v != TODO:  # TODO: placeholder, reported by lint
-                    hint = " (A- is now A0)" if key == AIR and v == LEGACY_AI_NONE else ""
-                    raise ConfigError(f"{where}: invalid {key} '{v}' (use {', '.join(LEVELS[key])}){hint}")
-                values[key] = v
+        values = _parse_values(table, ("path", "precedence"), where)
         annotations.append(Annotation(index=i, paths=paths, precedence=precedence, values=values, filename=name))
-    return Config(path=path, annotations=annotations, exclude=exclude, policy=policy)
+    history = _parse_history(data.get("history"), name)
+    commits = []
+    for i, table in enumerate(_tables(data, "commits", name), start=1):
+        where = f"{name} [[commits]] entry {i}"
+        commit = table.get("commit")
+        if not isinstance(commit, str) or not _is_hex(commit, 4):
+            raise ConfigError(f"{where}: 'commit' must be a commit hash (at least 4 hex digits)")
+        values = _parse_values(table, ("commit",), where)
+        _check_axes(values, where)
+        commits.append(CommitEntry(index=i, commit=commit.lower(), values=values, filename=name))
+    attestations = []
+    for i, table in enumerate(_tables(data, "attestations", name), start=1):
+        where = f"{name} [[attestations]] entry {i}"
+        apath = table.get("path")
+        if not isinstance(apath, str) or not apath or any(c in apath for c in "*?"):
+            raise ConfigError(f"{where}: 'path' must be the path of one file (no glob)")
+        blob = table.get("blob")
+        if not isinstance(blob, str) or not _is_hex(blob, 40) or len(blob) not in (40, 64):
+            raise ConfigError(f"{where}: 'blob' must be the full git blob hash of the checked content")
+        values = _parse_values(table, ("path", "blob"), where)
+        _check_axes(values, where)
+        attestations.append(Attestation(index=i, path=apath.removeprefix("./"), blob=blob.lower(), values=values,
+                                        filename=name))
+    return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
+                  commits=commits, attestations=attestations)
+
+
+def _is_hex(s: str, minimum: int) -> bool:
+    return len(s) >= minimum and set(s.lower()) <= _HEX
+
+
+def _tables(data: dict, key: str, name: str) -> list:
+    raw = data.get(key, [])
+    if not isinstance(raw, list) or not all(isinstance(t, dict) for t in raw):
+        raise ConfigError(f"{name}: use [[{key}]] tables")
+    return raw
+
+
+def _parse_values(table: dict, skip: tuple, where: str) -> dict:
+    """The declaration keys of a table, validated (level values, string lists)."""
+    values = {}
+    for k, v in table.items():
+        if k in skip:
+            continue
+        key = canonical_key(k)
+        if key is None:
+            raise ConfigError(f"{where}: unknown key '{k}' (allowed: {', '.join((*skip, *KEYS))})")
+        if key in values:
+            raise ConfigError(f"{where}: '{key}' is given more than once")
+        if key in LIST_KEYS:
+            values[key] = _str_list(v, f"{where}: '{k}'")
+        else:
+            if not isinstance(v, str):
+                raise ConfigError(f"{where}: '{k}' must be a string")
+            if v not in LEVELS[key] and v != TODO:  # TODO: placeholder, reported by lint
+                hint = " (A- is now A0)" if key == AIR and v == LEGACY_AI_NONE else ""
+                raise ConfigError(f"{where}: invalid {key} '{v}' (use {', '.join(LEVELS[key])}){hint}")
+            values[key] = v
+    return values
+
+
+def _check_axes(values: dict, where: str) -> None:
+    """[[commits]] and [[attestations]] declare whole axes: a level, and names only next to their level."""
+    if not any(level in values for level, _ in AXES):
+        raise ConfigError(f"{where}: declare at least one level ({', '.join(level for level, _ in AXES)})")
+    for level, names in AXES:
+        if names in values and level not in values:
+            raise ConfigError(f"{where}: {names} without {level}")
+
+
+def _parse_history(table, name: str) -> HistorySettings:
+    if table is None:
+        return HistorySettings()
+    where = f"{name} [history]"
+    if not isinstance(table, dict):
+        raise ConfigError(f"{where} must be a table")
+    unknown = set(table) - set(HISTORY_KEYS)
+    if unknown:
+        raise ConfigError(f"{where}: unknown key(s) {', '.join(sorted(unknown))} (use {', '.join(HISTORY_KEYS)})")
+    enabled = table.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"{where}: 'enabled' must be true or false")
+    since = table.get("require-trailers-since")
+    if since is not None and (not isinstance(since, str) or not since.strip()):
+        raise ConfigError(f"{where}: 'require-trailers-since' must be a commit (hash, tag or branch)")
+    revs = table.get("ignore-revs-file")
+    if revs is not None and (not isinstance(revs, str) or not revs):
+        raise ConfigError(f"{where}: 'ignore-revs-file' must be a path")
+    return HistorySettings(enabled=enabled, require_trailers_since=since, ignore_revs_file=revs)
