@@ -64,3 +64,14 @@ AI-Review = "A1"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+# Example workflows and pre-commit hook for integrating aisignoff, with their documentation.
+# Written by Claude and only self-checked; the human review is still open.
+[[annotations]]
+path = ["examples/**", ".pre-commit-hooks.yaml", "docs/integration.md", "docs/ci.md", "README.md", "zensical.toml"]
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]

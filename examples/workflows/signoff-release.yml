@@ -1,0 +1,42 @@
+# Example workflow: attach the AI declarations of all files to each GitHub release.
+# Copy it to .github/workflows/ in your repository.
+#
+# Adds two files to every published release, describing the code at the release tag:
+#   aisignoff-report.txt   the summary per axis, as "aisignoff report" prints it
+#   aisignoff-report.json  every file with its levels, names and source ("aisignoff report --json")
+#
+# So anyone can see how a release was made and reviewed without cloning the repository.
+name: aisignoff release report
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write   # to upload the release assets
+
+env:
+  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # checks out the release tag
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Write the reports
+        run: |
+          # outside the work tree, or lint would count the reports as undeclared files
+          aisignoff report > "$RUNNER_TEMP/aisignoff-report.txt"
+          aisignoff report --json > "$RUNNER_TEMP/aisignoff-report.json"
+          aisignoff lint || echo "::warning title=aisignoff::Some files in this release have no valid declaration; the reports list them as undeclared."
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG" --clobber \
+            "$RUNNER_TEMP/aisignoff-report.txt" "$RUNNER_TEMP/aisignoff-report.json"

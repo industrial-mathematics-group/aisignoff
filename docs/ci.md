@@ -29,6 +29,8 @@ jobs:
 
 Then require the check in the branch protection of `main`, so no file goes undeclared.
 
+More complete versions, with badges, a summary of the files a pull request changes, release reports and a pre-commit hook, are in [Example workflows](integration.md).
+
 !!! tip "Industrial Mathematics Group"
     Repositories of the group don't need to write this themselves. Add the ready-made **File-signoff** workflow (*Actions → New workflow*, section "By Industrial Mathematics Group"). It runs `aisignoff lint` and publishes the badges to the `badges` branch. Setup details are in the organisation's [SETUP.md](https://github.com/industrial-mathematics-group/.github/blob/main/SETUP.md).
 
