@@ -1,0 +1,42 @@
+# Example workflow: check that every file declares how it was created and reviewed.
+# Copy it to .github/workflows/ in your repository. Works in any repository with a SIGNOFF.toml.
+#
+#   - fails the check when a file has no valid declaration (aisignoff lint)
+#   - writes the summary of all declarations to the job summary of each run
+#
+# Then require the "aisignoff / lint" check in the branch protection of your default branch,
+# so no undeclared file gets merged.
+name: aisignoff
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Summary
+        run: |
+          {
+            echo '### AI signoff'
+            echo '```'
+            aisignoff report || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check declarations
+        run: aisignoff lint
+        # run: aisignoff lint --strict   # also fail on annotations that match no file

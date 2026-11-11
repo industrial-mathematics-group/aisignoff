@@ -1,0 +1,86 @@
+# Example workflow: check the declarations and publish README badges.
+# Copy it to .github/workflows/ in your repository (instead of signoff-lint.yml, not next to it).
+#
+#   lint    every push and pull request: fails when a file has no valid declaration
+#   badges  pushes to main: writes the three badge files with "aisignoff badge" and
+#           commits them to the branch "badges", which this workflow creates on its first run
+#
+# Then add the badges to your README (replace <owner>/<repo>):
+#
+#   ![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-generation.json)
+#   ![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-human-review.json)
+#   ![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-ai-review.json)
+#
+# raw.githubusercontent.com only serves public repositories. The badges branch must not be
+# protected against pushes by github-actions[bot].
+name: aisignoff
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+  WEIGHT: files                # or "lines": weight each file by its number of lines
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Summary
+        run: |
+          {
+            echo '### AI signoff'
+            echo '```'
+            aisignoff report || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check declarations
+        run: aisignoff lint
+
+  badges:
+    # Also runs when lint fails, so the badges show the undeclared share in red.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: aisignoff-badges
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Build badges
+        run: aisignoff badge --out "$RUNNER_TEMP/badges" --weight "$WEIGHT"
+      - name: Publish to the badges branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT="$RUNNER_TEMP/badges-worktree"
+          if git ls-remote --exit-code --heads origin badges >/dev/null; then
+            git fetch -q origin badges
+            git worktree add -q --detach "$WT" FETCH_HEAD
+          else
+            git worktree add -q --orphan -b badges-new "$WT"
+          fi
+          cp "$RUNNER_TEMP"/badges/aisignoff-*.json "$WT/"
+          cd "$WT"
+          git add aisignoff-*.json
+          if git diff --cached --quiet; then echo "Badges unchanged."; exit 0; fi
+          git commit -q -m "Update aisignoff badges"
+          git push -q origin HEAD:refs/heads/badges

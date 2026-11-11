@@ -57,13 +57,27 @@ Reviewed-by = ["Jane Doe"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), same session"]
 ```
 
+## Example workflows
+
+Copy one of these into `.github/workflows/` to check the declarations in CI (details in [Example workflows](https://industrial-mathematics-group.github.io/aisignoff/integration/)):
+
+| File | What it does |
+|---|---|
+| [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | fails when a file has no valid declaration, with the summary in the job summary |
+| [`signoff-badges.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-badges.yml) | the same, plus README badges on a `badges` branch |
+| [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | shows reviewers the declarations of the files a pull request changes |
+| [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the declarations of all files to each GitHub release |
+| [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) | runs `aisignoff lint` before each commit, with [pre-commit](https://pre-commit.com) |
+
+Repositories of the Industrial Mathematics Group use the organisation's ready-made workflows instead of the first two (*Actions → New workflow*).
+
 ## Documentation
 
 **[industrial-mathematics-group.github.io/aisignoff](https://industrial-mathematics-group.github.io/aisignoff/)**, with:
 - [the levels](https://industrial-mathematics-group.github.io/aisignoff/#the-levels);
 - [the `SIGNOFF.toml` format](https://industrial-mathematics-group.github.io/aisignoff/signoff-toml/) and [inline tags](https://industrial-mathematics-group.github.io/aisignoff/inline-tags/);
 - [all commands](https://industrial-mathematics-group.github.io/aisignoff/commands/);
-- [CI and badges](https://industrial-mathematics-group.github.io/aisignoff/ci/);
+- [CI and badges](https://industrial-mathematics-group.github.io/aisignoff/ci/) and [example workflows](https://industrial-mathematics-group.github.io/aisignoff/integration/);
 - [migrating from aidecl](https://industrial-mathematics-group.github.io/aisignoff/migrating/).
 
 ## License

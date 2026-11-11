@@ -1,0 +1,85 @@
+# Example workflow: show reviewers the declarations of the files a pull request changes.
+# Copy it to .github/workflows/ in your repository, next to signoff-lint.yml or signoff-badges.yml.
+#
+#   - writes a table of the changed files and their levels to the job summary
+#   - annotates each changed file in the "Files changed" tab of the pull request with its
+#     levels, and marks files without a valid declaration as errors
+#   - reminds the author to update SIGNOFF.toml when the pull request doesn't touch it
+#
+# It only reads the repository, so it also works for pull requests from forks. It doesn't
+# fail the check on its own: that's the job of "aisignoff lint".
+name: aisignoff PR files
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AISIGNOFF_VERSION: "0.4.2"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  changed-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base commit is needed for the diff
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Declarations of the changed files
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only --diff-filter=d -z "$BASE...$HEAD" > "$RUNNER_TEMP/changed"
+          aisignoff report --json > "$RUNNER_TEMP/report.json"
+          python3 - "$RUNNER_TEMP/changed" "$RUNNER_TEMP/report.json" <<'PY'
+          import json, os, sys
+
+          changed = [p for p in open(sys.argv[1], encoding="utf-8").read().split("\0") if p]
+          report = {r["path"]: r for r in json.load(open(sys.argv[2], encoding="utf-8"))}
+
+          def esc(s):  # workflow command messages
+              return s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def prop(s):  # workflow command properties (file, title)
+              return esc(s).replace(":", "%3A").replace(",", "%2C")
+
+          def cell(s):  # Markdown table cells
+              return s.replace("|", "\\|")
+
+          rows, missing = [], 0
+          for path in changed:
+              r = report.get(path)
+              if r is None:  # ignored by .gitignore or excluded in SIGNOFF.toml
+                  continue
+              levels = " ".join(r.get(k) or "–" for k in ("AI-Generation", "Human-Review", "AI-Review"))
+              if r["errors"]:
+                  missing += 1
+                  print(f"::error file={prop(path)},title=aisignoff::{esc('; '.join(r['errors']))}")
+              else:
+                  print(f"::notice file={prop(path)},title=aisignoff {prop(levels)}::"
+                        f"{esc(levels)} from {esc(r.get('source') or '?')}")
+              status = "✗ " + "; ".join(r["errors"]) if r["errors"] else "✓"
+              rows.append(f"| `{cell(path)}` | {levels} | {cell(r.get('source') or '')} | {cell(status)} |")
+
+          config_changed = any(os.path.basename(p) in ("SIGNOFF.toml", "AIDECL.toml") for p in changed)
+          out = ["### AI signoff of the changed files", ""]
+          if rows:
+              out += ["| File | Levels | Declared in | Valid |", "|---|---|---|---|", *rows, ""]
+          else:
+              out += ["No declared files changed.", ""]
+          if missing:
+              out.append(f"**{missing} changed file(s) have no valid declaration.**")
+          if rows and not config_changed:
+              note = ("SIGNOFF.toml is unchanged. If this pull request changes how files were created "
+                      "or reviewed, update their declarations with `aisignoff annotate`.")
+              out.append(note)
+              print(f"::notice title=aisignoff::{esc(note)}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("\n".join(out) + "\n")
+          PY

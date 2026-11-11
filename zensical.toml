@@ -22,6 +22,7 @@ nav = [
   { "Inline tags" = "inline-tags.md" },
   { "Commands" = "commands.md" },
   { "CI and badges" = "ci.md" },
+  { "Example workflows" = "integration.md" },
   { "Migrating" = "migrating.md" },
   { "Development" = "development.md" },
 ]
