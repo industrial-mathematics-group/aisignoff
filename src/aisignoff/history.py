@@ -1,19 +1,21 @@
 """Line-level declarations from git history (the [history] table of SIGNOFF.toml).
 
-Each line of a file takes, per axis, the newest of:
+The declarations around a line:
 
-- the declaration of the commit that landed the line on the current branch: its trailers
-  (AI-Generation, Human-Review, ... in the commit message), corrected by a [[commits]] entry.
-  'git blame --first-parent' finds that commit, so a squash commit or the merge commit of a
-  pull request carries the declaration of all its lines. For a merge commit, the commit of the
-  merged branch that wrote the line overrides it, axis by axis, where it declares one: the
-  pull request is the default, a commit of it the exception;
-- an [[attestations]] entry of the file whose content (a git blob) already contained the line:
-  "this whole file was checked, as it was then".
+- the commit that landed it on the current branch ('git blame --first-parent'): a direct commit,
+  a squash commit, or the merge commit of a pull request. Its message declares the levels with
+  "Key: value" lines (AI-Generation, Human-Review, ...) or the ticked checkboxes of a pull request
+  template; a [[commits]] entry corrects it;
+- for a merge commit, the merges inside it that brought the line in and the commit of the merged
+  branch that wrote it;
+- an [[attestations]] entry of the file whose content (a git blob) already contained the line.
 
-Lines with neither, on an axis, fall back to the file-level declaration (SIGNOFF.toml
-annotations and inline tags), so a repository without trailers reports what it did before.
-With require-trailers-since, lines of newer commits must be declared by the commit instead.
+Generation takes the most specific of them (attestation, branch commit, inner merge, landing
+commit); a review takes the highest level among them, since each saw the line as it is. Lines
+that none of them declares anything for fall back to the file-level declaration (SIGNOFF.toml
+annotations and inline tags), so a repository without declared commits reports what it did
+before; an axis left out where others are declared is missing. With require-trailers-since,
+lines of newer commits must be declared.
 """
 from __future__ import annotations
 
@@ -45,6 +47,14 @@ def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None)
             raise HistoryError(f"git {args[0]} failed: {r.stderr.decode('utf-8', 'replace').strip()}")
         return None
     return r.stdout.decode("utf-8", "surrogateescape")
+
+
+def _git_error(root: Path, *args: str) -> str:
+    try:
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    except FileNotFoundError:
+        return ""
+    return r.stderr.decode("utf-8", "replace") if r.returncode else ""
 
 
 def unavailable_reason(root: Path) -> str | None:
@@ -93,18 +103,48 @@ def pieces_from_values(values: dict, source: str, kind: str) -> dict[int, Piece]
     return out
 
 
+_FENCE = re.compile(r"^\s*(```+|~~~+)")
+_KEY_LINE = re.compile(r"^([A-Za-z][A-Za-z-]*):[ \t]*(.*?)\s*$")
+
+
+def _prose_lines(text: str) -> list[str]:
+    """The lines of a message outside fenced code blocks and HTML comments: a template or an
+    example quoted in a message declares nothing."""
+    out, fence, comment = [], None, False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if comment:
+            comment = "-->" not in stripped
+            continue
+        m = _FENCE.match(line)
+        if fence:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                fence = None
+            continue
+        if m:
+            fence = m.group(1)
+            continue
+        if stripped.startswith("<!--"):
+            comment = "-->" not in stripped
+            continue
+        out.append(line)
+    return out
+
+
 def parse_trailers(text: str, source: str) -> dict[int, Piece]:
-    """Axis pieces from 'Key: value' trailer lines. Names without their level are ignored
-    (Reviewed-by is a common trailer on its own); conflicting levels are a problem."""
+    """Axis pieces from 'Key: value' lines (AI-Generation: G2, Reviewed-by: ...) anywhere in a
+    message body, outside code blocks. Not only git's trailer paragraph: a Co-authored-by
+    paragraph after it, or GitHub's squash co-author block, would hide that silently. Names
+    without their level are ignored (Reviewed-by is a common trailer on its own); conflicting
+    levels are a problem."""
     levels: dict[str, str] = {}
     names: dict[str, list[str]] = {k: [] for k in LIST_KEYS}
     problems = []
-    for line in text.splitlines():
-        if ":" not in line:
+    for line in _prose_lines(text):
+        m = _KEY_LINE.match(line)
+        if not m:
             continue
-        k, v = line.split(":", 1)
-        key = canonical_key(k)
-        v = v.strip()
+        key, v = canonical_key(m.group(1)), m.group(2)
         if key is None or not v:
             continue
         if key in LEVEL_KEYS:
@@ -127,7 +167,7 @@ def _boxes(text: str) -> list[tuple[bool, str]]:
     """The checkbox items of a Markdown text: (ticked, text), with wrapped lines joined."""
     items: list[list] = []
     joinable = False
-    for line in text.splitlines():
+    for line in _prose_lines(text):
         m = _BOX.match(line)
         if m:
             items.append([m.group(1) != " ", m.group(2).strip()])
@@ -150,14 +190,18 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
         - [x] **A2** A new AI session ... Model: X  the highest ticked AI review level
 
     The human review is the commit author's; the AI review names the model after "Model:", or
-    the models that wrote the change. Nothing is returned without a ticked level."""
+    the models that wrote the change. As in the template, no ticked AI review box means A0.
+    Models count only between the generation and the human review boxes, and boxes in code
+    blocks not at all. Nothing is returned without a ticked level."""
     levels: dict[str, list[str]] = {"G": [], "H": [], "A": []}
+    seen: set[str] = set()
     models: list[str] = []
     reviewer: dict[str, str] = {}
     for ticked, item in _boxes(text):
         level = _BOX_LEVEL.match(item)
         if level:
             code = level.group(1)
+            seen.add(code[0])
             if ticked:
                 levels[code[0]].append(code)
             if ticked and code[0] == "A" and "Model" in item:
@@ -165,7 +209,7 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
                 if name:
                     reviewer[code] = name
             continue
-        if not ticked:
+        if not ticked or "G" not in seen or "H" in seen:  # models are listed after the generation levels
             continue
         other = _BOX_OTHER.match(item)
         if other:
@@ -182,6 +226,8 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
         problems.append(f"{source} ticks more than one generation level ({', '.join(levels['G'])})")
     out = {}
     names = {"G": tuple(models), "H": (author,) if author else ()}
+    if "A" in seen and not levels["A"]:
+        levels["A"] = ["A0"]  # "leave all unticked for A0"
     for i, (letter, _) in enumerate(zip("GHA", AXES)):
         if not levels[letter]:
             continue
@@ -193,7 +239,7 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
                 found = tuple(f"{m}, self-check by the generating session" for m in models)
             elif top == "A2":
                 found = tuple(f"{m}, new session without the generating conversation" for m in models)
-            else:
+            else:  # A0, or A3 without a model
                 found = ()
         else:
             found = names[letter]
@@ -240,17 +286,22 @@ class History:
         self.subjects: dict[str, str] = {}
         self.parents: dict[str, list[str]] = {}
         self._trailers: dict[str, dict[int, Piece]] = {}
+        self._both: dict[str, str] = {}  # commits with trailers and checkboxes: the problem
+        self._sides: dict[str, set[str]] = {}  # merge -> the commits it brought in
+        self._inner: dict[str, list[str]] = {}  # landing merge -> the merges inside it
+        self._ancestor: dict[tuple[str, str], bool] = {}
         self._branch_cache: dict[str, bool] = {}
         self._renames: list[tuple[str, str]] | None = None
         self._load_chain()
         self.newest = len(self.order) + 1  # uncommitted changes
+        self.head = max(self.order, key=self.order.get) if self.order else None
         # files in HEAD, relative to root: the others are new, so all their lines are uncommitted
         self.committed = set((_git(self.root, "ls-tree", "-r", "-z", "--name-only", "HEAD", check=False) or "")
                              .split("\0")) - {""} if self.order else set()
         self.corrections = self._load_corrections()
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.attestations = self._load_attestations()
-        self.blame_options = ["-w", "--root"] + self._ignore_revs()
+        self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         # 'aisignoff diff --declare': the declaration of changes after declared_after that carry none
         self.declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared") if declared else {}
         self.declared_after = self.newest
@@ -275,21 +326,22 @@ class History:
             self.parents[sha] = parents.split()
             self._trailers[sha] = self._declaration(sha, rest)
 
-    # hash, parents, subject, then author, trailers and message (see _declaration)
-    FORMAT = "%H%x1f%P%x1f%s%x1f%an <%ae>%x1f%(trailers:unfold,only)%x1f%B"
+    # hash, parents, subject, then author and message (see _declaration)
+    FORMAT = "%H%x1f%P%x1f%s%x1f%an <%ae>%x1f%B"
 
     def _declaration(self, sha: str, rest: str) -> dict[int, Piece]:
-        """A commit's own declaration: its trailers, or the ticked checkboxes of a pull request
-        template in its message. One or the other: a commit with both is a problem (its trailers
-        are used, so the lines still show what it says)."""
-        author, trailers, message = (rest.split("\x1f", 2) + ["", ""])[:3]
-        from_trailers = parse_trailers(trailers, self.describe(sha))
-        from_boxes = parse_checkboxes(message, author.strip(), self.describe(sha))
+        """A commit's own declaration: its 'Key: value' lines, or the ticked checkboxes of a pull
+        request template in its message (the subject line aside). One or the other: a commit
+        with both is a problem until a [[commits]] entry settles it (both count meanwhile, the
+        lines where they overlap)."""
+        author, message = (rest.split("\x1f", 1) + [""])[:2]
+        body = message.split("\n", 1)[1] if "\n" in message else ""
+        from_trailers = parse_trailers(body, self.describe(sha))
+        from_boxes = parse_checkboxes(body, author.strip(), self.describe(sha))
         if from_trailers and from_boxes:
-            problem = (f"{self.describe(sha)} declares levels both as trailers and as ticked checkboxes; "
-                       "use one of them (correct it with a [[commits]] entry)")
-            return {i: replace(p, problems=p.problems + (problem,)) for i, p in from_trailers.items()}
-        return from_trailers or from_boxes
+            self._both[sha] = (f"{self.describe(sha)} declares levels both as trailers and as ticked checkboxes; "
+                               "use one of them, or settle it with a [[commits]] entry")
+        return {**from_boxes, **from_trailers}
 
     def describe(self, sha: str) -> str:
         subject = self.subjects.get(sha, "")
@@ -307,7 +359,13 @@ class History:
             sha = self._resolve(entry.commit)
             where = f"{entry.filename} [[commits]] entry {entry.index}"
             if sha is None:
-                self.problems.append(f"{where}: unknown commit {entry.commit}")
+                err = _git_error(self.root, "rev-parse", "--verify", f"{entry.commit}^{{commit}}")
+                what = "is ambiguous; give more digits" if "ambiguous" in err else "is not a commit of this repository"
+                self.problems.append(f"{where}: {entry.commit} {what}")
+                continue
+            if sha not in self.order and not self.is_ancestor(sha, "HEAD"):
+                self.problems.append(f"{where}: {entry.commit} is not in the history of HEAD (rebased or "
+                                     "squashed away?), so it declares nothing")
                 continue
             source = f"{entry.filename} [[commits]] {short(sha)}"
             out.setdefault(sha, {}).update(pieces_from_values(entry.values, source, "commit"))
@@ -353,10 +411,13 @@ class History:
         """The declaration of a commit: its trailers, corrected axis by axis by [[commits]]."""
         if sha not in self._trailers:  # a commit of a merged branch
             out = _git(self.root, "log", "-1", f"--format={self.FORMAT}", sha, check=False) or ""
-            _, _, subject, rest = (out.split("\x1f", 3) + ["", "", ""])[:4]
+            _, parents, subject, rest = (out.split("\x1f", 3) + ["", "", ""])[:4]
             self.subjects.setdefault(sha, subject.strip())
+            self.parents.setdefault(sha, parents.split())
             self._trailers[sha] = self._declaration(sha, rest)
         pieces = dict(self._trailers[sha])
+        if sha in self._both and sha not in self.corrections:
+            pieces = {i: replace(p, problems=p.problems + (self._both[sha],)) for i, p in pieces.items()}
         pieces.update(self.corrections.get(sha, {}))
         return pieces
 
@@ -371,8 +432,62 @@ class History:
             self._branch_cache[merge] = found
         return self._branch_cache[merge]
 
+    def is_ancestor(self, a: str, b: str) -> bool:
+        if (a, b) not in self._ancestor:
+            try:
+                r = subprocess.run(["git", "-C", str(self.root), "merge-base", "--is-ancestor", a, b],
+                                   capture_output=True)
+                self._ancestor[(a, b)] = r.returncode == 0
+            except FileNotFoundError:
+                raise HistoryError("git is not installed")
+        return self._ancestor[(a, b)]
+
+    def side(self, merge: str) -> set[str]:
+        """The commits a merge commit brought in (those of its other parents)."""
+        if merge not in self._sides:
+            parents = self.parents.get(merge) or (_git(self.root, "rev-parse", f"{merge}^@", check=False) or "").split()
+            exclude = [f"^{parents[0]}"] if parents else []
+            out = _git(self.root, "rev-list", merge, *exclude, check=False) or ""
+            self._sides[merge] = set(out.split()) - {merge}
+        return self._sides[merge]
+
+    def inner_merges(self, landing: str) -> list[str]:
+        """The merge commits a landing merge brought in, innermost first."""
+        if landing not in self._inner:
+            parents = self.parents.get(landing, [])
+            out = (_git(self.root, "rev-list", "--merges", landing, f"^{parents[0]}", check=False) or "") if parents else ""
+            merges = [m for m in out.split() if m != landing]
+            self._inner[landing] = sorted(merges, key=lambda m: len(self.side(m)))
+        return self._inner[landing]
+
+    def is_preview(self, sha: str | None) -> bool:
+        """Whether a commit is the merge preview of a pull request's CI run (refs/pull/N/merge):
+        HEAD, a merge of two parents, with GitHub's subject."""
+        return bool(sha) and sha == self.head and len(self.parents.get(sha, [])) == 2 \
+            and bool(PREVIEW_MERGE.match(self.subjects.get(sha, "")))
+
+    def chain(self, commit: str, orig: str | None) -> list[tuple[str, dict[int, Piece]]]:
+        """The commits that declare a line, outermost (latest) first, each with its declaration:
+        the commit that landed it, the merges inside it that brought the line in, and the commit
+        of a merged branch that wrote it. In a pull request's merge preview, [history]
+        merge-method says which of them will be there once it lands."""
+        members = [commit]
+        if orig and orig != commit and len(self.parents.get(commit, [])) > 1 and self._branch_declares(commit):
+            inner = [m for m in self.inner_merges(commit) if orig in self.side(m)]
+            members += list(reversed(inner)) + [orig]  # outermost first
+            if self.is_preview(commit):
+                method = self.config.history.merge_method
+                if method == "squash":  # the branch's commits won't be there, only the squash commit
+                    members = [commit]
+                elif method == "rebase":  # each commit of the branch lands itself
+                    members = members[1:]
+        return [(m, self.commit_pieces(m)) for m in members]
+
     # ------------------------------------------------------------ attestations
-    def _load_attestations(self) -> dict[str, list[tuple[int, dict[int, Piece]]]]:
+    def _load_attestations(self) -> dict[str, list[tuple[int, str | None, dict[int, Piece]]]]:
+        """Per file: (ordinal, commit, pieces) of each attestation. The commit is set when the checked
+        content is on a merged branch only (a pull request whose file main changed meanwhile): then
+        the attestation covers the lines whose original commit the checked content contained."""
         out: dict[str, list] = {}
         for a in self.config.attestations:
             where = f"{a.filename} [[attestations]] entry {a.index}"
@@ -381,14 +496,14 @@ class History:
             if not (self.root / path).is_file():
                 self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
                 continue
-            ordinal = self._blob_ordinal(set(names), path, a.blob)
+            ordinal, commit = self._blob_ordinal(set(names), path, a.blob)
             if ordinal is None:
                 self.problems.append(f"{where}: the checked content of {a.path} ({a.blob[:7]}) is neither in the "
                                      f"history of this file on this branch nor its current content; run 'aisignoff attest' "
                                      f"again")
                 continue
             pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
-            out.setdefault(path, []).append((ordinal, pieces))
+            out.setdefault(path, []).append((ordinal, commit, pieces))
         return out
 
     def renames(self) -> list[tuple[str, str]]:
@@ -422,29 +537,58 @@ class History:
                     names.append(new)
         return names
 
-    def _blob_ordinal(self, names: set[str], path: str, blob: str) -> int | None:
-        """When the checked content last appeared at the attested file on this branch (ordinal of
-        that commit), under any of its names. The same content in another file doesn't count, so
-        a copy can't extend an attestation to lines added since. The current file counts as newest
-        (an attestation written before its commit): then every line is the checked content."""
+    def _blob_ordinal(self, names: set[str], path: str, blob: str) -> tuple[int | None, str | None]:
+        """When the checked content last appeared at the attested file (ordinal of that commit on
+        this branch), under any of its names. The same content in another file doesn't count, so a
+        copy can't extend an attestation to lines added since. The current file counts as newest
+        (an attestation written before its commit): then every line is the checked content. Content
+        that only a merged branch had (main changed the file meanwhile) gives the ordinal of the
+        merge and that branch's commit."""
         current = _git(self.root, "hash-object", "--", path, check=False)
         if current and current.strip() == blob:
-            return self.newest
-        if self.order:
-            args = ["log", "--first-parent", "--no-abbrev", "--raw", "--no-renames", "--relative", "-z",
-                    "--format=%x1e%H", f"--find-object={blob}", "HEAD"]
-            out = _git(self.root, args[0], "--diff-merges=first-parent", *args[1:], check=False)
-            if out is None:  # git older than 2.31
-                out = _git(self.root, *args, check=False) or ""
-            for record in out.split("\x1e"):
-                fields = record.strip("\n\0").split("\0")
-                sha = fields[0].strip()
-                # with -z: ":meta" and the path alternate
-                for meta, name in zip(fields[1::2], fields[2::2]):
-                    meta = meta.split()
-                    if len(meta) >= 4 and meta[3] == blob and name in names and sha in self.order:
-                        return self.order[sha]
-        return None
+            return self.newest, None
+        if not self.order:
+            return None, None
+        base = ["log", "--no-abbrev", "--raw", "--no-renames", "--relative", "-z", "--format=%x1e%H",
+                f"--find-object={blob}", "HEAD"]
+        out = _git(self.root, base[0], "--first-parent", "--diff-merges=first-parent", *base[1:], check=False)
+        if out is None:  # git older than 2.31
+            out = _git(self.root, base[0], "--first-parent", *base[1:], check=False) or ""
+        for sha in self._find_blob(out, names, blob):
+            if sha in self.order:
+                return self.order[sha], None
+        for sha in self._find_blob(_git(self.root, *base, check=False) or "", names, blob):
+            landing = self._landing(sha)
+            if landing:
+                return self.order[landing], sha
+        return None, None
+
+    @staticmethod
+    def _find_blob(out: str, names: set[str], blob: str) -> list[str]:
+        """The commits of 'git log --raw -z' output that wrote the blob at one of the names, newest first."""
+        found = []
+        for record in out.split("\x1e"):
+            fields = record.strip("\n\0").split("\0")
+            sha = fields[0].strip()
+            # with -z: ":meta" and the path alternate
+            for meta, name in zip(fields[1::2], fields[2::2]):
+                meta = meta.split()
+                if len(meta) >= 4 and meta[3] == blob and name in names:
+                    found.append(sha)
+                    break
+        return found
+
+    def _landing(self, sha: str) -> str | None:
+        """The first commit of this branch's first-parent chain that contains a commit."""
+        chain = sorted(self.order, key=self.order.get)
+        lo, hi = 0, len(chain)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if self.is_ancestor(sha, chain[mid]):
+                hi = mid
+            else:
+                lo = mid + 1
+        return chain[lo] if lo < len(chain) else None
 
     # ------------------------------------------------------------ blame
     def _blame(self, path: str, first_parent: bool) -> list[str | None]:
@@ -485,13 +629,11 @@ class History:
             n = data.count(b"\n") + (not data.endswith(b"\n"))
             return [UNCOMMITTED] * n, None
         landing = self._blame(path, first_parent=True)
-        needs_branch = {c for c in set(landing) if c and len(self.parents.get(c, [])) > 1
-                        and self._branch_declares(c)}
-        original = self._blame(path, first_parent=False) if needs_branch else None
+        needs_branch = any(c and len(self.parents.get(c, [])) > 1 and self._branch_declares(c) for c in set(landing))
+        off_chain = any(commit for _, commit, _ in self.attestations.get(path, []))
+        original = self._blame(path, first_parent=False) if needs_branch or off_chain else None
         if original is not None and len(original) != len(landing):
             original = None
-        if original is not None:
-            original = [o if l in needs_branch else None for l, o in zip(landing, original)]
         return landing, original
 
     # ------------------------------------------------------------ resolution
@@ -529,35 +671,79 @@ class History:
         return sorted(parts.values(), key=lambda p: p.runs[0][0])
 
     def _line_pieces(self, commit, orig, attestations, fb) -> tuple:
+        """One piece per axis for the lines that one commit landed (and, inside a merge, another
+        commit wrote). Generation: the most specific declaration (an attestation, the branch commit
+        that wrote the line, the merges it came through, innermost first, the commit that landed
+        it). Reviews: the highest level any of them declares: each of them saw the line as it is,
+        and a later review of the whole doesn't undo a closer one (a level that is too high is
+        corrected with a [[commits]] entry). Lines that none of them declares at all take the
+        file-level declaration; an axis left out by a declaration that gives others is missing."""
         if commit == UNCOMMITTED:
-            ordinal, own = self.newest, {}
+            ordinal, members = self.newest, []
         elif commit is None:  # a shallow boundary: older than anything we can see
-            ordinal, own = 0, {}
+            ordinal, members = 0, []
         else:
             ordinal = self.order.get(commit, 0)
-            own = self.commit_pieces(commit)
-            if orig and orig != commit:  # the merge declares the branch; a commit of it overrides, per axis
-                own = dict(own)
-                for i, p in self.commit_pieces(orig).items():
-                    own[i] = Piece(p.level, p.names, p.source, "branch", p.problems)
+            members = self.chain(commit, orig)
+        # the declaration given with 'aisignoff diff --declare' stands for the landing commit
+        declare = bool(self.declared) and ordinal > self.declared_after and not (
+            self.is_preview(commit) and self.config.history.merge_method == "rebase")
+        layers = []  # (rank, kind, pieces), latest first
+        for n, (sha, pieces) in enumerate(members):
+            kind = "commit" if sha == commit else "branch"
+            if n == 0 and declare:
+                pieces = {**self.declared, **pieces}
+            layers.append((len(members) - n, kind, pieces))
+        if not members and declare:
+            layers.append((1, "declared", dict(self.declared)))
+        attested = []
+        for a_ordinal, a_commit, pieces in attestations:
+            covers = (orig not in (None, UNCOMMITTED) and self.is_ancestor(orig, a_commit)) if a_commit \
+                else a_ordinal >= ordinal
+            if covers:
+                attested.append(((a_ordinal, len(attested)), pieces))
+        problems = tuple(dict.fromkeys(x for _, _, pieces in layers for p in pieces.values() for x in p.problems))
+        declares = any(pieces for _, _, pieces in layers)
         out = []
         for i, (level, _) in enumerate(AXES):
-            best, best_rank = None, None
-            p = own.get(i)
-            if p is None and self.declared.get(i) and ordinal > self.declared_after:
-                p = self.declared[i]
-            if p is not None:
-                best, best_rank = p, (ordinal, 0)
-            for a_ordinal, pieces in attestations:
-                if i in pieces and a_ordinal >= ordinal and (best_rank is None or (a_ordinal, 1) > best_rank):
-                    best, best_rank = pieces[i], (a_ordinal, 1)
-            if best is None:
-                if self.since is not None and commit not in (None, UNCOMMITTED) and ordinal > self.since \
-                        and not PREVIEW_MERGE.match(self.subjects.get(commit, "")):
-                    best = Piece(None, (), self.describe(commit), "required",
-                                 (f"{self.describe(commit)} has no {level} trailer "
-                                  f"(required by [history] require-trailers-since)",))
-                else:
-                    best = fb.get(i)
+            from_attestation = [(rank, pieces[i]) for rank, pieces in attested if i in pieces]
+            from_layers = [(rank, "declared" if pieces[i].kind == "declared" else kind, pieces[i])
+                           for rank, kind, pieces in layers if i in pieces]
+            best = None
+            if i == 0:  # generation: the most specific
+                if from_attestation:
+                    best = max(from_attestation, key=lambda t: t[0])[1]
+                elif from_layers:  # a level beats TODO
+                    filled = [t for t in from_layers if _level_value(t[2].level) >= 0] or from_layers
+                    rank, kind, p = min(filled, key=lambda t: t[0])
+                    best = replace(p, kind=kind)
+            else:  # reviews: the highest; the later one on a tie
+                found = [((_level_value(p.level), 1, rank), p) for rank, p in from_attestation]
+                found += [((_level_value(p.level), 0, (rank, 0)), replace(p, kind=kind)) for rank, kind, p in from_layers]
+                if found:
+                    best = max(found, key=lambda t: t[0])[1]
+            if best is not None:
+                best = replace(best, problems=tuple(dict.fromkeys(best.problems + problems)))
+            elif declares and not (self.is_preview(commit) and not declare):
+                # (a merge preview without --declare: the pull request's description is still to come)
+                who = self.describe(commit) if commit not in (None, UNCOMMITTED) and members \
+                    else "the declaration of this change"
+                best = Piece(None, (), who, "required",
+                             problems + (f"{who} declares levels, but no {level} (nor does a pull request "
+                                         f"or commit around it)",))
+            elif self.since is not None and commit not in (None, UNCOMMITTED) and ordinal > self.since \
+                    and not self.is_preview(commit):
+                best = Piece(None, (), self.describe(commit), "required",
+                             (f"{self.describe(commit)} has no {level} trailer "
+                              f"(required by [history] require-trailers-since)",))
+            else:
+                best = fb.get(i)
+                if best is not None and problems:
+                    best = replace(best, problems=tuple(dict.fromkeys(best.problems + problems)))
             out.append(best)
         return tuple(out)
+
+
+def _level_value(level: str | None) -> int:
+    """For comparing review levels: TODO (or nothing) below any level."""
+    return int(level[1]) if level and len(level) == 2 and level[1].isdigit() else -1

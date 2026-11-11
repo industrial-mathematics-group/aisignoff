@@ -5,12 +5,11 @@
 #
 #   - writes "aisignoff diff" to the job summary: the levels of the added and removed lines per
 #     folder, attestations the pull request adds, and how the repository's shares move
-#   - declares the pull request's lines from the trailers at the end of its description
-#     (AI-Generation, Human-Review, AI-Review and the names, written "Key: value" as in a commit
-#     message, in the last paragraph), read as git reads them in the merge or squash commit when the
-#     repository's default commit message is "Pull request title and description". Invalid
-#     levels are skipped with a warning. Without trailers, the ticked checkboxes of the pull
-#     request template count instead, as aisignoff reads them in that commit (not both).
+#   - declares the pull request's lines from its description, as aisignoff reads the merge or
+#     squash commit when the repository's default commit message is "Pull request title and
+#     description": "Key: value" lines (AI-Generation, Human-Review, AI-Review and the names), or
+#     the ticked checkboxes of the pull request template (not both; both is a warning). Invalid
+#     levels are skipped with a warning.
 #
 # It only reads the repository, so it also works for pull requests from forks. It doesn't
 # fail the check on its own: that's the job of "aisignoff lint".
@@ -24,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.9.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.10.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   diff:
@@ -42,56 +41,33 @@ jobs:
           # the merge preview's first parent: the base branch as this run merged it (the event's
           # base.sha can be older, and then the change would include the base branch's new commits)
           BASE=$(git rev-parse HEAD^1)
-          # the pull request's own declaration: the trailers of its description, read as git reads
-          # them in the squash commit (the last paragraph only), as options for aisignoff diff
+          # the pull request's own declaration, read with aisignoff's own parser (as it will read the
+          # merge or squash commit), as options for aisignoff diff
           python3 - "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/declare" <<'PY'
-          import json, re, subprocess, sys
+          import json, re, sys
+          from aisignoff.history import parse_checkboxes, parse_trailers
 
           pr = json.load(open(sys.argv[1], encoding="utf-8"))["pull_request"]
-          body = pr.get("body") or ""
-          body = body.replace("\r\n", "\n")
-          trailers = subprocess.run(["git", "interpret-trailers", "--parse", "--no-divider"], input=body,
-                                    capture_output=True, text=True, check=True).stdout
-          levels = {"ai-generation": ("--generation", "G"), "human-review": ("--human", "H"),
-                    "ai-review": ("--ai", "A")}
-          names = {"assisted-by": "--assisted-by", "reviewed-by": "--reviewed-by",
-                   "ai-reviewed-by": "--ai-reviewed-by"}
-          out, found = [], {}
-          for line in trailers.splitlines():
-              key, _, value = line.partition(":")
-              key, value = key.strip().lower(), value.strip()
-              if key in levels:
-                  option, letter = levels[key]
-                  if not re.fullmatch(letter + "[0-3]", value):
-                      if value != "TODO":
-                          print(f"::warning::ignored '{key}: {value}' in the description: not {letter}0 to {letter}3",
-                                file=sys.stderr)
-                      continue
-                  if found.get(option, value) != value:
-                      print(f"::warning::conflicting {key} trailers in the description; using none", file=sys.stderr)
-                      found[option] = None
-                      continue
-                  found[option] = value
-              elif key in names and value and value != "TODO":
-                  out.append(f"{names[key]}={value}")
-          out += [f"{option}={value}" for option, value in found.items() if value]
-          # or else the ticked boxes of the pull request template (aisignoff >= 0.8); not both
-          try:
-              from aisignoff.history import parse_checkboxes
-          except ImportError:
-              parse_checkboxes = None
-          boxes = parse_checkboxes(body, (pr.get("user") or {}).get("login") or "", "the description") \
-              if parse_checkboxes else {}
-          if found and boxes:
+          body = (pr.get("body") or "").replace("\r\n", "\n")
+          trailers = parse_trailers(body, "the description")
+          boxes = parse_checkboxes(body, (pr.get("user") or {}).get("login") or "", "the description")
+          if trailers and boxes:
               print("::warning::the description declares levels both as trailers and as ticked checkboxes; "
                     "use one of them", file=sys.stderr)
-              out = []
-          elif boxes:
-              axes = [("--generation", "--assisted-by"), ("--human", "--reviewed-by"), ("--ai", "--ai-reviewed-by")]
-              for i, piece in boxes.items():
-                  level, who = axes[i]
-                  out.append(f"{level}={piece.level}")
-                  out += [f"{who}={name}" for name in piece.names]
+          axes = [("--generation", "--assisted-by", "G"), ("--human", "--reviewed-by", "H"),
+                  ("--ai", "--ai-reviewed-by", "A")]
+          out = []
+          for i, piece in {**boxes, **trailers}.items():
+              option, who, letter = axes[i]
+              if piece.problems:
+                  print(f"::warning::{piece.problems[0]}", file=sys.stderr)
+              if not re.fullmatch(letter + "[0-3]", piece.level):
+                  if piece.level != "TODO":
+                      print(f"::warning::ignored {piece.level} in the description: not {letter}0 to {letter}3",
+                            file=sys.stderr)
+                  continue
+              out.append(f"{option}={piece.level}")
+              out += [f"{who}={name}" for name in piece.names if name != "TODO"]
           if out:
               print("\n".join(out))
           PY

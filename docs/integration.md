@@ -60,7 +60,7 @@ raw.githubusercontent.com only serves files of public repositories, so the badge
 
 For reviewers: which levels do the lines this pull request adds and removes have? It writes [`aisignoff diff`](history.md#showing-a-change-aisignoff-diff) against the base branch to the job summary: per folder, the levels of the added and removed lines, attestations the pull request adds, and how the shares of the whole repository move.
 
-Before the merge, the pull request's lines have no squash commit with trailers yet. The workflow takes their levels from the trailers at the end of the pull request description (`AI-Generation: G2`, `Assisted-by: …` in its last paragraph), read as git reads them in the merge or squash commit when its default commit message is *Pull request title and description*. Axes without a trailer are taken from the ticked checkboxes of the pull request template, as aisignoff reads them in that commit ([Pull request checkboxes](history.md#pull-request-checkboxes)). Invalid levels are skipped with a warning. It only reads the repository and never fails on its own.
+Before the merge, the pull request's lines have no squash or merge commit yet. The workflow reads the pull request description with aisignoff's own parser, as aisignoff will read the merge or squash commit when its default commit message is *Pull request title and description*: "Key: value" lines (`AI-Generation: G2`, `Assisted-by: …`) or the ticked checkboxes of the pull request template ([Pull request checkboxes](history.md#pull-request-checkboxes)). Invalid levels are skipped with a warning. Set `merge-method` in `[history]` if pull requests land as squash or rebase commits, so the preview matches ([Merge, squash or rebase](history.md#merge-squash-or-rebase)). It only reads the repository and never fails on its own.
 
 ### Changed files of a pull request (`signoff-pr-files.yml`)
 
@@ -87,7 +87,7 @@ aisignoff provides a hook for [pre-commit](https://pre-commit.com), so undeclare
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.9.0   # the same version as in your workflows
+    rev: v0.10.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

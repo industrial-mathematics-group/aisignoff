@@ -233,7 +233,7 @@ def test_corrections_apply_with_an_ignore_revs_file(repo):
         f.write(f'\n[[commits]]\ncommit = "{sha}"\nAI-Generation = "G3"\nAssisted-by = "M"\n')
     write(repo, ".git-blame-ignore-revs", "\n")
     r, _ = result(repo)
-    assert shares(r) == {"G0 H2 A0": 9, "G3 H2 A0": 1}
+    assert shares(r) == {"G0 H2 A0": 9, "G3 -- --": 1}  # the correction leaves the reviews out: missing
 
 
 # ------------------------------------------------------------------ shallow clones
@@ -299,20 +299,20 @@ def test_pr_diff_example_reads_the_trailers_of_the_description(tmp_path):
         r = subprocess.run(["python3", str(script), str(event)], capture_output=True, text=True, check=True)
         return r.stdout.splitlines(), r.stderr
 
-    out, _ = options("Intro\n\nHuman-Review: H3 in prose\n\n```\nAI-Review: A3\n```\n\n"
-                     "AI-Generation: G3\nHuman-Review: H1\nAssisted-by: -odd name\n")
+    out, _ = options("Intro, mentioning Human-Review: H3 in prose\n\n```\nAI-Review: A3\n```\n\n"
+                     "AI-Generation: G3\nHuman-Review: H1\nAssisted-by: -odd name\n\nCo-authored-by: B <b@x>\n")
     assert sorted(out) == ["--assisted-by=-odd name", "--generation=G3", "--human=H1"]
     out, err = options("x\n\nAI-Generation: G2 (mostly)\nHuman-Review: H1\nAI-Review: TODO\n")
     assert out == ["--human=H1"] and "::warning::" in err
     out, err = options("x\n\nAI-Generation: G2\nAI-Generation: G3\n")
-    assert out == [] and "conflicting" in err
+    assert out == ["--generation=G3"] and "conflicting" in err  # reported, as lint reports it
     out, _ = options(TEMPLATE.format(a2=" ", model=""))
     assert sorted(out) == ["--ai-reviewed-by=Claude Opus (Anthropic), self-check by the generating session",
                            "--ai-reviewed-by=Some Model 2, self-check by the generating session", "--ai=A1",
                            "--assisted-by=Claude Opus (Anthropic)", "--assisted-by=Some Model 2", "--generation=G3",
                            "--human=H1"]  # no author in this event, so no --reviewed-by
     out, err = options(TEMPLATE.format(a2=" ", model="") + "\nHuman-Review: H2\nReviewed-by: Max\n")
-    assert out == [] and "both" in err
+    assert "both" in err and "--human=H2" in out and "--reviewed-by=Max" in out and "--ai=A1" in out
 
 
 def test_examples_pin_the_current_version():
@@ -358,7 +358,8 @@ Human review (at least H0 is required; the levels build on each other):
 read the important parts
 - [ ] **H2** I read every changed line
 
-AI review (leave all unticked for A0):
+AI review:
+- [ ] **A0** No AI review
 - [x] **A1** The AI that wrote the change checked its own work
 - [{a2}] **A2** A new AI session, without the generating conversation,
 reviewed the final change and ran the tests. Model, if not one of the

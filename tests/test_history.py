@@ -146,8 +146,9 @@ def test_merge_commit_declares_the_branch_and_its_commits_override(repo):
         "Merge feature\n\n" + G3.replace("Human-Review: H1", "Human-Review: H3").replace("Reviewed-by: Jane", "Reviewed-by: Rita"))
     r, _ = result(repo)
     by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
-    # the commit that wrote line 6 declares generation and AI review; human review comes from the merge
-    assert by_line[6].declaration.short() == "G2 H3 A1" and by_line[6].kinds == ("branch", "commit", "branch")
+    # the commit that wrote line 6 declares generation; reviews take the highest level (on a tie the
+    # later declaration, the merge's)
+    assert by_line[6].declaration.short() == "G2 H3 A1" and by_line[6].kinds == ("branch", "commit", "commit")
     # a branch commit without a declaration takes the merge's (the pull request's) levels
     assert by_line[8].declaration.short() == "G3 H3 A1" and by_line[8].kinds == ("commit", "commit", "commit")
     # main's own commit since the branch point, and lines from before it, aren't the merge's
@@ -179,7 +180,18 @@ def test_require_trailers_since(repo):
     r, _ = result(repo)
     assert any(f"commit {sha[:7]}" in e and "no AI-Generation trailer" in e for e in r.errors)
     assert not any(e.endswith("missing AI-Generation") for e in r.errors)
-    git(repo, "commit", "-q", "--amend", "-m", f"Merge {'a' * 40} into {'b' * 40}")  # a pull request's merge preview
+    preview = f"Merge {'a' * 40} into {'b' * 40}"
+    git(repo, "commit", "-q", "--amend", "-m", preview)  # only the subject of a merge preview: not exempt
+    r, _ = result(repo)
+    assert any("no AI-Generation trailer" in e for e in r.errors)
+    git(repo, "reset", "-q", "--hard", "HEAD~1")
+    git(repo, "checkout", "-q", "-b", "pr")
+    edit_lines(repo, [7])
+    commit(repo, "no trailers, on a pull request")
+    git(repo, "checkout", "-q", "main")
+    edit_lines(repo, [1], text="main")
+    commit(repo, "main moves on", G3)
+    git(repo, "merge", "-q", "--no-ff", "pr", "-m", preview)  # the merge preview a pull request's CI run checks out
     r, _ = result(repo)
     assert r.errors == []
 
@@ -286,8 +298,13 @@ def test_diff_declare_fills_uncommitted_lines(repo, capsys):
     assert main(["--root", str(repo), "diff", base, "--json", "-g", "G2", "--assisted-by", "M",
                  "-a", "A1", "--ai-reviewed-by", "M"]) == 0
     data = json.loads(capsys.readouterr().out)
+    # a declaration that leaves out an axis doesn't take it from the file: it is missing
+    assert data["total"]["levels_added"]["AI-Generation"] == {"undeclared": 1}
+    assert main(["--root", str(repo), "diff", base, "--json", "-g", "G2", "--assisted-by", "M", "-H", "H1",
+                 "--reviewed-by", "R", "-a", "A1", "--ai-reviewed-by", "M"]) == 0
+    data = json.loads(capsys.readouterr().out)
     assert data["total"]["levels_added"]["AI-Generation"] == {"G2": 1}
-    assert data["total"]["levels_added"]["Human-Review"] == {"H2": 1}  # not declared: from the annotation
+    assert data["total"]["levels_added"]["Human-Review"] == {"H1": 1}
     assert main(["--root", str(repo), "diff", "nope"]) == 2
 
 

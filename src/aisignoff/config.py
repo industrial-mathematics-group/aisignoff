@@ -20,6 +20,7 @@ Format::
     [history]                            # optional: line-level declarations from git history
     enabled = true
     require-trailers-since = "1a2b3c4"   # optional: newer commits must declare their levels
+    merge-method = "merge"               # optional: how pull requests land (merge, squash, rebase)
 
     [[commits]]                          # corrects or adds the declaration of a commit
     commit = "1a2b3c4"
@@ -46,7 +47,8 @@ FILENAME = "SIGNOFF.toml"
 LEGACY_FILENAME = "AIDECL.toml"  # the name before aidecl became aisignoff; read until migrated
 VERSION = 3
 PRECEDENCES = ("closest", "override")
-HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file")
+HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace")
+MERGE_METHODS = ("merge", "squash", "rebase")
 _HEX = set("0123456789abcdef")
 
 
@@ -80,6 +82,8 @@ class HistorySettings:
     enabled: bool = False
     require_trailers_since: str | None = None
     ignore_revs_file: str | None = None  # default: .git-blame-ignore-revs if it exists
+    merge_method: str = "merge"  # how pull requests land: what a pull request's CI run previews
+    ignore_whitespace: bool = True  # git blame -w
 
 
 @dataclass
@@ -293,4 +297,11 @@ def _parse_history(table, name: str) -> HistorySettings:
     revs = table.get("ignore-revs-file")
     if revs is not None and (not isinstance(revs, str) or not revs):
         raise ConfigError(f"{where}: 'ignore-revs-file' must be a path")
-    return HistorySettings(enabled=enabled, require_trailers_since=since, ignore_revs_file=revs)
+    method = table.get("merge-method", "merge")
+    if method not in MERGE_METHODS:
+        raise ConfigError(f"{where}: 'merge-method' must be one of {', '.join(MERGE_METHODS)}")
+    whitespace = table.get("ignore-whitespace", True)
+    if not isinstance(whitespace, bool):
+        raise ConfigError(f"{where}: 'ignore-whitespace' must be true or false")
+    return HistorySettings(enabled=enabled, require_trailers_since=since, ignore_revs_file=revs,
+                           merge_method=method, ignore_whitespace=whitespace)
