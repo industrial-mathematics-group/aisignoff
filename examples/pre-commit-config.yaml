@@ -3,7 +3,7 @@
 # then run "pre-commit install".
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.4.3   # a release tag; the hook exists from the first release after v0.4.2
+    rev: v0.5.0   # a release tag; the hook exists from the first release after v0.4.2
     hooks:
       - id: aisignoff-lint
 

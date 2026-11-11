@@ -4,9 +4,9 @@
 [![PyPI](https://img.shields.io/pypi/v/aisignoff.svg)](https://pypi.org/project/aisignoff/)
 [![Docs](https://img.shields.io/badge/docs-online-9558B2.svg)](https://industrial-mathematics-group.github.io/aisignoff/)
 
-[![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-generation.json)](https://industrial-mathematics-group.github.io/aisignoff/#the-levels)
-[![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-human-review.json)](https://industrial-mathematics-group.github.io/aisignoff/#the-levels)
-[![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-ai-review.json)](https://industrial-mathematics-group.github.io/aisignoff/#the-levels)
+[![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-generation.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
+[![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-human-review.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
+[![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-ai-review.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
 
 **Declare and check how each file in a repository was created and reviewed:** how much an AI generated (G0–G3), how thoroughly a human reviewed it (H0–H3), and how thoroughly an AI reviewed it (A0–A3).
 
@@ -57,16 +57,21 @@ Reviewed-by = ["Jane Doe"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), same session"]
 ```
 
+## Folder report
+
+The badges summarise the whole repository; `aisignoff report --tree` shows the level mix of every folder, and `aisignoff report --html report.html` writes an interactive page with a sunburst and a folder table, like a coverage report for AI use. See [Folder report](https://industrial-mathematics-group.github.io/aisignoff/report/) and [aisignoff's own](https://industrial-mathematics-group.github.io/aisignoff/signoff/).
+
 ## Example workflows
 
 Copy one of these into `.github/workflows/` to check the declarations in CI (details in [Example workflows](https://industrial-mathematics-group.github.io/aisignoff/integration/)):
 
 | File | What it does |
 |---|---|
-| [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | fails when a file has no valid declaration, with the summary in the job summary |
+| [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-lint.yml) | fails when a file has no valid declaration, with the folder tree in the job summary and the folder report as an artifact |
 | [`signoff-badges.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-badges.yml) | the same, plus README badges on a `badges` branch |
 | [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | shows reviewers the declarations of the files a pull request changes |
-| [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the declarations of all files to each GitHub release |
+| [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the declarations of all files and the folder report to each GitHub release |
+| [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | publishes the folder report to GitHub Pages |
 | [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) | runs `aisignoff lint` before each commit, with [pre-commit](https://pre-commit.com) |
 
 Repositories of the Industrial Mathematics Group use the organisation's ready-made workflows instead of the first two (*Actions → New workflow*).
@@ -77,6 +82,7 @@ Repositories of the Industrial Mathematics Group use the organisation's ready-ma
 - [the levels](https://industrial-mathematics-group.github.io/aisignoff/#the-levels);
 - [the `SIGNOFF.toml` format](https://industrial-mathematics-group.github.io/aisignoff/signoff-toml/) and [inline tags](https://industrial-mathematics-group.github.io/aisignoff/inline-tags/);
 - [all commands](https://industrial-mathematics-group.github.io/aisignoff/commands/);
+- [the folder report](https://industrial-mathematics-group.github.io/aisignoff/report/);
 - [CI and badges](https://industrial-mathematics-group.github.io/aisignoff/ci/) and [example workflows](https://industrial-mathematics-group.github.io/aisignoff/integration/);
 - [migrating from aidecl](https://industrial-mathematics-group.github.io/aisignoff/migrating/).
 

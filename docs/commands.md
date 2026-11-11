@@ -5,7 +5,7 @@
 | `aisignoff init` | Create `SIGNOFF.toml`, optionally with a default for all files |
 | `aisignoff annotate PATHS …` | Append an annotation, or tag the files themselves with `--inline` |
 | `aisignoff lint` | Fail if any file lacks a valid declaration |
-| `aisignoff report` | Summarise the declarations |
+| `aisignoff report` | Summarise the declarations, per folder with `--tree`, as an interactive page with `--html` |
 | `aisignoff badge` | Write shields.io badge files |
 | `aisignoff migrate` | Convert declarations of earlier versions |
 
@@ -59,12 +59,18 @@ Fails if any file lacks a valid declaration, falls below the policy, or if no fi
 
 ```bash
 aisignoff report [--files] [--json]
+aisignoff report --tree [--depth N] [--weight files|lines] [--files] [--markdown | --json]
+aisignoff report --html PATH [--title TITLE]
 ```
 
 A summary per axis by default. Invalid declarations count as "undeclared", as in the badges.
 
 - `--files`: one line per file, with its levels, where they come from, and any problems.
 - `--json`: the same per file, machine-readable.
+- `--tree`: the level mix of each folder. With `--markdown` a Markdown table (for job summaries), with `--json` the whole tree with its counts.
+- `--html PATH`: an interactive folder report in a single HTML file.
+
+Both are described in [Folder report](report.md).
 
 ## badge
 

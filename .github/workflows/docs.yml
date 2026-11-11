@@ -1,5 +1,6 @@
-# Builds the documentation (Zensical, docs/ and zensical.toml) on every pull request and
-# publishes it to GitHub Pages on pushes to main.
+# Builds the documentation (Zensical, docs/ and zensical.toml) and the folder report of the
+# repository's own declarations (site/signoff/) on every pull request, and publishes both to
+# GitHub Pages on pushes to main.
 # Needs Settings → Pages → Build and deployment → Source: "GitHub Actions".
 name: Docs
 
@@ -26,6 +27,10 @@ jobs:
           python-version: "3.12"
       - run: pip install -r docs/requirements.txt
       - run: zensical build --clean --strict
+      - name: Add the folder report of aisignoff itself (site/signoff/)
+        run: |
+          pip install .
+          aisignoff report --html site/signoff/index.html --title "aisignoff"
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:

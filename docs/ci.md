@@ -46,6 +46,8 @@ Publish the files somewhere public, such as a `badges` branch, and link them fro
 ![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-ai-review.json)
 ```
 
+For the detail behind the badges, which folders and files make up each share, see the [folder report](report.md). The badges can link to it instead of to the levels.
+
 ## Other tools
 
-Anything that runs Python works the same way: install aisignoff and run `aisignoff lint`. It exits with `1` when declarations are missing or invalid, and `2` on configuration errors. `aisignoff report --json` gives the declarations of all files for your own checks.
+Anything that runs Python works the same way: install aisignoff and run `aisignoff lint`. It exits with `1` when declarations are missing or invalid, and `2` on configuration errors. `aisignoff report --json` gives the declarations of all files for your own checks, and `aisignoff report --html` an interactive [folder report](report.md).

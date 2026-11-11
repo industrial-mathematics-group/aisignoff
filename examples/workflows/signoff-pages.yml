@@ -1,0 +1,54 @@
+# Example workflow: publish the interactive folder report of the AI declarations to GitHub Pages.
+# Copy it to .github/workflows/ in your repository. Opt-in: only for repositories that don't use
+# GitHub Pages for anything else (a repository has one Pages site). With a documentation site,
+# write the report into the site instead (see "Folder report" in the aisignoff documentation).
+#
+# Needs Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# The report is then at https://<owner>.github.io/<repo>/ and updates on every push to main.
+# Pages of private repositories need a paid GitHub plan and are visible to everyone with repository access.
+name: aisignoff report on Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aisignoff-pages
+  cancel-in-progress: true
+
+env:
+  AISIGNOFF_VERSION: "0.5.0"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
+      - name: Write the report
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          aisignoff report --html "$RUNNER_TEMP/site/index.html"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
