@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aisignoff"
-version = "0.7.0"
+version = "0.7.1"
 description = "Sign off on AI use per file: declare and check AI generation (G0-G3), human review (H0-H3) and AI review (A0-A3), REUSE-style."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,9 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = []
+
+[dependency-groups]
+dev = ["pytest"]
 
 [project.scripts]
 aisignoff = "aisignoff.cli:main"

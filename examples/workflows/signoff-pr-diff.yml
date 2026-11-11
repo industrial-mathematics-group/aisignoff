@@ -5,10 +5,12 @@
 #
 #   - writes "aisignoff diff" to the job summary: the levels of the added and removed lines per
 #     folder, attestations the pull request adds, and how the repository's shares move
-#   - declares the pull request's lines from trailer lines in its description (AI-Generation,
-#     Human-Review, AI-Review and the names, written "Key: value" as in a commit message), the
-#     same lines that end up in the squash commit when the repository's default commit message
-#     is "Pull request title and description"
+#   - declares the pull request's lines from the trailers at the end of its description
+#     (AI-Generation, Human-Review, AI-Review and the names, written "Key: value" as in a commit
+#     message, in the last paragraph), read as git reads them in the squash commit when the
+#     repository's default commit message is "Pull request title and description". Invalid
+#     levels are skipped with a warning. Ticked checkboxes are not trailers: declare levels as
+#     "Key: value" lines.
 #
 # It only reads the repository, so it also works for pull requests from forks. It doesn't
 # fail the check on its own: that's the job of "aisignoff lint".
@@ -22,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.7.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.7.1"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   diff:
@@ -36,22 +38,44 @@ jobs:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
       - name: Declarations of the changed lines
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          # the pull request's own declaration: trailer lines in its description, as options for aisignoff diff
+          # the merge preview's first parent: the base branch as this run merged it (the event's
+          # base.sha can be older, and then the change would include the base branch's new commits)
+          BASE=$(git rev-parse HEAD^1)
+          # the pull request's own declaration: the trailers of its description, read as git reads
+          # them in the squash commit (the last paragraph only), as options for aisignoff diff
           python3 - "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/declare" <<'PY'
-          import json, re, sys
+          import json, re, subprocess, sys
 
           body = json.load(open(sys.argv[1], encoding="utf-8"))["pull_request"].get("body") or ""
-          options = {"ai-generation": "--generation", "human-review": "--human", "ai-review": "--ai",
-                     "assisted-by": "--assisted-by", "reviewed-by": "--reviewed-by",
-                     "ai-reviewed-by": "--ai-reviewed-by"}
-          for line in body.splitlines():
-              m = re.match(r"^\s*([A-Za-z-]+):\s*(\S.*?)\s*$", line)
-              if m and m.group(1).lower() in options and m.group(2) != "TODO":
-                  print(options[m.group(1).lower()])
-                  print(m.group(2))
+          body = body.replace("\r\n", "\n")
+          trailers = subprocess.run(["git", "interpret-trailers", "--parse", "--no-divider"], input=body,
+                                    capture_output=True, text=True, check=True).stdout
+          levels = {"ai-generation": ("--generation", "G"), "human-review": ("--human", "H"),
+                    "ai-review": ("--ai", "A")}
+          names = {"assisted-by": "--assisted-by", "reviewed-by": "--reviewed-by",
+                   "ai-reviewed-by": "--ai-reviewed-by"}
+          found = {}
+          for line in trailers.splitlines():
+              key, _, value = line.partition(":")
+              key, value = key.strip().lower(), value.strip()
+              if key in levels:
+                  option, letter = levels[key]
+                  if not re.fullmatch(letter + "[0-3]", value):
+                      if value != "TODO":
+                          print(f"::warning::ignored '{key}: {value}' in the description: not {letter}0 to {letter}3",
+                                file=sys.stderr)
+                      continue
+                  if found.get(option, value) != value:
+                      print(f"::warning::conflicting {key} trailers in the description; using none", file=sys.stderr)
+                      found[option] = None
+                      continue
+                  found[option] = value
+              elif key in names and value and value != "TODO":
+                  print(f"{names[key]}={value}")
+          for option, value in found.items():
+              if value:
+                  print(f"{option}={value}")
           PY
           mapfile -t DECLARE < "$RUNNER_TEMP/declare"
           {

@@ -60,7 +60,7 @@ raw.githubusercontent.com only serves files of public repositories, so the badge
 
 For reviewers: which levels do the lines this pull request adds and removes have? It writes [`aisignoff diff`](history.md#showing-a-change-aisignoff-diff) against the base branch to the job summary: per folder, the levels of the added and removed lines, attestations the pull request adds, and how the shares of the whole repository move.
 
-Before the merge, the pull request's lines have no squash commit with trailers yet. The workflow takes their levels from trailer lines in the pull request description (`AI-Generation: G2`, `Assisted-by: …`), the same lines that land in the squash commit when the repository's default commit message is *Pull request title and description*. It only reads the repository and never fails on its own.
+Before the merge, the pull request's lines have no squash commit with trailers yet. The workflow takes their levels from the trailers at the end of the pull request description (`AI-Generation: G2`, `Assisted-by: …` in its last paragraph), read as git reads them in the squash commit when the repository's default commit message is *Pull request title and description*. Invalid levels are skipped with a warning; ticked checkboxes are not trailers. It only reads the repository and never fails on its own.
 
 ### Changed files of a pull request (`signoff-pr-files.yml`)
 
@@ -87,9 +87,9 @@ aisignoff provides a hook for [pre-commit](https://pre-commit.com), so undeclare
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.5.0   # the hook exists from the first release after v0.4.2
+    rev: v0.7.1   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```
 
-It checks the whole repository, not just the staged files, because a declaration in `SIGNOFF.toml` can change the levels of files elsewhere. For releases up to v0.4.2, [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) shows a `repo: local` hook that installs aisignoff from PyPI.
+It checks the whole repository, not just the staged files, because a declaration in `SIGNOFF.toml` can change the levels of files elsewhere. Keep `rev` at the version your workflows pin: an older hook rejects newer `SIGNOFF.toml` features, such as `[history]` before v0.6.0. For releases up to v0.4.2, [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) shows a `repo: local` hook that installs aisignoff from PyPI.

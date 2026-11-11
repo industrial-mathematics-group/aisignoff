@@ -12,7 +12,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, Declaration, validate
+from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, Declaration, printable, validate
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
@@ -30,25 +30,88 @@ def _git(root: Path, *args: str, check: bool = True) -> str:
     return r.stdout.decode("utf-8", "surrogateescape") if r.returncode == 0 else ""
 
 
+_ESCAPES = {ord("a"): 7, ord("b"): 8, ord("t"): 9, ord("n"): 10, ord("v"): 11, ord("f"): 12, ord("r"): 13,
+            ord('"'): 34, ord("\\"): 92}
+
+
 def _unquote(path: str) -> str:
-    """Undo git's C-style quoting of unusual paths ("a\\tb")."""
-    if not (path.startswith('"') and path.endswith('"')):
+    """Undo git's C-style quoting of unusual paths ("a\\tb", "\\303\\274"), on the bytes."""
+    if not (len(path) >= 2 and path.startswith('"') and path.endswith('"')):
         return path
-    raw = path[1:-1].encode("latin-1", "backslashreplace").decode("unicode_escape")
-    return raw.encode("latin-1", "surrogateescape").decode("utf-8", "surrogateescape")
+    raw = path[1:-1].encode("utf-8", "surrogateescape")
+    out = bytearray()
+    i = 0
+    while i < len(raw):
+        c = raw[i]
+        if c == 92 and i + 1 < len(raw):  # backslash
+            nxt = raw[i + 1]
+            if 48 <= nxt <= 55 and i + 4 <= len(raw) and all(48 <= x <= 55 for x in raw[i + 1:i + 4]):
+                out.append(int(raw[i + 1:i + 4], 8) & 0xFF)
+                i += 4
+                continue
+            out.append(_ESCAPES.get(nxt, nxt))
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return out.decode("utf-8", "surrogateescape")
+
+
+def _quoted_end(text: str) -> int:
+    """Index just past the quoted string that text starts with."""
+    i = 1
+    while i < len(text):
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == '"':
+            return i + 1
+        i += 1
+    return len(text)
+
+
+def _git_header_paths(rest: str) -> tuple[str | None, str | None]:
+    """The two paths of a 'diff --git a/X b/Y' line (rest: after 'diff --git ').
+
+    Unquoted paths may contain spaces; without a rename both sides are equal, which makes
+    the split unambiguous. Renames are taken from the 'rename from/to' lines instead."""
+    if rest.startswith('"'):
+        end = _quoted_end(rest)
+        a, b = _unquote(rest[:end]), rest[end + 1:]
+    elif rest.endswith('"'):
+        start = rest.rfind(' "')
+        a, b = rest[:start], rest[start + 1:]
+    else:
+        half = (len(rest) - 1) // 2
+        a, b = rest[:half], rest[half + 1:]
+    b = _unquote(b)
+    return (a[2:] if a.startswith("a/") else None), (b[2:] if b.startswith("b/") else None)
+
+
+def _header_path(text: str) -> str | None:
+    """The path of a '--- a/X' or '+++ b/X' header (None: /dev/null). git appends a TAB to
+    names that contain a space."""
+    if text.endswith("\t"):
+        text = text[:-1]
+    p = _unquote(text)
+    return None if p == "/dev/null" else p[2:]
 
 
 def changed_lines(root: Path, base: str) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """(old path, new path) -> (removed line numbers at BASE, added line numbers now).
 
     Compares BASE with the working tree (tracked files, renames detected); untracked files
-    are added by the caller."""
-    out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--unified=0", "--no-color", "--no-ext-diff",
-               "--src-prefix=a/", "--dst-prefix=b/", base, "--")
+    are added by the caller. Paths are relative to root, and only files below root count.
+
+    The file names come from the header of each file's block (from 'diff --git' to its first
+    hunk) only: a removed line "-- comment" reads "--- comment" in the hunk, like a header."""
+    out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color",
+               "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", base, "--")
     result: dict = {}
     old = new = None
     removed: list[int] = []
     added: list[int] = []
+    in_header = False
 
     def flush():
         if old is not None or new is not None:
@@ -57,33 +120,49 @@ def changed_lines(root: Path, base: str) -> dict[tuple[str | None, str | None], 
     for line in out.split("\n"):
         if line.startswith("diff --git "):
             flush()
-            old = new = None
+            old, new = _git_header_paths(line[len("diff --git "):])
             removed, added = [], []
-        elif line.startswith("--- "):
-            p = _unquote(line[4:])
-            old = None if p == "/dev/null" else p[2:]
-        elif line.startswith("+++ "):
-            p = _unquote(line[4:])
-            new = None if p == "/dev/null" else p[2:]
-        elif line.startswith("rename from "):
-            old = _unquote(line[len("rename from "):])
-        elif line.startswith("rename to "):
-            new = _unquote(line[len("rename to "):])
-        elif line.startswith("Binary files ") and line.endswith(" differ"):
-            # a binary file counts as one line, as everywhere else; this line names both sides
-            a, _, b = line[len("Binary files "):-len(" differ")].partition(" and ")
-            a, b = _unquote(a), _unquote(b)
-            old = old if old is not None else (None if a == "/dev/null" else a[2:])
-            new = new if new is not None else (None if b == "/dev/null" else b[2:])
-            removed, added = ([1] if old else []), ([1] if new else [])
+            in_header = True
         elif line.startswith("@@ "):
+            in_header = False
             a, b = line.split(" ")[1:3]
             start, _, count = a[1:].partition(",")
             removed += range(int(start), int(start) + int(count or 1))
             start, _, count = b[1:].partition(",")
             added += range(int(start), int(start) + int(count or 1))
+        elif not in_header:
+            continue  # a line of a hunk
+        elif line.startswith("new file mode"):
+            old = None
+        elif line.startswith("deleted file mode"):
+            new = None
+        elif line.startswith("--- "):
+            old = _header_path(line[4:])
+        elif line.startswith("+++ "):
+            new = _header_path(line[4:])
+        elif line.startswith("rename from "):
+            old = _unquote(line[len("rename from "):])
+        elif line.startswith("rename to "):
+            new = _unquote(line[len("rename to "):])
+        elif line.startswith("Binary files ") and line.endswith(" differ"):
+            # a binary file counts as one line, as everywhere else
+            removed, added = ([1] if old else []), ([1] if new else [])
     flush()
     return result
+
+
+def merge_base(root: Path, base: str) -> str:
+    """The commit a change since BASE starts from: the merge base of BASE and HEAD, so the
+    commits BASE got since don't count as the change's (as a pull request's diff on GitHub)."""
+    sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
+    if not sha:
+        raise DiffError(f"{base} is not a commit")
+    if not _git(root, "rev-parse", "--verify", "--quiet", "HEAD", check=False).strip():
+        return sha
+    common = _git(root, "merge-base", "HEAD", sha, check=False).strip()
+    if not common:
+        raise DiffError(f"{base} and HEAD have no common history")
+    return common
 
 
 def _line_declarations(r: FileResult, lines: list[int]):
@@ -98,9 +177,11 @@ def _line_declarations(r: FileResult, lines: list[int]):
     return out
 
 
-def _with_declared(d: Declaration, kinds, declared: Declaration | None, policy):
-    """File-level mode: a change declared with --declare takes those levels for its added lines."""
-    if declared is None or kinds is not None:
+def _with_declared(d: Declaration, kinds, declared: Declaration | None, policy, history: bool):
+    """File-level mode: a change declared with --declare takes those levels for its added lines.
+    (In history mode, History applies it line by line; files with precedence = "override" stay
+    at their file-level declaration.)"""
+    if declared is None or kinds is not None or history:
         return None
     values = d.as_dict()
     for key, names in ((GEN, "Assisted-by"), (HUM, "Reviewed-by"), (AIR, "AI-Reviewed-by")):
@@ -132,13 +213,15 @@ def _bucket(path: str, depth: int) -> str:
 def compute(project: Project, base: str, declared: Declaration | None = None, depth: int = 1,
             by_file: bool = False) -> dict:
     root = project.root
-    sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
-    if not sha:
-        raise DiffError(f"{base} is not a commit")
+    tip = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
+    sha = merge_base(root, base)
     head = {r.path: r for r in project.results(declared=declared, declared_after=sha)}
+    prefix = _git(root, "rev-parse", "--show-prefix", check=False).strip()  # root below the top of the repo
     with tempfile.TemporaryDirectory(prefix="aisignoff-base-") as tmp:
-        where = Path(tmp) / "base"
-        _git(root, "worktree", "add", "--detach", "--quiet", str(where), sha)
+        top = Path(tmp) / "base"
+        where = top / prefix if prefix else top
+        # no post-checkout hooks: reading BASE must not run the repository's code
+        _git(root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(top), sha)
         try:
             base_project = Project(where)
             base_results = base_project.results(quiet=True)
@@ -150,7 +233,7 @@ def compute(project: Project, base: str, declared: Declaration | None = None, de
         else:
             note = None
         finally:
-            _git(root, "worktree", "remove", "--force", str(where), check=False)
+            _git(root, "worktree", "remove", "--force", str(top), check=False)
     base_map = {r.path: r for r in base_results}
 
     changes = changed_lines(root, sha)
@@ -174,7 +257,7 @@ def compute(project: Project, base: str, declared: Declaration | None = None, de
         row = rows.setdefault(name if by_file else _bucket(name, depth), _empty_row(name if by_file else _bucket(name, depth)))
         if r_new is not None:
             for d, errors, kinds in _line_declarations(r_new, added):
-                replaced = _with_declared(d, kinds, declared, project.config.policy)
+                replaced = _with_declared(d, kinds, declared, project.config.policy, project.history_used)
                 if replaced:
                     d, errors = replaced
                 for target in (row, total):
@@ -194,7 +277,7 @@ def compute(project: Project, base: str, declared: Declaration | None = None, de
     attested = [{"path": a.path, "blob": a.blob, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
                 for a in project.config.attestations if (a.path, a.blob) not in base_attestations]
     return {
-        "base": sha, "base_name": base, "files": files, "history": project.history_used, "note": note,
+        "base": sha, "base_name": base, "base_tip": tip, "files": files, "history": project.history_used, "note": note,
         "rows": [_finish(r) for r in sorted(rows.values(), key=lambda r: (r["name"] != ".", r["name"]))], "total": _finish(total), "attested": attested,
         "before": before, "after": _shares(root, list(head.values())),
         "problems": list(project.history_problems),
@@ -236,12 +319,17 @@ def _moves(data: dict, threshold: float = 0.05) -> list[str]:
     return out
 
 
+def _base_text(data: dict) -> str:
+    merged = "" if data["base"] == data.get("base_tip", data["base"]) else ", merge base"
+    return f"{data['base_name']} ({data['base'][:7]}{merged})"
+
+
 def render_text(data: dict) -> str:
     t = data["total"]
-    head = f"Changes since {data['base_name']} ({data['base'][:7]}): +{t['added']} −{t['removed']} lines in {data['files']} file(s)"
+    head = f"Changes since {_base_text(data)}: +{t['added']} −{t['removed']} lines in {data['files']} file(s)"
     table = [["", "+lines", "-lines", *(f"{title} (added)" for _, title, _ in AXES)]]
     for r in data["rows"]:
-        table.append([r["name"], f"+{r['added']}", f"-{r['removed']}", *(_counts(r["levels_added"][k]) for k, _, _ in AXES)])
+        table.append([printable(r["name"]), f"+{r['added']}", f"-{r['removed']}", *(_counts(r["levels_added"][k]) for k, _, _ in AXES)])
     widths = [max(len(row[i]) for row in table) for i in range(len(table[0]))]
     lines = [head, ""]
     for row in table:
@@ -253,13 +341,14 @@ def render_text(data: dict) -> str:
 
 
 def _md(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
+    return printable(text).replace("\\", "\\\\").replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render_markdown(data: dict) -> str:
     t = data["total"]
     out = [f"**+{t['added']} −{t['removed']} lines** in {data['files']} file(s) since `{_md(data['base_name'])}` "
-           f"(`{data['base'][:7]}`)", "",
+           f"(`{data['base'][:7]}`" + ("" if data["base"] == data.get("base_tip", data["base"]) else ", merge base")
+           + ")", "",
            "| Changed | +lines | −lines | " + " | ".join(f"{title} (added)" for _, title, _ in AXES) + " |",
            "| --- | ---: | ---: |" + " --- |" * len(AXES)]
     for r in data["rows"]:
@@ -276,7 +365,7 @@ def _extras(data: dict, md: bool) -> list[str]:
         out.append("**Attested:**" if md else "Attested:")
         for a in data["attested"]:
             levels = " ".join(a["levels"].values())
-            out.append(f"- `{_md(a['path'])}` at {levels}" if md else f"  {a['path']}  {levels}")
+            out.append(f"- `{_md(a['path'])}` at {levels}" if md else f"  {printable(a['path'])}  {levels}")
     moves = _moves(data)
     if moves:
         out.append("")
@@ -291,5 +380,5 @@ def _extras(data: dict, md: bool) -> list[str]:
     notes += [f"✗ {p}" for p in data["problems"]]
     if notes:
         out.append("")
-        out += [f"- {_md(n)}" if md else f"note: {n}" for n in notes]
+        out += [f"- {_md(n)}" if md else f"note: {printable(n)}" for n in notes]
     return out

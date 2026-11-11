@@ -1,6 +1,8 @@
 """The G/H/A declaration scheme: levels, keys, policy and completeness rules."""
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 
 GENERATION = {
@@ -208,3 +210,12 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
             reason = "AI-written content must at least be self-checked" if min_a == "A1" else "by policy"
             errors.append(f"{g} requires at least {min_a} ({reason}; declared {a})")
     return errors
+
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def printable(text: str) -> str:
+    """text with control characters escaped (\\n, \\x1b, ...), for terminal and CI log output: a
+    file name with a newline must not start a line of its own (GitHub reads "::command::" lines)."""
+    return _CONTROL.sub(lambda m: repr(m.group(0))[1:-1], text)

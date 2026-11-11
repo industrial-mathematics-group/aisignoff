@@ -46,7 +46,8 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 ```
 
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
-- **Pull requests:** set *Settings → General → Pull Requests → Default commit message* to **Pull request title and description** for squash (and merge) commits, and put the trailer lines at the end of the pull request description. The declaration then lands in git with the code.
+- **Pull requests:** set *Settings → General → Pull Requests → Default commit message* to **Pull request title and description** for squash (and merge) commits, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code.
+- **Only `Key: value` lines count.** A pull request template that declares levels with ticked checkboxes puts no trailers into the squash commit, so with `require-trailers-since` every such pull request fails `lint`. Add the trailer lines to the template, after the checkboxes.
 - **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in.
 
 ### Correcting a commit
@@ -82,7 +83,8 @@ Reviewed-by = "Jane Doe"
 ```
 
 - **It covers the lines that content had.** Lines changed afterwards fall back to the declaration of their own commit. So an attestation never covers code written after the review, and can stay in the file.
-- **Content, not commits.** The blob survives a squash merge and renames, unlike a commit hash. Commit the attestation in the same pull request as the review, or later.
+- **Content, not commits.** The blob survives a squash merge, unlike a commit hash, and a rename: the attestation follows the file to its new name (`git mv`, detected by git). Commit the attestation in the same pull request as the review, or later.
+- **That file only.** The same content in another file, such as a copy, doesn't extend the attestation.
 - **It checks itself.** If the file changes again before the attested content reaches the branch, `lint` reports that the attestation points at content that never landed: attest again.
 - **`--at REV`** attests the files as they were at an earlier commit, e.g. the commit a committed review covered.
 - **Generation** can be attested too (`-g`), for corrections; normally an attestation only raises the review axes.
@@ -96,6 +98,8 @@ require-trailers-since = "a1b2c3d"
 ```
 
 Lines of commits after `a1b2c3d` must be declared by their commit (trailers, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out is exempt, since the pull request isn't merged yet.
+
+This check needs the whole history: in a shallow clone or outside git, `lint` fails, rather than passing without it.
 
 ## Showing a change: `aisignoff diff`
 
@@ -117,7 +121,7 @@ Whole repository, by lines:
   Human review: H1 69.0% → 66.6% (-2.4) · H2 31.0% → 33.4% (+2.4)
 ```
 
-Like a coverage diff, it shows only what changed: the levels of the added lines (now), of the removed lines (at the base, in `--json`), the attestations the change adds, and how the shares of the whole repository move. It compares the working tree, so it also works before committing.
+Like a coverage diff, it shows only what changed: the levels of the added lines (now), of the removed lines (at the base, in `--json`), the attestations the change adds, and how the shares of the whole repository move. It compares the working tree, so it also works before committing. The base is the merge base of `BASE` and `HEAD`, as in a pull request on GitHub: when `main` has moved on since a branch started, its new commits aren't part of the branch's change.
 
 | Option | Effect |
 |---|---|
@@ -125,7 +129,7 @@ Like a coverage diff, it shows only what changed: the levels of the added lines 
 | `--files` | One row per file |
 | `--markdown` | A Markdown table, e.g. for the job summary of a pull request |
 | `--json` | Everything, including the levels of the removed lines |
-| `-g`, `-H`, `-a` and the name options | Declare the change: lines after the base without a declaration of their own take these levels |
+| `-g`, `-H`, `-a` and the name options | Declare the change: lines after the base without a declaration of their own take these levels (not in files with `precedence = "override"`) |
 
 For the same change in the [folder report](report.md), with each changed line in its file: `aisignoff report --html report.html --with-source --since origin/main`.
 
@@ -133,7 +137,7 @@ The last row is for pull requests: before the merge, their lines have no squash 
 
 ## Where history isn't available
 
-- **Outside a git repository** and in **shallow clones** (the default of `actions/checkout`), aisignoff warns and uses the file-level declarations. In CI, check out with `fetch-depth: 0`.
-- **Binary and empty files** have no lines: the whole file takes the declaration of the commit that last changed it.
+- **Outside a git repository** and in **shallow clones** (the default of `actions/checkout`), aisignoff warns and uses the file-level declarations; with `require-trailers-since`, `lint` fails. In CI, check out with `fetch-depth: 0`.
+- **Binary and empty files and symlinks** are one unit, counted as one line: the whole file takes the declaration of the commit that last changed it.
 - **`precedence = "override"`** on an annotation keeps its files file level, e.g. for vendored or generated code.
-- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file` in `[history]`); whitespace-only changes are ignored anyway.
+- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file` in `[history]`); whitespace-only changes are ignored anyway. An entry that isn't a commit of the repository is reported by `lint`.

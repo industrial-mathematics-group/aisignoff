@@ -128,12 +128,6 @@ AI-Review = "A2"
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
 
 [[attestations]]
-path = "src/aisignoff/__init__.py"
-blob = "5bc2573775c980837b3298d8864877500d5489d5"
-AI-Review = "A2"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]
 path = "src/aisignoff/__main__.py"
 blob = "dd8a8c90e6b7af74ed3657ef5b74aaa5ebf0abd4"
 AI-Review = "A2"
@@ -202,6 +196,21 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating ses
 path = ["src/aisignoff/report.html", "src/aisignoff/visualize.py", "src/aisignoff/cli.py", "src/aisignoff/diff.py",
         "tests/test_history.py", "docs/report.md", "docs/commands.md", "docs/history.md", "docs/integration.md",
         "examples/**", ".github/workflows/docs.yml", "pyproject.toml", "uv.lock"]
+AI-Generation = "G3"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), self-check by the generating session"]
+
+# Fixes for the independent review of 0.7.0 (blame failures, diff parsing, subfolder roots, merge base, symlinks,
+# attestations across renames and copies, shallow clones, example workflows), version 0.7.1. Written by Claude
+# and only self-checked; the human review is still open.
+[[annotations]]
+path = ["src/aisignoff/history.py", "src/aisignoff/diff.py", "src/aisignoff/cli.py", "src/aisignoff/model.py",
+        "src/aisignoff/project.py", "src/aisignoff/visualize.py", "tests/test_history_edges.py", "docs/history.md",
+        "docs/commands.md", "docs/report.md", "docs/integration.md", "docs/development.md", "examples/**",
+        "pyproject.toml", "uv.lock"]
 AI-Generation = "G3"
 Human-Review = "H1"
 AI-Review = "A1"
