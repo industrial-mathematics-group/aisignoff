@@ -116,6 +116,90 @@ def parse_trailers(text: str, source: str) -> dict[int, Piece]:
             for i, (level, n) in enumerate(AXES) if level in levels}
 
 
+_BOX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.*)$")
+_BOX_LEVEL = re.compile(r"^\*\*([GHA][0-3])\*\*")
+_BOX_MODEL = re.compile(r"^\*\*([^*:]+)\*\*\s*(\([^()]*\))?$")
+_BOX_OTHER = re.compile(r"^\*\*Other:\*\*\s*(.*)$")
+
+
+def _boxes(text: str) -> list[tuple[bool, str]]:
+    """The checkbox items of a Markdown text: (ticked, text), with wrapped lines joined."""
+    items: list[list] = []
+    joinable = False
+    for line in text.splitlines():
+        m = _BOX.match(line)
+        if m:
+            items.append([m.group(1) != " ", m.group(2).strip()])
+            joinable = True
+        elif joinable and line.strip() and not line.lstrip().startswith(("#", "-", "*", ">")):
+            items[-1][1] += " " + line.strip()
+        else:
+            joinable = False
+    return [(t, x) for t, x in items]
+
+
+def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
+    """Axis pieces from the ticked checkboxes of a pull request template in a commit message
+    (a squash commit with the default message "Pull request title and description"):
+
+        - [x] **G3** AI-autonomous: ...           the generation level (one)
+        - [x] **Claude Opus** (Anthropic)         a model that wrote parts of it
+        - [ ] **Other:** Some model               another one, if filled in
+        - [x] **H1** I ran the tests ...          the highest ticked human review level
+        - [x] **A2** A new AI session ... Model: X  the highest ticked AI review level
+
+    The human review is the commit author's; the AI review names the model after "Model:", or
+    the models that wrote the change. Nothing is returned without a ticked level."""
+    levels: dict[str, list[str]] = {"G": [], "H": [], "A": []}
+    models: list[str] = []
+    reviewer: dict[str, str] = {}
+    for ticked, item in _boxes(text):
+        level = _BOX_LEVEL.match(item)
+        if level:
+            code = level.group(1)
+            if ticked:
+                levels[code[0]].append(code)
+            if ticked and code[0] == "A" and "Model" in item:
+                name = re.split(r"Model[^:]*:", item, maxsplit=1)[-1].strip()
+                if name:
+                    reviewer[code] = name
+            continue
+        if not ticked:
+            continue
+        other = _BOX_OTHER.match(item)
+        if other:
+            if other.group(1).strip():
+                models.append(other.group(1).strip())
+            continue
+        model = _BOX_MODEL.match(item)
+        if model:
+            models.append(model.group(1).strip() + (f" {model.group(2)}" if model.group(2) else ""))
+    if not any(levels.values()):
+        return {}
+    problems = []
+    if len(levels["G"]) > 1:
+        problems.append(f"{source} ticks more than one generation level ({', '.join(levels['G'])})")
+    out = {}
+    names = {"G": tuple(models), "H": (author,) if author else ()}
+    for i, (letter, _) in enumerate(zip("GHA", AXES)):
+        if not levels[letter]:
+            continue
+        top = max(levels[letter])
+        if letter == "A":
+            if top in reviewer:
+                found = (reviewer[top],)
+            elif top == "A1":
+                found = tuple(f"{m}, self-check by the generating session" for m in models)
+            elif top == "A2":
+                found = tuple(f"{m}, new session without the generating conversation" for m in models)
+            else:
+                found = ()
+        else:
+            found = names[letter]
+        out[i] = Piece(top, found, f"{source}, pull request checkboxes", "commit", tuple(problems))
+    return out
+
+
 def combine(pieces) -> Declaration:
     """A Declaration from one piece (or None) per axis."""
     values, sources, problems = {}, [], []
@@ -179,17 +263,27 @@ class History:
 
     # ------------------------------------------------------------ commits
     def _load_chain(self) -> None:
-        out = _git(self.root, "log", "--first-parent", "--format=%H%x1f%P%x1f%s%x1f%(trailers:unfold,only)%x1e",
-                   "HEAD", check=False)
+        out = _git(self.root, "log", "--first-parent", f"--format={self.FORMAT}%x1e", "HEAD", check=False)
         if out is None:  # no commit yet
             return
         records = [r.strip("\n") for r in out.split("\x1e") if r.strip("\n")]
         for i, record in enumerate(records):
-            sha, parents, subject, trailers = (record.split("\x1f") + ["", "", ""])[:4]
+            sha, parents, subject, rest = (record.split("\x1f", 3) + ["", "", ""])[:4]
             self.order[sha] = len(records) - i
             self.subjects[sha] = subject
             self.parents[sha] = parents.split()
-            self._trailers[sha] = parse_trailers(trailers, self.describe(sha))
+            self._trailers[sha] = self._declaration(sha, rest)
+
+    # hash, parents, subject, then author, trailers and message (see _declaration)
+    FORMAT = "%H%x1f%P%x1f%s%x1f%an <%ae>%x1f%(trailers:unfold,only)%x1f%B"
+
+    def _declaration(self, sha: str, rest: str) -> dict[int, Piece]:
+        """A commit's own declaration: its trailers, and for the axes they leave out, the
+        ticked checkboxes of a pull request template in its message."""
+        author, trailers, message = (rest.split("\x1f", 2) + ["", ""])[:3]
+        pieces = parse_checkboxes(message, author.strip(), self.describe(sha))
+        pieces.update(parse_trailers(trailers, self.describe(sha)))
+        return pieces
 
     def describe(self, sha: str) -> str:
         subject = self.subjects.get(sha, "")
@@ -252,10 +346,10 @@ class History:
     def commit_pieces(self, sha: str) -> dict[int, Piece]:
         """The declaration of a commit: its trailers, corrected axis by axis by [[commits]]."""
         if sha not in self._trailers:  # a commit of a merged branch
-            out = _git(self.root, "log", "-1", "--format=%s%x1f%(trailers:unfold,only)", sha, check=False) or ""
-            subject, _, trailers = out.partition("\x1f")
+            out = _git(self.root, "log", "-1", f"--format={self.FORMAT}", sha, check=False) or ""
+            _, _, subject, rest = (out.split("\x1f", 3) + ["", "", ""])[:4]
             self.subjects.setdefault(sha, subject.strip())
-            self._trailers[sha] = parse_trailers(trailers, self.describe(sha))
+            self._trailers[sha] = self._declaration(sha, rest)
         pieces = dict(self._trailers[sha])
         pieces.update(self.corrections.get(sha, {}))
         return pieces

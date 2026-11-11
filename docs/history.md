@@ -15,7 +15,7 @@ Nothing else has to change. Lines without a declaration from git keep the file-l
 
 For each axis, the newest of these wins:
 
-1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, the commits of the merged branch fill the axes it leaves out.
+1. **The commit that landed the line.** Its message carries the levels as [git trailers](#declaring-commits), or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes). `git blame --first-parent` finds that commit on the current branch: for a pull request, the squash commit or the merge commit, so the pull request's declaration covers all its lines. For a merge commit, the commits of the merged branch fill the axes it leaves out.
 2. **An attestation of the file** whose checked content already contained the line: "this whole file was reviewed, as it was then". See [Re-declaring a whole file](#re-declaring-a-whole-file).
 3. **Otherwise, the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags.
 
@@ -47,8 +47,29 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
 - **Pull requests:** set *Settings → General → Pull Requests → Default commit message* to **Pull request title and description** for squash (and merge) commits, and put the trailer lines at the end of the pull request description, as its last paragraph. The declaration then lands in git with the code.
-- **Only `Key: value` lines count.** A pull request template that declares levels with ticked checkboxes puts no trailers into the squash commit, so with `require-trailers-since` every such pull request fails `lint`. Add the trailer lines to the template, after the checkboxes.
 - **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in.
+
+### Pull request checkboxes
+
+A pull request template can declare the levels with checkboxes instead, as the template of the Industrial Mathematics Group does. With the squash commit message *Pull request title and description*, the ticked boxes land in the commit message, and aisignoff reads them for the axes that no trailer gives:
+
+```markdown
+- [x] **G3** AI-autonomous: an agent produced it largely end to end
+- [x] **Claude Opus** (Anthropic)
+- [ ] **Other:** 
+- [x] **H0** I checked the result as a whole
+- [x] **H1** I ran the tests or reproduced the key results myself
+- [x] **A1** The AI that wrote the change checked its own work
+- [ ] **A2** A new AI session ... reviewed the final change. Model, if not one of the above: 
+```
+
+| Axis | Level | Names |
+|---|---|---|
+| Generation | the ticked `**G…**` box (more than one is a problem) | the ticked models (`**Name** (Vendor)`), and the text after `**Other:**` |
+| Human review | the highest ticked `**H…**` box | the commit author (on GitHub, the pull request's author) |
+| AI review | the highest ticked `**A…**` box | the text after `Model:` in that box, or else the models that wrote the change |
+
+So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow with every pull request: it keeps the defaults for lines without a declaration, `[[commits]]` corrections and attestations.
 
 ### Correcting a commit
 
@@ -97,7 +118,7 @@ enabled = true
 require-trailers-since = "a1b2c3d"
 ```
 
-Lines of commits after `a1b2c3d` must be declared by their commit (trailers, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out is exempt, since the pull request isn't merged yet.
+Lines of commits after `a1b2c3d` must be declared by their commit (trailers, checkboxes, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out is exempt, since the pull request isn't merged yet.
 
 This check needs the whole history: in a shallow clone or outside git, `lint` fails, rather than passing without it.
 
