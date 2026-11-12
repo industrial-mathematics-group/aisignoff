@@ -26,7 +26,11 @@ The axes combine them differently:
 | **Generation** | The most specific declaration: an attestation that gives it, else the commit that wrote the line, else the merges it came through (the innermost first), else the commit that landed it | How a line was written is known best by whoever wrote it: a hand-written G0 commit stays G0 inside an AI-written pull request |
 | **Human review**, **AI review** | The **highest** level among all of them. On a tie, the names of the later one | Each of them saw the line as it is now, and a later review of the whole pull request doesn't undo a closer review of a commit (nor the other way round) |
 
-A `TODO` yields to any level. No declaration lowers a review: a level that is too high is corrected with a [`[[commits]]` entry](#correcting-a-commit) for the commit that declared it.
+A `TODO` inside a pull request yields to any level, but a `TODO` of the pull request itself (or of the commit that landed the line) wins: "a person still has to review this" stays until it's filled in.
+
+**A1 doesn't reach hand-written lines.** A1 means the session that generated the change checked its own work, so it only describes lines that session wrote. A line whose generation is G0, such as a hand-written commit inside a pull request ticked A1, takes the next AI review down: A2 or A3 if anything around it declares one, else A0.
+
+**Raised reviews are reported.** No declaration lowers a review, so a commit inside a pull request that declares a higher review than the pull request (often an agent claiming a review before anyone did it) sets the level of its lines. `lint` names each such commit with the `[[commits]]` entry that would settle it, and `lint --strict` fails on them. A level that is too high is corrected with a [`[[commits]]` entry](#correcting-a-commit) for the commit that declared it; corrections themselves are never reported.
 
 When none of them declares anything for a line, it takes **the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags. That is the baseline for lines from before declared commits. But once anything around the line declares some axis, an axis that all of them leave out is **missing**, and `lint` reports it: a commit that declares only `AI-Generation: G3` doesn't get the review of the old code from the file.
 
@@ -102,9 +106,9 @@ Reviewed-by: Jane Doe
 AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating session
 ```
 
-- **Anywhere in the message body**, at the start of a line, not only in git's trailer paragraph at the end: a `Co-authored-by:` paragraph after them, or the co-author block GitHub appends to squash commits, doesn't hide them. Lines in fenced code blocks and HTML comments don't count, so a message can quote an example. The subject line doesn't count either.
+- **Anywhere in the message body**, at the start of a line, not only in git's trailer paragraph at the end: a `Co-authored-by:` paragraph after them, or the co-author block GitHub appends to squash commits, doesn't hide them. Lines in fenced code blocks and HTML comments don't count, so a message can quote an example. A block that is never closed isn't one, and neither is inline code at the start of a line (```` ```like this``` ````), so neither hides what follows. The subject line doesn't count either.
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
-- **Declare what you know.** A commit made by an AI agent knows its generation and its own self-check (`AI-Generation`, `AI-Review`), but not the human review that comes later: leave `Human-Review` to the pull request. Because reviews take the highest level, a review claimed too early would stick (unless corrected with `[[commits]]`).
+- **Declare what you know.** A commit made by an AI agent knows its generation and its own self-check (`AI-Generation`, `AI-Review`), but not the human review that comes later: leave `Human-Review` to the pull request. Because reviews take the highest level, a review claimed too early would stick (`lint` reports it, and `[[commits]]` corrects it). In a repository that lands pull requests by rebase, there is no pull request declaration: every commit declares all three axes.
 - **Pull requests:** set *Settings → General → Pull Requests* → the default commit message of merge commits (and of squash commits, if you allow them) to **Pull request title and description**, and put the lines in the pull request description. The declaration then lands in git with the code. GitHub's default message for merge commits holds only the title, so without this setting the declaration never reaches git.
 - **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in, by the commit itself through `[[commits]]`, or by any declaration around the line that gives a level (such as the pull request's).
 
@@ -166,7 +170,9 @@ enabled = true
 merge-method = "merge"   # the default; or "squash", or "rebase"
 ```
 
-With `squash`, the preview ignores the branch's commits (the squash commit won't have them) and uses only the declaration passed with `aisignoff diff -g/-H/-a` (the pull request description). With `rebase`, it ignores that declaration and uses only the branch's commits.
+The same applies to `aisignoff diff BASE -g/-H/-a` on the branch itself: the commits after the base are resolved as the merge will resolve them, with the declaration standing for the pull request.
+
+With `squash`, the branch's commits are ignored (the squash commit won't have them) and only the declaration passed with `aisignoff diff -g/-H/-a` (the pull request description) counts. With `rebase`, that declaration is ignored and only the branch's commits count; since they land as they are, the preview isn't exempt from `require-trailers-since` or from the missing-axis check.
 
 **Reverts** take over the lines they restore: a `git revert` commit, or GitHub's *Revert* pull request, is the commit that landed them, and its message usually declares nothing, so the lines fall back to the file-level declaration (or fail `require-trailers-since`). Declare the revert with the levels of what it restores, in its message or with a `[[commits]]` entry.
 
@@ -204,6 +210,7 @@ Reviewed-by = "Jane Doe"
 
 - **It covers the lines that content had.** Lines changed afterwards fall back to the declaration of their own commit. So an attestation never covers code written after the review, and can stay in the file.
 - **Content, not commits.** The blob survives a squash merge, unlike a commit hash, and a rename: the attestation follows the file to its new name (`git mv`, detected by git). Commit the attestation in the same pull request as the review, or later.
+- **A path that was renamed away and created again** is reported: say which file was checked by setting its current path.
 - **That file only.** The same content in another file, such as a copy, doesn't extend the attestation.
 - **Concurrent changes.** If `main` changes the file while the pull request with the attestation is open, the merged file is new content. The attestation still covers the lines the checked content had: those whose commit was part of it.
 - **It checks itself.** If the file changes again before the attested content reaches the branch, `lint` reports that the attestation points at content that never landed: attest again.
@@ -218,7 +225,7 @@ enabled = true
 require-trailers-since = "a1b2c3d"
 ```
 
-Lines of commits after `a1b2c3d` must be declared ("Key: value" lines, checkboxes, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out (a merge commit at `HEAD` with GitHub's subject `Merge <sha> into <sha>`) is exempt, since the pull request isn't merged yet.
+Lines of commits after `a1b2c3d` must be declared ("Key: value" lines, checkboxes, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out (a merge commit at `HEAD` with GitHub's subject `Merge <sha> into <sha>`) is exempt, since the pull request isn't merged yet, unless it lands by rebase (`merge-method = "rebase"`). On a `push` event (`GITHUB_EVENT_NAME=push`) no commit is taken for a preview.
 
 This check needs the whole history: in a shallow clone or outside git, `lint` fails, rather than passing without it.
 

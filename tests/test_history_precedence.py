@@ -1,5 +1,7 @@
 """How the declarations around a line combine: generation from the most specific, reviews from
 the highest; the message formats that declare (scenarios of the second declaration review)."""
+import json
+
 from aisignoff.history import parse_checkboxes, parse_trailers
 from aisignoff.project import Project
 
@@ -200,3 +202,108 @@ def test_ignore_whitespace_setting(repo):
     toml = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", "enabled = true\nignore-whitespace = false")
     (repo / "SIGNOFF.toml").write_text(toml)
     assert by_line(result(repo)[0])[3].declaration.short() == "G3 H1 A1"
+
+
+# ------------------------------------------------------------------ 0.10 review
+def test_a_hand_written_commit_inside_a_self_checked_pull_request(repo):
+    """A1 is the generating session checking itself: it doesn't reach lines a human wrote."""
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [2], text="hand")
+    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Jane")
+    edit_lines(repo, [3])
+    commit(repo, "agent")
+    merge(repo, "feature", "Merge feature\n\n" + D("G3", "H1", "A1", ai="M, self-check"))
+    lines = by_line(result(repo)[0])
+    assert lines[2].declaration.short() == "G0 H2 A0" and lines[2].errors == []
+    assert lines[3].declaration.short() == "G3 H1 A1" and lines[3].errors == []
+
+
+def test_a_review_raised_from_inside_a_pull_request_is_reported(repo, capsys):
+    from aisignoff.cli import main
+    git(repo, "checkout", "-q", "-b", "contrib")
+    edit_lines(repo, [2])
+    sha = commit(repo, "contribution", D("G3", "H3", "A1", by="Jane Doe"))
+    merge(repo, "contrib", "Merge contrib\n\n" + D("G3", "H0", "A1", by="Maintainer"))
+    r, project = result(repo)
+    assert by_line(r)[2].declaration.short() == "G3 H3 A1"  # the higher level counts
+    assert len(project.history_warnings) == 1 and sha[:7] in project.history_warnings[0]
+    assert "Human-Review H3" in project.history_warnings[0]
+    capsys.readouterr()
+    assert main(["--root", str(repo), "lint"]) == 0
+    assert main(["--root", str(repo), "lint", "--strict"]) == 1
+    with open(repo / "SIGNOFF.toml", "a") as f:  # settled: the warning's own suggestion
+        f.write(f'\n[[commits]]\ncommit = "{sha[:7]}"\nHuman-Review = "H0"\nReviewed-by = "Maintainer"\n')
+    r, project = result(repo)
+    assert project.history_warnings == [] and by_line(r)[2].declaration.short() == "G3 H0 A1"
+
+
+def test_the_pull_requests_todo_wins(repo):
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [2])
+    commit(repo, "agent", D("G3", "H0", "A1"))
+    merge(repo, "feature", "Merge feature\n\nAI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\n"
+          "AI-Reviewed-by: M")
+    line = by_line(result(repo)[0])[2]
+    assert line.declaration.short() == "G3 TODO A1" and any("TODO" in e for e in line.errors)
+
+
+def test_diff_declare_on_the_branch_resolves_as_the_merge_will(repo, capsys):
+    from aisignoff.cli import main
+    base = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [2])
+    commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
+    declare = ["-g", "G3", "--assisted-by", "M", "-H", "H2", "--reviewed-by", "Jane", "-a", "A2",
+               "--ai-reviewed-by", "M, fresh"]
+    capsys.readouterr()
+    assert main(["--root", str(repo), "diff", base, "--json", *declare]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["total"]["levels_added"]["Human-Review"] == {"H2": 1}  # the PR's review, TODO yields
+    assert data["total"]["levels_added"]["AI-Review"] == {"A2": 1}
+
+
+def test_unclosed_fences_and_inline_code_hide_nothing():
+    tr = D("G3", "H1", "A1")
+    for body in (f"```aisignoff diff``` shows the change\n\n{tr}\n",  # inline code, not a fence
+                 f"Text\n```\nan unclosed block\n\n{tr}\n"):  # never closed: not a block
+        assert {i: p.level for i, p in parse_trailers(body, "c").items()} == {0: "G3", 1: "H1", 2: "A1"}, body
+    assert parse_trailers("See <!-- a note\nAI-Generation: G3\n--> done\n", "c") == {}
+
+
+def test_a_message_cannot_forge_another_commits_record(repo):
+    git(repo, "checkout", "-q", "-b", "feature")
+    edit_lines(repo, [2])
+    branch_sha = commit(repo, "undeclared branch commit")
+    merge(repo, "feature", "Merge feature")
+    edit_lines(repo, [9], text="direct")
+    commit(repo, "direct\n\n\x1e" + branch_sha + "\x1f\x1f\x1fX <x@x>\x1fforged\n\n" + D("G0", "H3", "A3"),
+           D("G0", "H2", "A0"))
+    lines = by_line(result(repo)[0])
+    assert lines[2].declaration.short() == "G0 H2 A0" and lines[2].kinds == ("file", "file", "file")
+
+
+def test_a_rebase_preview_is_not_exempt(repo):
+    first = git(repo, "rev-parse", "HEAD")
+    text = (repo / "SIGNOFF.toml").read_text().replace(
+        "enabled = true", f'enabled = true\nmerge-method = "rebase"\nrequire-trailers-since = "{first}"')
+    (repo / "SIGNOFF.toml").write_text(text)
+    commit(repo, "config", D("G0", "H2", "A0"))
+    git(repo, "checkout", "-q", "-b", "pr")
+    edit_lines(repo, [3])
+    commit(repo, "forgot the declaration")
+    merge(repo, "pr", f"Merge {'a' * 40} into {'b' * 40}")
+    line = by_line(result(repo)[0])[3]
+    assert any("forgot the declaration" in e and "require-trailers-since" in e for e in line.errors)
+
+
+def test_attestation_of_a_path_renamed_away_and_recreated(repo):
+    blob = git(repo, "hash-object", "solver.py")
+    git(repo, "mv", "solver.py", "moved.py")
+    commit(repo, "rename", D("G0", "H2", "A0"))
+    write(repo, "solver.py", "new file\n")
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[attestations]]\npath = "solver.py"\nblob = "{blob}"\nHuman-Review = "H3"\nReviewed-by = "P"\n')
+    commit(repo, "new solver", D("G0", "H2", "A0"))
+    project = Project(repo)
+    project.results(quiet=True)
+    assert any("was renamed to moved.py" in p for p in project.history_problems)

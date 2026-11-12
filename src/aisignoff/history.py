@@ -19,12 +19,13 @@ lines of newer commits must be declared.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .model import AXES, LEVEL_KEYS, LIST_KEYS, Declaration, canonical_key, validate
+from .model import AXES, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key, validate
 
 UNCOMMITTED = "0" * 40
 # the merge preview a pull request's CI run checks out (refs/pull/N/merge): its lines are the
@@ -107,27 +108,34 @@ _FENCE = re.compile(r"^\s*(```+|~~~+)")
 _KEY_LINE = re.compile(r"^([A-Za-z][A-Za-z-]*):[ \t]*(.*?)\s*$")
 
 
-def _prose_lines(text: str) -> list[str]:
+def _prose_lines(text: str, fences: bool = True) -> list[str]:
     """The lines of a message outside fenced code blocks and HTML comments: a template or an
-    example quoted in a message declares nothing."""
+    example quoted in a message declares nothing. A backtick line whose info string has a
+    backtick (inline code at the start of a line) opens no block, as in CommonMark; a block that
+    is never closed isn't one either (so a stray fence can't hide the declaration after it)."""
     out, fence, comment = [], None, False
     for line in text.splitlines():
-        stripped = line.strip()
         if comment:
-            comment = "-->" not in stripped
-            continue
-        m = _FENCE.match(line)
+            if "-->" not in line:
+                continue
+            comment, line = False, line.split("-->", 1)[1]
+        m = _FENCE.match(line) if fences else None
         if fence:
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip()[len(m.group(1)):]:
                 fence = None
             continue
-        if m:
+        if m and not (m.group(1)[0] == "`" and "`" in line.strip()[len(m.group(1)):]):
             fence = m.group(1)
             continue
-        if stripped.startswith("<!--"):
-            comment = "-->" not in stripped
-            continue
+        while "<!--" in line:  # a comment, also one opened mid-line
+            before, after = line.split("<!--", 1)
+            if "-->" in after:
+                line = before + after.split("-->", 1)[1]
+            else:
+                line, comment = before, True
         out.append(line)
+    if fence:  # never closed: not a code block
+        return _prose_lines(text, fences=False)
     return out
 
 
@@ -247,6 +255,21 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
     return out
 
 
+_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+
+def _records(out: str) -> list[tuple[str, str, str, str, str]]:
+    """(hash, parents, subject, author, message) of each commit in 'git log --format=FORMAT' output."""
+    fields = out.split("\0")
+    records = []
+    for i in range(0, len(fields) - 4, 5):
+        sha = fields[i].strip()
+        if not _SHA.match(sha):
+            raise HistoryError(f"unexpected git log output near {sha[:20]!r}")
+        records.append((sha, fields[i + 1], fields[i + 2], fields[i + 3].strip(), fields[i + 4]))
+    return records
+
+
 def combine(pieces) -> Declaration:
     """A Declaration from one piece (or None) per axis."""
     values, sources, problems = {}, [], []
@@ -290,6 +313,8 @@ class History:
         self._sides: dict[str, set[str]] = {}  # merge -> the commits it brought in
         self._inner: dict[str, list[str]] = {}  # landing merge -> the merges inside it
         self._ancestor: dict[tuple[str, str], bool] = {}
+        # (source, axis, level) -> the landing piece it outranks: reviews raised from inside a pull request
+        self.raised: dict[tuple[str, str, str], Piece] = {}
         self._branch_cache: dict[str, bool] = {}
         self._renames: list[tuple[str, str]] | None = None
         self._load_chain()
@@ -315,26 +340,25 @@ class History:
 
     # ------------------------------------------------------------ commits
     def _load_chain(self) -> None:
-        out = _git(self.root, "log", "--first-parent", f"--format={self.FORMAT}%x1e", "HEAD", check=False)
+        out = _git(self.root, "log", "--first-parent", f"--format={self.FORMAT}", "HEAD", check=False)
         if out is None:  # no commit yet
             return
-        records = [r.strip("\n") for r in out.split("\x1e") if r.strip("\n")]
-        for i, record in enumerate(records):
-            sha, parents, subject, rest = (record.split("\x1f", 3) + ["", "", ""])[:4]
+        records = _records(out)
+        for i, (sha, parents, subject, author, message) in enumerate(records):
             self.order[sha] = len(records) - i
             self.subjects[sha] = subject
             self.parents[sha] = parents.split()
-            self._trailers[sha] = self._declaration(sha, rest)
+            self._trailers[sha] = self._declaration(sha, author, message)
 
-    # hash, parents, subject, then author and message (see _declaration)
-    FORMAT = "%H%x1f%P%x1f%s%x1f%an <%ae>%x1f%B"
+    # hash, parents, subject, author and message, each ended by NUL, which a commit message can't
+    # contain (unlike any other separator, so a message can't pass for another commit's record)
+    FORMAT = "%H%x00%P%x00%s%x00%an <%ae>%x00%B%x00"
 
-    def _declaration(self, sha: str, rest: str) -> dict[int, Piece]:
+    def _declaration(self, sha: str, author: str, message: str) -> dict[int, Piece]:
         """A commit's own declaration: its 'Key: value' lines, or the ticked checkboxes of a pull
         request template in its message (the subject line aside). One or the other: a commit
         with both is a problem until a [[commits]] entry settles it (both count meanwhile, the
         lines where they overlap)."""
-        author, message = (rest.split("\x1f", 1) + [""])[:2]
         body = message.split("\n", 1)[1] if "\n" in message else ""
         from_trailers = parse_trailers(body, self.describe(sha))
         from_boxes = parse_checkboxes(body, author.strip(), self.describe(sha))
@@ -411,10 +435,10 @@ class History:
         """The declaration of a commit: its trailers, corrected axis by axis by [[commits]]."""
         if sha not in self._trailers:  # a commit of a merged branch
             out = _git(self.root, "log", "-1", f"--format={self.FORMAT}", sha, check=False) or ""
-            _, parents, subject, rest = (out.split("\x1f", 3) + ["", "", ""])[:4]
+            _, parents, subject, author, message = (_records(out) or [("", "", "", "", "")])[0]
             self.subjects.setdefault(sha, subject.strip())
             self.parents.setdefault(sha, parents.split())
-            self._trailers[sha] = self._declaration(sha, rest)
+            self._trailers[sha] = self._declaration(sha, author, message)
         pieces = dict(self._trailers[sha])
         if sha in self._both and sha not in self.corrections:
             pieces = {i: replace(p, problems=p.problems + (self._both[sha],)) for i, p in pieces.items()}
@@ -463,24 +487,24 @@ class History:
     def is_preview(self, sha: str | None) -> bool:
         """Whether a commit is the merge preview of a pull request's CI run (refs/pull/N/merge):
         HEAD, a merge of two parents, with GitHub's subject."""
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":  # a push to a branch is never a preview
+            return False
         return bool(sha) and sha == self.head and len(self.parents.get(sha, [])) == 2 \
             and bool(PREVIEW_MERGE.match(self.subjects.get(sha, "")))
+
+    def _rebase_preview(self) -> bool:
+        """A merge preview of a pull request that will land by rebase: its commits land themselves."""
+        return self.config.history.merge_method == "rebase" and self.is_preview(self.head)
 
     def chain(self, commit: str, orig: str | None) -> list[tuple[str, dict[int, Piece]]]:
         """The commits that declare a line, outermost (latest) first, each with its declaration:
         the commit that landed it, the merges inside it that brought the line in, and the commit
-        of a merged branch that wrote it. In a pull request's merge preview, [history]
-        merge-method says which of them will be there once it lands."""
+        of a merged branch that wrote it."""
         members = [commit]
-        if orig and orig != commit and len(self.parents.get(commit, [])) > 1 and self._branch_declares(commit):
+        if orig and orig != commit and len(self.parents.get(commit, [])) > 1 and (
+                self._branch_declares(commit) or (self._rebase_preview() and commit == self.head)):
             inner = [m for m in self.inner_merges(commit) if orig in self.side(m)]
             members += list(reversed(inner)) + [orig]  # outermost first
-            if self.is_preview(commit):
-                method = self.config.history.merge_method
-                if method == "squash":  # the branch's commits won't be there, only the squash commit
-                    members = [commit]
-                elif method == "rebase":  # each commit of the branch lands itself
-                    members = members[1:]
         return [(m, self.commit_pieces(m)) for m in members]
 
     # ------------------------------------------------------------ attestations
@@ -493,6 +517,11 @@ class History:
             where = f"{a.filename} [[attestations]] entry {a.index}"
             names = self._names_since(a.path)  # the attested file's names, the current one last
             path = names[-1]
+            moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
+            if (self.root / a.path).is_file() and moves and moves[-1][0] == a.path:
+                self.problems.append(f"{where}: {a.path} was renamed to {moves[-1][1]}, and a new {a.path} created "
+                                     f"since; set the path of the file that was checked")
+                continue
             if not (self.root / path).is_file():
                 self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
                 continue
@@ -629,7 +658,8 @@ class History:
             n = data.count(b"\n") + (not data.endswith(b"\n"))
             return [UNCOMMITTED] * n, None
         landing = self._blame(path, first_parent=True)
-        needs_branch = any(c and len(self.parents.get(c, [])) > 1 and self._branch_declares(c) for c in set(landing))
+        needs_branch = self._rebase_preview() or any(
+            c and len(self.parents.get(c, [])) > 1 and self._branch_declares(c) for c in set(landing))
         off_chain = any(commit for _, commit, _ in self.attestations.get(path, []))
         original = self._blame(path, first_parent=False) if needs_branch or off_chain else None
         if original is not None and len(original) != len(landing):
@@ -676,8 +706,17 @@ class History:
         that wrote the line, the merges it came through, innermost first, the commit that landed
         it). Reviews: the highest level any of them declares: each of them saw the line as it is,
         and a later review of the whole doesn't undo a closer one (a level that is too high is
-        corrected with a [[commits]] entry). Lines that none of them declares at all take the
-        file-level declaration; an axis left out by a declaration that gives others is missing."""
+        corrected with a [[commits]] entry). Two exceptions: A1 (the generating session checked
+        itself) doesn't reach lines that a human wrote, and a TODO of the landing commit (or the
+        pull request) wins. Lines that none of them declares at all take the file-level
+        declaration; an axis left out by a declaration that gives others is missing.
+
+        A pull request that hasn't landed yet (its merge preview, or the commits after the base
+        with 'aisignoff diff --declare') is resolved as it will land: the declaration given with
+        --declare stands for its merge or squash commit, and [history] merge-method says which of
+        its commits will still be there."""
+        method = self.config.history.merge_method
+        preview = self.is_preview(commit)
         if commit == UNCOMMITTED:
             ordinal, members = self.newest, []
         elif commit is None:  # a shallow boundary: older than anything we can see
@@ -685,17 +724,20 @@ class History:
         else:
             ordinal = self.order.get(commit, 0)
             members = self.chain(commit, orig)
-        # the declaration given with 'aisignoff diff --declare' stands for the landing commit
-        declare = bool(self.declared) and ordinal > self.declared_after and not (
-            self.is_preview(commit) and self.config.history.merge_method == "rebase")
+        unlanded = preview or (bool(self.declared) and ordinal > self.declared_after)
+        declare = bool(self.declared) and ordinal > self.declared_after and method != "rebase"
+        if unlanded:
+            if preview:
+                members = members[1:]  # the preview merge itself won't land
+            if method == "squash":  # the branch's commits won't be there, only the squash commit
+                members = []
+        landing_kind = "commit" if not unlanded or method == "rebase" else "branch"
         layers = []  # (rank, kind, pieces), latest first
         for n, (sha, pieces) in enumerate(members):
-            kind = "commit" if sha == commit else "branch"
-            if n == 0 and declare:
-                pieces = {**self.declared, **pieces}
-            layers.append((len(members) - n, kind, pieces))
-        if not members and declare:
-            layers.append((1, "declared", dict(self.declared)))
+            layers.append((len(members) - n, landing_kind if n == 0 else "branch", pieces))
+        if declare:
+            layers.insert(0, (len(members) + 1, "declared", dict(self.declared)))
+        landing = layers[0][2] if layers and (declare or not unlanded) else {}
         attested = []
         for a_ordinal, a_commit, pieces in attestations:
             covers = (orig not in (None, UNCOMMITTED) and self.is_ancestor(orig, a_commit)) if a_commit \
@@ -704,11 +746,13 @@ class History:
                 attested.append(((a_ordinal, len(attested)), pieces))
         problems = tuple(dict.fromkeys(x for _, _, pieces in layers for p in pieces.values() for x in p.problems))
         declares = any(pieces for _, _, pieces in layers)
+        # a pull request's description that is still to come (its merge preview, without --declare)
+        awaiting = unlanded and not declare and method != "rebase"
+        lands = orig if unlanded and method == "rebase" and orig else commit  # the commit that will carry the line
         out = []
         for i, (level, _) in enumerate(AXES):
             from_attestation = [(rank, pieces[i]) for rank, pieces in attested if i in pieces]
-            from_layers = [(rank, "declared" if pieces[i].kind == "declared" else kind, pieces[i])
-                           for rank, kind, pieces in layers if i in pieces]
+            from_layers = [(rank, kind, pieces[i]) for rank, kind, pieces in layers if i in pieces]
             best = None
             if i == 0:  # generation: the most specific
                 if from_attestation:
@@ -717,24 +761,33 @@ class History:
                     filled = [t for t in from_layers if _level_value(t[2].level) >= 0] or from_layers
                     rank, kind, p = min(filled, key=lambda t: t[0])
                     best = replace(p, kind=kind)
+            elif i in landing and landing[i].level == TODO:  # the pull request isn't reviewed yet
+                best = replace(landing[i], kind=layers[0][1])
             else:  # reviews: the highest; the later one on a tie
                 found = [((_level_value(p.level), 1, rank), p) for rank, p in from_attestation]
                 found += [((_level_value(p.level), 0, (rank, 0)), replace(p, kind=kind)) for rank, kind, p in from_layers]
+                if i == 2 and out[0] is not None and out[0].level == "G0":
+                    # A1 is the generating session checking itself: there is none for hand-written lines
+                    self_checks = [t for t in found if t[1].level == "A1"]
+                    found = [t for t in found if t[1].level != "A1"]
+                    if not found and self_checks:
+                        p = max(self_checks, key=lambda t: t[0])[1]
+                        found = [((0, 0, 0), replace(p, level="A0", names=()))]
                 if found:
                     best = max(found, key=lambda t: t[0])[1]
+                    self._note_raised(i, best, landing)
             if best is not None:
                 best = replace(best, problems=tuple(dict.fromkeys(best.problems + problems)))
-            elif declares and not (self.is_preview(commit) and not declare):
-                # (a merge preview without --declare: the pull request's description is still to come)
-                who = self.describe(commit) if commit not in (None, UNCOMMITTED) and members \
+            elif declares and not awaiting:
+                who = self.describe(lands) if lands not in (None, UNCOMMITTED) and members \
                     else "the declaration of this change"
                 best = Piece(None, (), who, "required",
                              problems + (f"{who} declares levels, but no {level} (nor does a pull request "
                                          f"or commit around it)",))
             elif self.since is not None and commit not in (None, UNCOMMITTED) and ordinal > self.since \
-                    and not self.is_preview(commit):
-                best = Piece(None, (), self.describe(commit), "required",
-                             (f"{self.describe(commit)} has no {level} trailer "
+                    and not awaiting:
+                best = Piece(None, (), self.describe(lands), "required",
+                             (f"{self.describe(lands)} has no {level} trailer "
                               f"(required by [history] require-trailers-since)",))
             else:
                 best = fb.get(i)
@@ -742,6 +795,27 @@ class History:
                     best = replace(best, problems=tuple(dict.fromkeys(best.problems + problems)))
             out.append(best)
         return tuple(out)
+
+    def warnings(self) -> list[str]:
+        """Reviews raised from inside a pull request: they count, but often a commit (or its agent)
+        claimed a review before anyone did it, so lint names them."""
+        out = []
+        for (source, axis, level), mine in sorted(self.raised.items()):
+            sha = source.split()[1] if source.startswith("commit ") else None
+            fix = (f'; if that is too high, correct it: [[commits]] commit = "{sha}" {axis} = "{mine.level}"'
+                   if sha else "")
+            out.append(f"{source} declares {axis} {level}, higher than {mine.source} ({mine.level}); "
+                       f"the higher level counts for the lines it wrote{fix}")
+        return out
+
+    def _note_raised(self, i: int, best: Piece, landing: dict[int, Piece]) -> None:
+        """A review that a commit inside a pull request declares higher than the pull request itself."""
+        mine = landing.get(i)
+        if mine is None or best is mine or best.kind == "attestation" or mine.level == best.level \
+                or "[[commits]]" in best.source:  # a correction is deliberate
+            return
+        if _level_value(best.level) > _level_value(mine.level):
+            self.raised.setdefault((best.source, AXES[i][0], best.level), mine)
 
 
 def _level_value(level: str | None) -> int:

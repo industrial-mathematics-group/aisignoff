@@ -157,6 +157,8 @@ def cmd_lint(args) -> int:
             print(f"    … and {len(paths) - args.max_files} more")
     for index in unused:
         print(f"{'✗' if args.strict else '!'} {project.config.path.name} annotation [{index}] matches no file")
+    for warning in project.history_warnings:
+        print(f"{'✗' if args.strict else '!'} {printable(warning)}")
 
     bad = sum(1 for r in results if r.errors)
     print()
@@ -165,7 +167,7 @@ def cmd_lint(args) -> int:
         lines = sum(p.lines for r in results for p in r.parts or ())
         bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
-    failed = bad > 0 or bool(project.history_problems) or (args.strict and unused)
+    failed = bad > 0 or bool(project.history_problems) or (args.strict and (unused or project.history_warnings))
     if failed:
         print(f"See {SPEC_URL}")
     else:
@@ -883,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("lint", help="check that every file has a valid declaration")
-    p.add_argument("--strict", action="store_true", help="also fail on annotations that match no file")
+    p.add_argument("--strict", action="store_true", help="also fail on annotations that match no file, and on reviews raised from inside a pull request")
     p.add_argument("--max-files", type=int, default=10, help="files listed per problem (default 10)")
     p.set_defaults(func=cmd_lint)
 

@@ -146,6 +146,7 @@ class Project:
         self.root = root.resolve()
         self.config = load(self.root)
         self.history_problems: list[str] = []
+        self.history_warnings: list[str] = []  # lint shows them; --strict fails on them
         self.history_used = False
 
     def history_wanted(self) -> bool:
@@ -174,11 +175,14 @@ class Project:
             return _history_result(f, history.resolve_lines(f, fallback[f]))
 
         with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
-            return list(pool.map(one, files))
+            out = list(pool.map(one, files))
+        self.history_warnings = history.warnings()
+        return out
 
     def _history(self, declared, declared_after, quiet):
         self.history_used = False
         self.history_problems = []
+        self.history_warnings = []
         if not self.history_wanted():
             return None
         from .history import History, HistoryError, unavailable_reason
