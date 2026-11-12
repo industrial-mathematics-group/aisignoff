@@ -96,9 +96,8 @@ def test_diff_and_since_start_from_the_merge_base(repo, capsys, tmp_path_factory
     assert tree["changed_files"] == 1
 
 
-def test_declare_off_the_first_parent_chain_is_not_applied(repo):
-    from aisignoff.history import History
-    from aisignoff.model import Declaration
+def test_declare_for_a_base_outside_the_history_is_not_applied(repo):
+    from aisignoff.history import History, pieces_from_values
     git(repo, "checkout", "-q", "-b", "side")
     edit_lines(repo, [2])
     side = commit(repo, "side")
@@ -106,8 +105,9 @@ def test_declare_off_the_first_parent_chain_is_not_applied(repo):
     edit_lines(repo, [5])
     commit(repo, "main")
     project = Project(repo)
-    h = History(repo, project.config, Declaration.from_mapping({"AI-Generation": "G3"}, "x"), side)
-    assert h.declared == {} and any("first-parent" in p for p in h.problems)
+    declared = pieces_from_values({"AI-Generation": "G3"}, "x", "declared")
+    h = History(repo, project.config, declared, side)
+    assert h.declared is None and any("not in the history of HEAD" in p for p in h.problems)
 
 
 # ------------------------------------------------------------------ project root in a subfolder
@@ -205,7 +205,7 @@ def test_unresolvable_ignore_revs_entry_is_a_problem_not_uncommitted(repo, capsy
     write(repo, ".git-blame-ignore-revs", "# reformatting\ndeadbeef\n")
     r, project = result(repo)
     assert any("deadbeef" in p for p in project.history_problems)
-    assert any("no AI-Generation trailer" in e for e in r.errors)  # still checked
+    assert any("declares no AI-Generation" in e for e in r.errors)  # still checked
     capsys.readouterr()
     assert main(["--root", str(repo), "lint"]) == 1
 
@@ -285,34 +285,33 @@ def test_title_with_the_data_placeholder(repo):
     assert "<title>AI signoff · x __AISIGNOFF_DATA__ y</title>" in html
 
 
-def test_pr_diff_example_reads_the_trailers_of_the_description(tmp_path):
-    """The PR-body parser of examples/workflows/signoff-pr-diff.yml, run as the workflow runs it."""
+def test_declare_from_reads_a_pull_request_description(repo, tmp_path_factory, capsys):
+    """diff --declare-from, as examples/workflows/signoff-pr-diff.yml calls it: the description is
+    read as the merge or squash commit's message will be."""
     from pathlib import Path
     workflow = (Path(__file__).parent.parent / "examples/workflows/signoff-pr-diff.yml").read_text()
-    block = workflow.split("<<'PY'\n")[1].split("          PY\n")[0]
-    script = tmp_path / "parse.py"
-    script.write_text("\n".join(line[10:] for line in block.splitlines()))
+    assert "--declare-from" in workflow and "aisignoff.history" not in workflow
+    body = tmp_path_factory.mktemp("event") / "description.md"
+    edit_lines(repo, [2])
 
-    def options(body):
-        event = tmp_path / "event.json"
-        event.write_text(json.dumps({"pull_request": {"body": body}}))
-        r = subprocess.run(["python3", str(script), str(event)], capture_output=True, text=True, check=True)
-        return r.stdout.splitlines(), r.stderr
+    def added(text, *more):
+        body.write_text(text)
+        capsys.readouterr()
+        assert main(["--root", str(repo), "diff", "HEAD", "--json", "--declare-from", str(body), *more]) == 0
+        return json.loads(capsys.readouterr().out)["total"]["levels_added"]
 
-    out, _ = options("Intro, mentioning Human-Review: H3 in prose\n\n```\nAI-Review: A3\n```\n\n"
-                     "AI-Generation: G3\nHuman-Review: H1\nAssisted-by: -odd name\n\nCo-authored-by: B <b@x>\n")
-    assert sorted(out) == ["--assisted-by=-odd name", "--generation=G3", "--human=H1"]
-    out, err = options("x\n\nAI-Generation: G2 (mostly)\nHuman-Review: H1\nAI-Review: TODO\n")
-    assert out == ["--human=H1"] and "::warning::" in err
-    out, err = options("x\n\nAI-Generation: G2\nAI-Generation: G3\n")
-    assert out == ["--generation=G3"] and "conflicting" in err  # reported, as lint reports it
-    out, _ = options(TEMPLATE.format(a2=" ", model=""))
-    assert sorted(out) == ["--ai-reviewed-by=Claude Opus (Anthropic), self-check by the generating session",
-                           "--ai-reviewed-by=Some Model 2, self-check by the generating session", "--ai=A1",
-                           "--assisted-by=Claude Opus (Anthropic)", "--assisted-by=Some Model 2", "--generation=G3",
-                           "--human=H1"]  # no author in this event, so no --reviewed-by
-    out, err = options(TEMPLATE.format(a2=" ", model="") + "\nHuman-Review: H2\nReviewed-by: Max\n")
-    assert "both" in err and "--human=H2" in out and "--reviewed-by=Max" in out and "--ai=A1" in out
+    levels = added("Intro, mentioning Human-Review: H3 in prose\r\n\r\n```\nAI-Review: A3\n```\n\n"
+                   "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: Jane\nAI-Review: A1\n"
+                   "AI-Reviewed-by: M\n\nCo-authored-by: B <b@x>\n")
+    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}}
+    levels = added(TEMPLATE.format(a2=" ", model=""), "--author", "jane")  # the template: the author reviewed
+    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}}
+    # a TODO in the description is what will land: the line isn't declared yet
+    levels = added("AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M\n")
+    assert levels["Human-Review"] == {"undeclared": 1}
+    levels = added("Nothing declared here.\n")
+    assert levels["AI-Generation"] == {"undeclared": 1}
+    assert main(["--root", str(repo), "diff", "HEAD", "--declare-from", str(body), "-g", "G0"]) == 2
 
 
 def test_examples_pin_the_current_version():
@@ -377,7 +376,10 @@ def test_parse_checkboxes():
     assert pieces[2].names[0] == "Claude Opus (Anthropic), self-check by the generating session"
     pieces = parse_checkboxes(TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"), "J", "c")
     assert pieces[2].level == "A2" and pieces[2].names == ("GPT Sol (OpenAI), fresh session",)
-    assert parse_checkboxes("Fix\n\n- [x] done\n- [ ] **G3** not ticked\n", "J", "c") == {}
+    assert parse_checkboxes("Fix\n\n- [x] done\n- [ ] **Breaking change**\n", "J", "c") == {}
+    # the template is there, but nothing is ticked: not filled in, which lint reports like a TODO
+    empty = parse_checkboxes(TEMPLATE.replace("[x]", "[ ]").format(a2=" ", model=""), "J", "c")
+    assert {i: p.level for i, p in empty.items()} == {0: "TODO", 1: "TODO", 2: "A0"}
     two = parse_checkboxes("- [x] **G2** a\n- [x] **G3** b\n- [x] **Claude Opus** (Anthropic)\n", "J", "c")
     assert two[0].level == "G3" and two[0].problems
 
@@ -396,9 +398,9 @@ def test_squash_commit_with_checkboxes_declares_its_lines(repo):
     assert any(e.startswith("line 5:") and "both as trailers and as ticked checkboxes" in e for e in r.errors)
 
 
-def test_small_branch_commits_inherit_the_rest_from_the_merge(repo):
-    """A hand-written commit declares only what it knows (G0, H2); the merge of the pull request,
-    reviewed as a whole by a fresh AI session, adds the AI review."""
+def test_a_branch_commit_says_generation_and_the_merge_the_reviews(repo):
+    """A hand-written commit says what it knows for its lines, G0; the reviews are those of the
+    pull request, whose merge commit lands the lines (the commit's own H2 doesn't count)."""
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [4])
     commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Pascal")
@@ -409,6 +411,8 @@ def test_small_branch_commits_inherit_the_rest_from_the_merge(repo):
         "Merge feature\n\n" + TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"))
     r, _ = result(repo)
     by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
-    assert by_line[4].declaration.short() == "G0 H2 A2" and by_line[4].errors == []
-    assert by_line[4].kinds == ("branch", "branch", "commit")
+    assert by_line[4].declaration.short() == "G0 H1 A2" and by_line[4].errors == []
+    assert by_line[4].kinds == ("branch", "commit", "commit")
     assert by_line[9].declaration.short() == "G3 H1 A2"
+
+

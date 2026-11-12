@@ -11,51 +11,44 @@ enabled = true
 
 Nothing else has to change. Lines without a declaration from git keep the file-level declaration, so a repository whose commits carry no trailers yet reports exactly what it did before; lines become more precise as declared commits land.
 
+In short: a pull request into the default branch declares its lines with its description, a commit pushed there directly declares its own (or leaves them to the file-level declaration), and [`aisignoff freeze`](#freezing-the-levels-aisignoff-freeze) records the result so that it stays.
+
 ## Where a line's levels come from
 
-Several declarations can describe one line:
+Every line has **one owner**, and the owner declares it. Five rules decide the levels of a line:
 
-- **The commit that landed it** on the current branch, which `git blame --first-parent` finds: a commit made on the branch directly, a squash commit, or the merge commit of a pull request. Its message carries the levels as ["Key: value" lines](#declaring-commits) or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes), and a `[[commits]]` entry corrects them.
-- For a merge commit, **the commits inside it**: the commit of the merged branch that wrote the line, and the merge commits it came through on the way, such as a pull request merged into another pull request.
-- **An attestation** of the file whose checked content had the line: "this whole file was reviewed, as it was then". See [Re-declaring a whole file](#re-declaring-a-whole-file).
+1. **Frozen.** A line that hasn't changed since the [snapshot](#freezing-the-levels-aisignoff-freeze) has the levels the snapshot recorded.
+2. **Owner.** Otherwise the owner is the commit that landed the line on the default branch, which `git blame --first-parent` finds: a commit made there directly, a squash commit, or the merge commit of a pull request. Its message carries the levels as ["Key: value" lines](#declaring-commits) or as the ticked checkboxes of a [pull request template](#pull-request-checkboxes), and a [`[[commits]]` entry](#correcting-a-commit) corrects them. Commits and pull requests *inside* it declare nothing.
+3. **Generation of a commit inside.** One exception, for generation only: inside a merge commit that declares its lines, the commit that wrote a line can say `AI-Generation` for it, such as a hand-written G0 commit in an AI-written pull request.
+4. **Reviews.** A review is the higher of the owner's level and an [attestation](#re-declaring-a-whole-file) of the file whose checked content had the line. On a tie, the names of the attestation.
+5. **Nothing declared.** An owner that declares nothing leaves its lines to **the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags. With [`undeclared = "error"`](#requiring-declared-commits), `lint` fails instead. An owner that declares some axes but leaves one out, or whose template isn't filled in, is always an error.
 
-The axes combine them differently:
+So a pull request into the default branch declares its lines, once, with the description that lands as the message of its merge or squash commit. A review claimed by a commit inside it, or by a pull request that was merged into it, doesn't count: after the merge, raise a review with an attestation, or correct the owner with a `[[commits]]` entry.
 
-| Axis | The line takes | Why |
-|---|---|---|
-| **Generation** | The most specific declaration: an attestation that gives it, else the commit that wrote the line, else the merges it came through (the innermost first), else the commit that landed it | How a line was written is known best by whoever wrote it: a hand-written G0 commit stays G0 inside an AI-written pull request |
-| **Human review**, **AI review** | The **highest** level among all of them. On a tie, the names of the later one | Each of them saw the line as it is now, and a later review of the whole pull request doesn't undo a closer review of a commit (nor the other way round) |
-
-A `TODO` inside a pull request yields to any level, but a `TODO` of the pull request itself (or of the commit that landed the line) wins over the levels inside it: "a person still has to review this" stays until it's filled in, by a `[[commits]]` entry for that commit or by an attestation of the file (the review it asked for).
-
-**A1 doesn't reach hand-written lines.** A1 means the session that generated the change checked its own work, so it only describes lines that session wrote. A line whose generation is G0, such as a hand-written commit inside a pull request ticked A1, takes the next AI review down: A2 or A3 if anything around it declares one, else A0. A declaration that gives G0 and A1 itself is invalid, as in `SIGNOFF.toml`.
-
-**Raised reviews are reported.** No declaration lowers a review, so a commit inside a pull request that declares a higher review than the pull request (often an agent claiming a review before anyone did it) sets the level of its lines. `lint` names each such commit with the `[[commits]]` entry that would settle it, and `lint --strict` fails on them. The same goes for a review that only a commit inside declares, when the pull request declares levels but leaves that axis out. A level that is too high is corrected with a [`[[commits]]` entry](#correcting-a-commit) for the commit that declared it; corrections themselves are never reported.
-
-When none of the commits declares anything for a line, it takes **the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags. That is the baseline for lines from before declared commits. But once a commit around the line declares some axis, an axis that all of them leave out is **missing**, and `lint` reports it: a commit that declares only `AI-Generation: G3` doesn't get the review of the old code from the file. Attestations don't count for this rule: `attest -H` on old, undeclared code raises its review, and generation and AI review stay at the file level.
+Why one owner? The lines that `git blame --first-parent` gives to a commit of the default branch are exactly the diff that its pull request showed to the reviewer, whether it landed as a merge commit or a squash commit, and in whatever order stacked pull requests were merged. The description of that pull request is the one statement that was made about exactly those lines.
 
 As a flow, for one line and one axis:
 
 ```mermaid
 flowchart TD
-    start(["One line, one axis"]) --> collect["Collect the declarations around the line:<br/>the commit that landed it, for a merge the merges<br/>and the branch commit inside it, attestations<br/>of the file whose content had the line"]
-    collect --> any{"Does any of them<br/>give this axis?"}
-    any -- "yes, generation" --> gen(["The most specific:<br/>attestation, branch commit,<br/>inner merge, landing commit"])
-    any -- "yes, a review" --> rev(["The highest level"])
-    any -- "no" --> other{"Does any commit among them<br/>give another axis?"}
-    other -- "yes" --> missing(["Missing: lint fails"])
-    other -- "no" --> required{"Is the landing commit after<br/>require-trailers-since?"}
+    start(["One line, one axis"]) --> frozen{"Unchanged since<br/>the snapshot?"}
+    frozen -- "yes" --> snap["The snapshot's level"]
+    frozen -- "no" --> owner["The owner: the commit that landed<br/>the line on the default branch"]
+    snap --> att
+    owner --> gives{"Does the owner<br/>give this axis?"}
+    gives -- "yes" --> att(["Generation: its level, or what the commit<br/>that wrote the line says inside a merge.<br/>Reviews: the higher of it and an attestation"])
+    gives -- "no" --> other{"Does it give<br/>another axis?"}
+    other -- "yes" --> missing(["Missing, unless an attestation<br/>gives it: lint fails"])
+    other -- "no" --> required{"undeclared = &quot;error&quot;, or after<br/>require-trailers-since?"}
     required -- "yes" --> fail(["lint fails"])
     required -- "no" --> file(["The file-level declaration:<br/>SIGNOFF.toml annotation or inline tags"])
 ```
 
-So the layers, from the bottom:
+Some details:
 
-| Layer | Set by | Covers |
-|---|---|---|
-| File-level declaration | `[[annotations]]` in `SIGNOFF.toml`, inline tags | Lines that nothing above declares anything for: the baseline |
-| Commit declarations | "Key: value" lines or checkboxes of the commit that landed the line, of the merges and the branch commit inside it, corrected by `[[commits]]` | The lines those commits added or changed |
-| Attestation | `aisignoff attest` (`[[attestations]]`) | Every line of the file as it was when attested, until the line changes again |
+- **`TODO`** is below every level. A `TODO` review of the owner stays until a `[[commits]]` entry for it or an attestation of the file (the review it asked for) fills it in. A template that isn't filled in counts the same way: generation or human review boxes with none ticked, or a `Human-Review:` line left empty, are `TODO`, not "nothing declared".
+- **A1 doesn't reach hand-written lines.** A1 means the session that generated the change checked its own work, so it only describes lines that session wrote. A line that a commit inside the pull request declares G0, while the pull request ticks A1, takes A0, or the A2 or A3 of an attestation. A declaration that gives G0 and A1 itself is invalid, as in `SIGNOFF.toml`.
+- **Attestations and the file-level declaration.** An attestation counts on its own: `attest -H` on old, undeclared code raises its human review, and generation and AI review stay at the file level.
 
 For example, a pull request with three commits, merged with a merge commit, while `main` moved on with a direct commit:
 
@@ -74,11 +67,11 @@ gitGraph
 
 | Lines from | Get | Because |
 |---|---|---|
-| `before` | the file-level declaration | nothing around them declares anything |
-| `by hand: G0 H2` | G0 H2 A2 | generation from the commit; human review H2 is higher than the pull request's H1; AI review only from the pull request |
-| `agent: G3 H0 A1` | G3 H1 A2 | the pull request's later reviews are higher than the commit's |
+| `before` | the file-level declaration | their owner declares nothing |
+| `by hand: G0 H2` | G0 H1 A2 | generation from the commit that wrote them; the reviews are the pull request's |
+| `agent: G3 H0 A1` | G3 H1 A2 | everything from the pull request |
 | `no declaration` | G3 H1 A2 | everything from the pull request |
-| `direct: G3 H1 A1` | G3 H1 A1 | its own declaration; it isn't part of the pull request |
+| `direct: G3 H1 A1` | G3 H1 A1 | its own declaration; it landed on `main` itself |
 
 The axes stay separate. Generation follows the line: it only changes when the line changes. A review (human or AI) can be raised for a whole file by an attestation, without touching generation.
 
@@ -90,6 +83,24 @@ For example, a 200-line `solver.py`:
 | Another one rewrites 100 lines, declared G2 H1 A1 | 100 lines G0 H2 A0, 100 lines G2 H1 A1 |
 | `aisignoff attest solver.py -H H2 --reviewed-by "Jane Doe"` | 100 lines G0 H2 A0, 100 lines G2 **H2** A1 |
 | A third one changes 10 lines, declared G2 H1 A1 | those 10 lines are back to H1, the other 190 stay H2 |
+
+## Lines that haven't landed yet
+
+On a feature branch, in the merge preview that a pull request's CI run checks out, or with uncommitted changes, some lines aren't on the default branch. They are the diff against it: against the newest commit of the default branch that `HEAD` contains, as in a pull request on GitHub. Everything else resolves as on the default branch, whatever the branch merged in the meantime.
+
+- **Without a declaration for the change,** these lines show what their own commits say, or the file-level declaration, and nothing about them fails `lint`: a commit by an agent that leaves the human review to the pull request is fine on its branch. `lint` says how many such lines aren't fully declared yet.
+- **With one,** they resolve as they will land. `aisignoff lint --declare-from description.md` and `aisignoff diff BASE --declare-from description.md` read the pull request description exactly as the merge or squash commit's message will be read, and the description then has to be complete: this is the check that a pull request into the default branch declares its lines. `diff` also takes the levels as options (`-g`, `-H`, `-a` and the names).
+- **A pull request into another branch** than the default one, such as the upper one of two stacked pull requests, declares nothing: its lines are declared by the pull request that later lands them on the default branch. `lint --base` and `diff BASE` recognise it and say so.
+
+aisignoff finds the default branch as `origin`'s default branch, else `main` or `master`. Set it if yours has another name:
+
+```toml
+[history]
+enabled = true
+default-branch = "develop"
+```
+
+When that branch is checked out, all of `HEAD` counts as landed. Otherwise `origin/<name>` is used, or the local branch if it's ahead of it. CI needs the branch to be there: check out with `fetch-depth: 0`.
 
 ## Declaring commits
 
@@ -108,9 +119,9 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 
 - **Anywhere in the message body**, at the start of a line, not only in git's trailer paragraph at the end: a `Co-authored-by:` paragraph after them, or the co-author block GitHub appends to squash commits, doesn't hide them. Lines in fenced code blocks and HTML comments don't count, so a message can quote an example. A block or comment that is never closed isn't one (the blocks before it still are), inline code at the start of a line (```` ```like this``` ````) opens no block, and `` `<!--` `` in inline code opens no comment, so none of them hides what follows. The subject line doesn't count either.
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
-- **Declare what you know.** A commit made by an AI agent knows its generation and its own self-check (`AI-Generation`, `AI-Review`), but not the human review that comes later: leave `Human-Review` to the pull request. Because reviews take the highest level, a review claimed too early would stick (`lint` reports it, and `[[commits]]` corrects it). In a repository that lands pull requests by rebase, there is no pull request declaration: every commit declares all three axes.
+- **Inside a pull request, only `AI-Generation` counts.** The pull request's description declares its lines, so a commit on its branch needs no declaration at all. It can say `AI-Generation` where it differs from the rest, such as a hand-written commit in an AI-written pull request; its review lines are ignored. A commit that lands on the default branch itself (a direct push, or a commit of a pull request that lands by rebase) declares all three axes.
 - **Pull requests:** set *Settings → General → Pull Requests* → the default commit message of merge commits (and of squash commits, if you allow them) to **Pull request title and description**, and put the lines in the pull request description. The declaration then lands in git with the code. GitHub's default message for merge commits holds only the title, so without this setting the declaration never reaches git.
-- **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in, by the commit itself through `[[commits]]`, or by any declaration around the line that gives a level (such as the pull request's).
+- **TODO** works as in `SIGNOFF.toml`: `lint` reports it until it's filled in, by a `[[commits]]` entry for that commit or by an attestation of the file. A level line left empty (`Human-Review:`) is a `TODO` too.
 
 ### Pull request checkboxes
 
@@ -133,7 +144,7 @@ A pull request template can declare the levels with checkboxes instead, as the t
 | Human review | the highest ticked `**H…**` box | the commit author: on GitHub the pull request's author for a squash commit, but whoever clicked *Merge* for a merge commit (correct it with `[[commits]]` if that wasn't the reviewer) |
 | AI review | the highest ticked `**A…**` box; **A0** when the AI review boxes are there but none is ticked (or the A0 box is) | the text after `Model:` in that box, or else the models that wrote the change |
 
-Boxes in fenced code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models.
+Boxes in fenced code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are a template that wasn't filled in: `TODO`, which `lint` reports.
 
 A commit declares itself one way or the other. One with both "Key: value" lines and ticked level boxes is reported by `lint`; until a `[[commits]]` entry for that commit settles it (any entry counts as settled, so check the axes where the two disagree), both count, the lines winning where they overlap.
 
@@ -141,28 +152,26 @@ So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow wit
 
 ### Merge, squash or rebase
 
-`git blame --first-parent` follows only the first parents of the default branch, so every line a pull request brought in belongs to the commit that landed it there, and lines that were on the branch before the pull request started never do. How a pull request lands decides what declares its lines:
+How a pull request lands decides which commit owns its lines:
 
 | Pull request lands as | Its lines are declared by |
 |---|---|
-| **Merge commit** (recommended) | The merge commit (the pull request description) and, for the lines it wrote, the commit of the branch, with its "Key: value" lines or checkboxes: generation from the branch commit if it gives one, reviews from the higher of the two. A pull request merged into another one counts too, as a merge inside it |
-| **Squash** | The squash commit alone (the pull request description). The commits of the branch are gone, and so are their own declarations |
-| **Rebase** | Each commit on its own: they land on the default branch one by one, without the pull request description. A commit without a declaration falls back to `SIGNOFF.toml` (or fails `require-trailers-since`) |
+| **Merge commit** | The merge commit: the pull request description. A commit of the branch can say `AI-Generation` for the lines it wrote |
+| **Squash** | The squash commit: the pull request description. The commits of the branch are gone |
+| **Rebase** | Each commit on its own: they land on the default branch one by one, without the pull request description. A commit without a declaration falls back to `SIGNOFF.toml` (or fails with `undeclared = "error"`) |
 | **Commit on the default branch** | That commit |
 
-Commits that merge the default branch into the pull request's branch, and conflict resolutions, declare nothing themselves, so their lines take the pull request's declaration. A `git pull` that creates a merge commit on the default branch works the same way: the pull requests it brings in are merges inside it. (`pull.rebase` avoids that merge commit.)
+Merge and squash give the same reviews. They differ only where a commit of the branch says another generation than the pull request.
 
-A commit only needs to declare what is known when it's written. For example, a hand-written commit declares
+**Stacked pull requests.** When B is merged into A and A into the default branch, A's merge or squash commit owns all the lines, B's included: A's description has to cover them, and B's description is never read. When B is retargeted and lands on the default branch itself, it owns the lines its merge brings in. Either way a line's levels are what the pull request into the default branch declared for the diff it showed.
 
-```
-AI-Generation: G0
-Human-Review: H2
-Reviewed-by: Jane Doe
-```
+**`git pull` on the default branch.** A `git pull` that creates a merge commit on the default branch owns everything it brought in, including pull requests that had landed on the remote, and declares nothing. `lint` warns about such a merge. Avoid it with `pull.rebase`, or declare the merge commit with a `[[commits]]` entry.
 
-and nothing on AI review. If the pull request is then reviewed as a whole by a fresh AI session and declares A2 (and G3 H1 for the rest), the lines of that commit end up G0 H2 A2, and the other lines of the pull request G3 H1 A2.
+**Reverts** take over the lines they restore: a `git revert` commit, or GitHub's *Revert* pull request, is the commit that landed them, and its message usually declares nothing, so the lines fall back to the file-level declaration. `lint` warns about a revert that declares nothing (`lint --strict` fails). Declare the revert with the levels of what it restores, in its message or with a `[[commits]]` entry.
 
-**The pull request's CI run** checks out a merge preview of it. Tell aisignoff how pull requests land, so `lint` and `aisignoff diff` show what will land:
+**Moved lines** belong to the commit that moved them: a line that moves to another file is a new line there.
+
+**The pull request's CI run** checks out a merge preview of it. Tell aisignoff how pull requests land, so that `lint --declare-from` and `aisignoff diff` show what will land:
 
 ```toml
 [history]
@@ -170,13 +179,7 @@ enabled = true
 merge-method = "merge"   # the default; or "squash", or "rebase"
 ```
 
-The same applies to `aisignoff diff BASE -g/-H/-a` on the branch itself: the commits after the base are resolved as the merge will resolve them, with the declaration standing for the pull request. That includes a branch that merged the base meanwhile (GitHub's *Update branch*); lines of the base it brought in keep the base's declarations.
-
-Without `--declare`, as in `lint` on the merge preview, the pull request description isn't known yet: axes that the branch's commits leave out show the file-level declaration until it lands. `signoff-pr-diff.yml` passes the description, so its table shows what will land.
-
-With `squash`, the branch's commits are ignored (the squash commit won't have them) and only the declaration passed with `aisignoff diff -g/-H/-a` (the pull request description) counts. With `rebase`, that declaration is ignored and only the branch's commits count; since they land as they are, the preview isn't exempt from `require-trailers-since` or from the missing-axis check.
-
-**Reverts** take over the lines they restore: a `git revert` commit, or GitHub's *Revert* pull request, is the commit that landed them, and its message usually declares nothing, so the lines fall back to the file-level declaration (or fail `require-trailers-since`). Declare the revert with the levels of what it restores, in its message or with a `[[commits]]` entry.
+With `squash`, what the branch's commits say about generation is ignored, since the squash commit won't have them. With `rebase`, the description is ignored and each commit declares its own lines; since they land as they are, the merge preview of such a pull request is checked like the default branch, without a description.
 
 ### Correcting a commit
 
@@ -189,7 +192,7 @@ Human-Review = "H2"          # reviewed after the merge
 Reviewed-by = "Jane Doe"
 ```
 
-The same works for old commits without a declaration ("backfilling"). An entry for a commit that isn't in the history of `HEAD`, such as a commit from before a rebase or a branch commit of a squashed pull request, declares nothing, and `lint` says so.
+The same works for old commits without a declaration ("backfilling"). An entry corrects the commit that owns the lines: for a pull request, its merge or squash commit. For a commit inside a merged pull request, only `AI-Generation` counts, and `lint` warns about review levels there. An entry for a commit that isn't in the history of `HEAD`, such as a commit from before a rebase or a branch commit of a squashed pull request, declares nothing, and `lint` says so. Entries don't change lines that a [snapshot](#freezing-the-levels-aisignoff-freeze) has frozen.
 
 ## Re-declaring a whole file
 
@@ -224,12 +227,33 @@ Reviewed-by = "Jane Doe"
 ```toml
 [history]
 enabled = true
-require-trailers-since = "a1b2c3d"
+undeclared = "error"
 ```
 
-Lines of commits after `a1b2c3d` must be declared ("Key: value" lines, checkboxes, `[[commits]]` or an attestation); `lint` fails instead of falling back to the file-level declaration. This catches a forgotten pull request template or squash setting. The merge preview that a pull request's CI run checks out (a merge commit at `HEAD` with GitHub's subject `Merge <sha> into <sha>`) is exempt, since the pull request isn't merged yet, unless it lands by rebase (`merge-method = "rebase"`). On a `push` event (`GITHUB_EVENT_NAME=push`) no commit is taken for a preview.
+By default, a commit that declares nothing leaves its lines to the file-level declaration, so a quick push stays quick. With `undeclared = "error"`, every commit that lands lines on the default branch must declare them ("Key: value" lines, checkboxes, `[[commits]]` or an attestation), and `lint` fails otherwise. This catches a forgotten pull request template or squash setting. Set it together with a [snapshot](#freezing-the-levels-aisignoff-freeze), which keeps older, undeclared commits out of it. `require-trailers-since = "a1b2c3d"` does the same for the commits after one commit only.
+
+Lines that [haven't landed yet](#lines-that-havent-landed-yet) are exempt, unless the pull request lands by rebase (`merge-method = "rebase"`).
 
 This check needs the whole history: in a shallow clone or outside git, `lint` fails, rather than passing without it.
+
+## Freezing the levels: `aisignoff freeze`
+
+Without a snapshot, aisignoff works out every line's levels from the whole history on each run. A new version that reads a message differently, or a changed annotation, would then change the levels of code that was merged long ago. A snapshot stops that:
+
+```bash
+git switch --detach origin/main     # a commit of the default branch, nothing else changed
+aisignoff freeze
+git switch -c freeze && git add SIGNOFF.snapshot.json && git commit -m "Freeze the declarations"
+```
+
+`aisignoff freeze` writes `SIGNOFF.snapshot.json`: the levels of every line as of that commit. From then on:
+
+- **A line that doesn't change keeps the levels in the snapshot,** whatever a later version of aisignoff, a changed annotation or a new `[[commits]]` entry would say about it. It follows its file through a rename. A file whose content is again exactly what the snapshot recorded, such as after a revert, has the snapshot's levels.
+- **Lines that change afterwards** are declared by the commits that land them, as described above. History is only read from the snapshot's commit on, which also makes `lint` faster.
+- **An attestation still raises frozen lines.** To correct the generation of a frozen line, attest the file with `-g`.
+- **Take a new snapshot when you like,** for example at each release. It replaces the old one and adds the lines that landed since.
+
+The snapshot is taken of a commit of the default branch, with a clean working tree, and only when `lint` passes there: it would keep an error for good. The file is one line per declaration and per file, so a new snapshot is a readable diff. It records the blob of each file, and `lint` fails when the file doesn't match its commit, such as after an edit by hand. Files with `precedence = "override"` aren't in it.
 
 ## Showing a change: `aisignoff diff`
 
@@ -253,21 +277,24 @@ Whole repository, by lines:
 
 Like a coverage diff, it shows only what changed: the levels of the added lines (now), of the removed lines (at the base, in `--json`), the attestations the change adds, and how the shares of the whole repository move. It compares the working tree, so it also works before committing. The base is the merge base of `BASE` and `HEAD`, as in a pull request on GitHub: when `main` has moved on since a branch started, its new commits aren't part of the branch's change.
 
+Without a declaration, the added lines show what their commits say; lines that aren't fully declared yet count as "undeclared".
+
 | Option | Effect |
 |---|---|
 | `--depth N` | Group by folders down to depth `N` (default 1) |
 | `--files` | One row per file |
 | `--markdown` | A Markdown table, e.g. for the job summary of a pull request |
 | `--json` | Everything, including the levels of the removed lines, with `format` and `aisignoff` at the top as in [`report --json`](commands.md#report) |
-| `-g`, `-H`, `-a` and the name options | Declare the change: lines after the base without a declaration of their own take these levels (not in files with `precedence = "override"`) |
+| `--declare-from FILE` | Declare the change from the text of its pull request description (`-` for standard input), read as the merge or squash commit's message will be. `--author NAME` names who a ticked template's human review is by |
+| `-g`, `-H`, `-a` and the name options | Declare the change with these levels instead (not in files with `precedence = "override"`) |
 
 For the same change in the [folder report](report.md), with each changed line in its file: `aisignoff report --html report.html --with-source --since origin/main`.
 
-The last row is for pull requests: before the merge, their lines have no squash commit yet, so a workflow can pass the levels from the pull request description. [`signoff-pr-diff.yml`](integration.md) does that.
+The last two rows are for pull requests: before the merge, their lines have no merge or squash commit yet, so a workflow passes the pull request description. [`signoff-pr-diff.yml`](integration.md) does that. For a pull request into another branch than the default one, the declaration isn't applied, and `diff` says so.
 
 ## Where history isn't available
 
-- **Outside a git repository** and in **shallow clones** (the default of `actions/checkout`), aisignoff warns and uses the file-level declarations; with `require-trailers-since`, `lint` fails. In CI, check out with `fetch-depth: 0`.
+- **Outside a git repository** and in **shallow clones** (the default of `actions/checkout`), aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails. In CI, check out with `fetch-depth: 0`.
 - **Binary and empty files and symlinks** are one unit, counted as one line: the whole file takes the declaration of the commit that last changed it.
 - **`precedence = "override"`** on an annotation keeps its files file level, e.g. for vendored or generated code.
 - **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file` in `[history]`). An entry that isn't a commit of the repository is reported by `lint`.

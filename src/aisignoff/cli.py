@@ -1,7 +1,8 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | attest | diff | badge | migrate."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge | migrate."""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
@@ -134,9 +135,42 @@ def cmd_init(args) -> int:
 
 
 # ---------------------------------------------------------------- lint
+def _declared(args):
+    """The declaration of the change that isn't on the default branch yet, from --declare-from
+    (a pull request description, read as its merge or squash commit's message will be) or from
+    the level options. None: there is none."""
+    values = _values(args)
+    if args.declare_from is None:
+        if args.author:
+            raise UsageError("--author needs --declare-from")
+        return Declaration.from_mapping(values, "declared for this change") if values else None
+    if values:
+        raise UsageError("give --declare-from or the level options, not both")
+    from .history import parse_message
+    try:
+        text = sys.stdin.read() if args.declare_from == "-" else Path(args.declare_from).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise UsageError(f"cannot read {args.declare_from}: {e}")
+    pieces, both = parse_message(text.replace("\r\n", "\n"), args.author or "", "the pull request description")
+    return {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ())) for i, p in pieces.items()}
+
+
 def cmd_lint(args) -> int:
     project = _open(args.root)
-    results = _results(project)
+    declared = _declared(args)
+    base = None
+    if args.base:
+        if declared is None:
+            raise UsageError("--base needs --declare-from")
+        from .diff import DiffError, merge_base
+        try:
+            base = merge_base(project.root, args.base)
+        except DiffError as e:
+            raise UsageError(str(e))
+    try:
+        results = project.results(declared=declared, base=base)
+    except ProjectError as e:
+        raise UsageError(str(e))
     if not results:
         print(f"✗ no files found below {project.root}")
         return 1
@@ -160,12 +194,19 @@ def cmd_lint(args) -> int:
     for warning in project.history_warnings:
         print(f"{'✗' if args.strict else '!'} {printable(warning)}")
 
+    for note in project.history_notes:
+        print(f"! {printable(note)}")
+    waiting = sum(p.lines for r in results for p in r.parts or () if p.advisory and p.errors)
+    if waiting:
+        print(f"! {waiting} line(s) that aren't on the default branch yet are not fully declared: the pull request "
+              "that lands them declares them (lint --declare-from checks its description)")
+
     bad = sum(1 for r in results if r.errors)
     print()
     print(f"{len(results) - bad} of {len(results)} files have a valid declaration.")
     if project.history_used:
         lines = sum(p.lines for r in results for p in r.parts or ())
-        bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors)
+        bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors and not p.advisory)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
     failed = bad > 0 or bool(project.history_problems) or (args.strict and (unused or project.history_warnings))
     if failed:
@@ -273,7 +314,9 @@ def _json_header() -> dict:
 def _result_json(r) -> dict:
     out = {"path": r.path, **r.declaration.as_dict(), "errors": r.errors}
     if r.parts is not None:
-        out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(), "errors": p.errors}
+        # kinds: where each axis comes from (commit, branch, attestation, file, declared, frozen; null: nowhere)
+        out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(), "errors": p.errors,
+                         "kinds": dict(zip((GEN, HUM, AIR), p.kinds)), "advisory": p.advisory}
                         for p in r.parts]
     return out
 
@@ -452,6 +495,45 @@ def cmd_attest(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- freeze
+def cmd_freeze(args) -> int:
+    from .history import SNAPSHOT, Snapshot
+    project = _open(args.root)
+    root = project.root
+    if not project.config.history.enabled:
+        raise UsageError("a snapshot records line-by-line declarations: enable [history] in SIGNOFF.toml first")
+    results = _results(project)
+    history = project.history
+    if history is None:
+        raise UsageError("a snapshot needs the whole git history (not a shallow clone)")
+    if history.base is None:
+        raise UsageError("there is no commit to freeze yet")
+    dirty = [line[3:] for line in (_git_out(root, "status", "--porcelain", "--untracked-files=all") or "").splitlines()
+             if line[3:].strip('"') != (history.prefix + SNAPSHOT)]
+    if history.head != history.base or dirty:
+        what = "the working tree has changes" if history.head == history.base else \
+            f"HEAD has commits that aren't on the default branch (its newest commit here is {history.base[:7]})"
+        raise UsageError(f"a snapshot is taken of a commit of the default branch, but {what}. Check that commit "
+                         f"out with nothing else changed (git switch --detach {history.base[:7]}), run 'aisignoff "
+                         f"freeze', and commit {SNAPSHOT} from there, on a new branch if you use pull requests")
+    bad = [r.path for r in results if r.errors]
+    if bad or project.history_problems:
+        for problem in project.history_problems:
+            print(f"✗ {printable(problem)}", file=sys.stderr)
+        raise UsageError("'aisignoff lint' fails here"
+                         + (f" ({len(bad)} file(s), e.g. {printable(bad[0])})" if bad else "")
+                         + "; a snapshot would keep those errors for good, so fix them first")
+    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs)
+    target = root / SNAPSHOT
+    again = target.exists()
+    target.write_text(text, encoding="utf-8")
+    print(f"{'Updated' if again else 'Wrote'} {SNAPSHOT}: the levels of {lines} lines in {files} files as of commit "
+          f"{history.base[:7]}.")
+    print("Commit it. Lines that don't change keep these levels; lines changed after that commit are declared "
+          "by the commits that land them.")
+    return 0
+
+
 # ---------------------------------------------------------------- diff
 def cmd_diff(args) -> int:
     from . import diff
@@ -460,12 +542,7 @@ def cmd_diff(args) -> int:
     if args.depth < 0:
         raise UsageError("--depth must be 0 or more")
     project = _open(args.root)
-    declared = None
-    values = {k: v for k, v in _values(args).items()}
-    if values:
-        if TODO in values.values():
-            raise UsageError("--declare levels can't be TODO")
-        declared = Declaration.from_mapping(values, "declared for this change")
+    declared = _declared(args)
     try:
         data = diff.compute(project, args.base, declared, depth=args.depth, by_file=args.files)
     except (diff.DiffError, ProjectError) as e:
@@ -883,6 +960,13 @@ def _add_values(p: argparse.ArgumentParser, required: bool) -> None:
     p.add_argument("--ai-reviewed-by", action="append", metavar="MODEL", help="repeatable (A1-A3)")
 
 
+def _add_declare_from(p) -> None:
+    p.add_argument("--declare-from", metavar="FILE", help="declare the change from the text of its pull request "
+                   "description (- for standard input), read as the merge or squash commit's message will be")
+    p.add_argument("--author", metavar="NAME", help="with --declare-from: who the human review of a ticked "
+                   "template is by (the pull request's author)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aisignoff", description="Declare and check AI generation (G0-G3), "
                                      "human review (H0-H3) and AI review (A0-A3) of the files in a repository.")
@@ -895,9 +979,14 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("lint", help="check that every file has a valid declaration")
-    p.add_argument("--strict", action="store_true", help="also fail on annotations that match no file, and on reviews raised from inside a pull request")
+    p.add_argument("--strict", action="store_true", help="also fail on warnings: annotations that match no file, "
+                   "reverts and merges that own lines without declaring them")
     p.add_argument("--max-files", type=int, default=10, help="files listed per problem (default 10)")
-    p.set_defaults(func=cmd_lint)
+    _add_declare_from(p)
+    p.add_argument("--base", metavar="REV", help="with --declare-from: the branch the pull request goes into "
+                   "(a pull request into another branch than the default one declares nothing)")
+    p.set_defaults(func=cmd_lint, generation=None, human=None, ai=None, assisted_by=None, reviewed_by=None,
+                   ai_reviewed_by=None)
 
     p = sub.add_parser("report", help="summary of the declarations")
     p.add_argument("--files", action="store_true", help="one line per file")
@@ -935,13 +1024,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="machine-readable output")
     g = p.add_argument_group("declaring the change", "levels for changed lines that carry no declaration of their "
                              "own yet, e.g. from the pull request's template")
-    g.add_argument("-g", "--generation", choices=[*GENERATION])
-    g.add_argument("-H", "--human", choices=[*HUMAN])
-    g.add_argument("-a", "--ai", choices=[*AI])
+    g.add_argument("-g", "--generation", choices=[*GENERATION, TODO])
+    g.add_argument("-H", "--human", choices=[*HUMAN, TODO])
+    g.add_argument("-a", "--ai", choices=[*AI, TODO])
     g.add_argument("--assisted-by", action="append", metavar="TOOL")
     g.add_argument("--reviewed-by", action="append", metavar="PERSON")
     g.add_argument("--ai-reviewed-by", action="append", metavar="MODEL")
+    _add_declare_from(g)
     p.set_defaults(func=cmd_diff)
+
+    p = sub.add_parser("freeze", help="record the levels of every line as of the default branch's commit ([history])")
+    p.set_defaults(func=cmd_freeze)
 
     p = sub.add_parser("badge", help="write shields.io endpoint JSON files")
     p.add_argument("--out", default="badges", help="output directory (default: badges)")

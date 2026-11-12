@@ -19,7 +19,9 @@ Format::
 
     [history]                            # optional: line-level declarations from git history
     enabled = true
-    require-trailers-since = "1a2b3c4"   # optional: newer commits must declare their levels
+    default-branch = "main"              # optional: the branch whose commits own the lines
+    undeclared = "baseline"              # optional: "error" if every commit there must declare its lines
+    require-trailers-since = "1a2b3c4"   # optional: commits after this one must declare their lines
     merge-method = "merge"               # optional: how pull requests land (merge, squash, rebase)
 
     [[commits]]                          # corrects or adds the declaration of a commit
@@ -47,8 +49,10 @@ FILENAME = "SIGNOFF.toml"
 LEGACY_FILENAME = "AIDECL.toml"  # the name before aidecl became aisignoff; read until migrated
 VERSION = 3
 PRECEDENCES = ("closest", "override")
-HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace")
+HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace",
+                "default-branch", "undeclared")
 MERGE_METHODS = ("merge", "squash", "rebase")
+UNDECLARED = ("baseline", "error")
 _HEX = set("0123456789abcdef")
 
 
@@ -84,6 +88,8 @@ class HistorySettings:
     ignore_revs_file: str | None = None  # default: .git-blame-ignore-revs if it exists
     merge_method: str = "merge"  # how pull requests land: what a pull request's CI run previews
     ignore_whitespace: bool = True  # git blame -w
+    default_branch: str | None = None  # default: origin's default branch, else main or master
+    undeclared: str = "baseline"  # lines of a commit that declares nothing: the file-level declaration, or an error
 
 
 @dataclass
@@ -303,5 +309,12 @@ def _parse_history(table, name: str) -> HistorySettings:
     whitespace = table.get("ignore-whitespace", True)
     if not isinstance(whitespace, bool):
         raise ConfigError(f"{where}: 'ignore-whitespace' must be true or false")
+    branch = table.get("default-branch")
+    if branch is not None and (not isinstance(branch, str) or not branch.strip() or branch.startswith("-")):
+        raise ConfigError(f"{where}: 'default-branch' must be the name of a branch")
+    undeclared = table.get("undeclared", "baseline")
+    if undeclared not in UNDECLARED:
+        raise ConfigError(f"{where}: 'undeclared' must be one of {', '.join(UNDECLARED)}")
     return HistorySettings(enabled=enabled, require_trailers_since=since, ignore_revs_file=revs,
-                           merge_method=method, ignore_whitespace=whitespace)
+                           merge_method=method, ignore_whitespace=whitespace, default_branch=branch,
+                           undeclared=undeclared)

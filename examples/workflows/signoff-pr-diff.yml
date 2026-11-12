@@ -5,11 +5,12 @@
 #
 #   - writes "aisignoff diff" to the job summary: the levels of the added and removed lines per
 #     folder, attestations the pull request adds, and how the repository's shares move
-#   - declares the pull request's lines from its description, as aisignoff reads the merge or
-#     squash commit when the repository's default commit message is "Pull request title and
+#   - declares the pull request's lines from its description, read as aisignoff reads the merge
+#     or squash commit when the repository's default commit message is "Pull request title and
 #     description": "Key: value" lines (AI-Generation, Human-Review, AI-Review and the names), or
-#     the ticked checkboxes of the pull request template (not both; both is a warning). Invalid
-#     levels are skipped with a warning.
+#     the ticked checkboxes of the pull request template (aisignoff >= 0.12: --declare-from).
+#     A pull request into another branch than the default one declares nothing: its lines are
+#     declared by the pull request that lands them on the default branch.
 #
 # It only reads the repository, so it also works for pull requests from forks. It doesn't
 # fail the check on its own: that's the job of "aisignoff lint".
@@ -37,42 +38,16 @@ jobs:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
       - name: Declarations of the changed lines
+        env:
+          DESCRIPTION: ${{ github.event.pull_request.body }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           # the merge preview's first parent: the base branch as this run merged it (the event's
           # base.sha can be older, and then the change would include the base branch's new commits)
           BASE=$(git rev-parse HEAD^1)
-          # the pull request's own declaration, read with aisignoff's own parser (as it will read the
-          # merge or squash commit), as options for aisignoff diff
-          python3 - "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/declare" <<'PY'
-          import json, re, sys
-          from aisignoff.history import parse_checkboxes, parse_trailers
-
-          pr = json.load(open(sys.argv[1], encoding="utf-8"))["pull_request"]
-          body = (pr.get("body") or "").replace("\r\n", "\n")
-          trailers = parse_trailers(body, "the description")
-          boxes = parse_checkboxes(body, (pr.get("user") or {}).get("login") or "", "the description")
-          if trailers and boxes:
-              print("::warning::the description declares levels both as trailers and as ticked checkboxes; "
-                    "use one of them", file=sys.stderr)
-          axes = [("--generation", "--assisted-by", "G"), ("--human", "--reviewed-by", "H"),
-                  ("--ai", "--ai-reviewed-by", "A")]
-          out = []
-          for i, piece in {**boxes, **trailers}.items():
-              option, who, letter = axes[i]
-              if piece.problems:
-                  print(f"::warning::{piece.problems[0]}", file=sys.stderr)
-              if not re.fullmatch(letter + "[0-3]", piece.level):
-                  if piece.level != "TODO":
-                      print(f"::warning::ignored {piece.level} in the description: not {letter}0 to {letter}3",
-                            file=sys.stderr)
-                  continue
-              out.append(f"{option}={piece.level}")
-              out += [f"{who}={name}" for name in piece.names if name != "TODO"]
-          if out:
-              print("\n".join(out))
-          PY
-          mapfile -t DECLARE < "$RUNNER_TEMP/declare"
+          printf '%s\n' "$DESCRIPTION" > "$RUNNER_TEMP/description.md"
           {
             echo '### AI signoff of the changed lines'
-            aisignoff diff "$BASE" --markdown --depth 2 "${DECLARE[@]}" || echo "aisignoff diff failed, see the log"
+            aisignoff diff "$BASE" --markdown --depth 2 --declare-from "$RUNNER_TEMP/description.md" \
+              --author "$AUTHOR" || echo "aisignoff diff failed, see the log"
           } >> "$GITHUB_STEP_SUMMARY"

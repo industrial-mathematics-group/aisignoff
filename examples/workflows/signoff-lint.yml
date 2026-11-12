@@ -50,4 +50,16 @@ jobs:
           path: ${{ runner.temp }}/aisignoff-report.html
       - name: Check declarations
         run: aisignoff lint
-        # run: aisignoff lint --strict   # also fail on annotations that match no file
+        # run: aisignoff lint --strict   # also fail on warnings, such as annotations that match no file
+      # With [history]: a pull request's own lines are declared by its description, which lands as
+      # the message of its merge or squash commit. This checks it before the merge (aisignoff >= 0.12).
+      # Add "types: [opened, edited, synchronize, reopened]" to pull_request above, so that it runs
+      # again when the description is edited.
+      # - name: Check the pull request's declaration
+      #   if: github.event_name == 'pull_request'
+      #   env:
+      #     DESCRIPTION: ${{ github.event.pull_request.body }}
+      #     AUTHOR: ${{ github.event.pull_request.user.login }}
+      #   run: |
+      #     printf '%s\n' "$DESCRIPTION" > "$RUNNER_TEMP/description.md"
+      #     aisignoff lint --declare-from "$RUNNER_TEMP/description.md" --author "$AUTHOR" --base HEAD^1

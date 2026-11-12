@@ -59,7 +59,7 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), same session"]
 
 ## Line by line
 
-With `[history]` in `SIGNOFF.toml`, aisignoff declares each line by the commit that brought it in (trailers like `AI-Generation: G2`, or the ticked boxes of the pull request template, in the squash commit of a pull request), keeps the file-level declarations as the fallback, and `aisignoff attest` re-declares a whole file after a review. `aisignoff diff origin/main` shows the levels of just the lines a change touches. See [Line by line](https://industrial-mathematics-group.github.io/aisignoff/history/).
+With `[history]` in `SIGNOFF.toml`, aisignoff declares each line by the commit that landed it on the default branch (trailers like `AI-Generation: G2`, or the ticked boxes of the pull request template, in the merge or squash commit of a pull request), keeps the file-level declarations as the fallback, and `aisignoff attest` re-declares a whole file after a review. `aisignoff freeze` records the levels of every line, so that they stay. `aisignoff diff origin/main` shows the levels of just the lines a change touches. See [Line by line](https://industrial-mathematics-group.github.io/aisignoff/history/).
 
 ## Folder report
 

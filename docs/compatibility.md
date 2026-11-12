@@ -10,7 +10,8 @@ From 1.0, a minor or patch release (1.1, 1.0.1, …) won't break any of these; b
 - **The names.** `Assisted-by`, `Reviewed-by` and `AI-Reviewed-by`.
 - **[`SIGNOFF.toml`](signoff-toml.md)**, format `version = 3`. A file that is valid today stays valid and keeps its meaning. New optional keys or tables may be added.
 - **[Inline tags](inline-tags.md)**, including the comment syntaxes they are read from.
-- **[Line by line](history.md) declarations**: commit trailers, the pull request template's checkboxes, `[[commits]]` and `[[attestations]]`, and the rules that decide which declaration a line takes. A line keeps its levels when you upgrade, unless a release fixes behaviour that contradicts these docs.
+- **[Line by line](history.md) declarations**: commit trailers, the pull request template's checkboxes, `[[commits]]` and `[[attestations]]`, and the rules that decide which declaration a line takes. A line keeps its levels when you upgrade, unless a release fixes behaviour that contradicts these docs. With a [snapshot](history.md#freezing-the-levels-aisignoff-freeze), the lines in it keep their levels in any case.
+- **`SIGNOFF.snapshot.json`**, format `"format": 1`: a snapshot that is valid today stays valid and keeps its meaning.
 - **[Commands](commands.md)**: the commands, their options and the exit codes (`0` all fine, `1` declarations missing or invalid, `2` usage or configuration error). New commands and options may be added.
 - **The `--json` output** of `report` and `diff`. It starts with `"format": 1` (and `"aisignoff"`, the version that wrote it). New keys may appear at any time; a key that is removed, renamed or changes its meaning raises `format`, which (from 1.0) only happens in a major release. Readers should check `format` and ignore keys they don't know.
 - **The badge files** written by `aisignoff badge`: their names and the [shields.io endpoint](https://shields.io/badges/endpoint-badge) schema.

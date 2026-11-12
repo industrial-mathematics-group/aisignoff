@@ -97,16 +97,19 @@ def _header_path(text: str) -> str | None:
     return None if p == "/dev/null" else p[2:]
 
 
-def changed_lines(root: Path, base: str) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
+def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """(old path, new path) -> (removed line numbers at BASE, added line numbers now).
 
     Compares BASE with the working tree (tracked files, renames detected); untracked files
     are added by the caller. Paths are relative to root, and only files below root count.
 
+    With ignore_whitespace, lines that differ only in whitespace are no change (git diff -w), as
+    for git blame -w.
+
     The file names come from the header of each file's block (from 'diff --git' to its first
     hunk) only: a removed line "-- comment" reads "--- comment" in the hunk, like a header."""
     out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color",
-               "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", base, "--")
+               "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", *(["-w"] if ignore_whitespace else []), base, "--")
     result: dict = {}
     old = new = None
     removed: list[int] = []
@@ -210,12 +213,16 @@ def _bucket(path: str, depth: int) -> str:
     return "/".join(parts[:depth]) + "/" if parts and depth else "."
 
 
-def compute(project: Project, base: str, declared: Declaration | None = None, depth: int = 1,
-            by_file: bool = False) -> dict:
+def compute(project: Project, base: str, declared=None, depth: int = 1, by_file: bool = False) -> dict:
+    """declared: the declaration of the change (a Declaration, or one history.Piece per axis as
+    read from a pull request description), None if there is none."""
     root = project.root
     tip = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
     sha = merge_base(root, base)
-    head = {r.path: r for r in project.results(declared=declared, declared_after=sha)}
+    head = {r.path: r for r in project.results(declared=declared, base=sha)}
+    if declared is not None and not isinstance(declared, Declaration):
+        from .history import combine
+        declared = combine([declared.get(i) for i in range(len(AXES))])
     prefix = _git(root, "rev-parse", "--show-prefix", check=False).strip()  # root below the top of the repo
     with tempfile.TemporaryDirectory(prefix="aisignoff-base-") as tmp:
         top = Path(tmp) / "base"
@@ -224,6 +231,7 @@ def compute(project: Project, base: str, declared: Declaration | None = None, de
         _git(root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(top), sha)
         try:
             base_project = Project(where)
+            # as the base's own report: by its SIGNOFF.toml, with its commit as the default branch's
             base_results = base_project.results(quiet=True)
             base_attestations = {(a.path, a.blob) for a in base_project.config.attestations}
             before = _shares(where, base_results)  # reads the files at BASE, so before the worktree goes
@@ -280,7 +288,7 @@ def compute(project: Project, base: str, declared: Declaration | None = None, de
         "base": sha, "base_name": base, "base_tip": tip, "files": files, "history": project.history_used, "note": note,
         "rows": [_finish(r) for r in sorted(rows.values(), key=lambda r: (r["name"] != ".", r["name"]))], "total": _finish(total), "attested": attested,
         "before": before, "after": _shares(root, list(head.values())),
-        "problems": list(project.history_problems),
+        "problems": list(project.history_problems), "notes": list(project.history_notes),
     }
 
 
@@ -377,6 +385,7 @@ def _extras(data: dict, md: bool) -> list[str]:
         notes.append("file-level declarations: [history] is not enabled, or not usable here")
     if data["note"]:
         notes.append(data["note"])
+    notes += data.get("notes", [])
     notes += [f"✗ {p}" for p in data["problems"]]
     if notes:
         out.append("")

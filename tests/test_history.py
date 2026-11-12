@@ -178,22 +178,18 @@ def test_require_trailers_since(repo):
     edit_lines(repo, [7])
     sha = commit(repo, "no trailers")
     r, _ = result(repo)
-    assert any(f"commit {sha[:7]}" in e and "no AI-Generation trailer" in e for e in r.errors)
+    assert any(f"commit {sha[:7]}" in e and "declares no AI-Generation" in e for e in r.errors)
     assert not any(e.endswith("missing AI-Generation") for e in r.errors)
-    preview = f"Merge {'a' * 40} into {'b' * 40}"
-    git(repo, "commit", "-q", "--amend", "-m", preview)  # only the subject of a merge preview: not exempt
-    r, _ = result(repo)
-    assert any("no AI-Generation trailer" in e for e in r.errors)
     git(repo, "reset", "-q", "--hard", "HEAD~1")
     git(repo, "checkout", "-q", "-b", "pr")
     edit_lines(repo, [7])
     commit(repo, "no trailers, on a pull request")
-    git(repo, "checkout", "-q", "main")
-    edit_lines(repo, [1], text="main")
-    commit(repo, "main moves on", G3)
-    git(repo, "merge", "-q", "--no-ff", "pr", "-m", preview)  # the merge preview a pull request's CI run checks out
     r, _ = result(repo)
-    assert r.errors == []
+    assert r.errors == []  # not on the default branch yet: the pull request will declare it
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "pr", "-m", "Merge pr")  # landed without a declaration
+    r, _ = result(repo)
+    assert any("Merge pr" in e and "declares no Human-Review" in e for e in r.errors)
 
 
 def test_override_annotations_and_binary_files(repo):

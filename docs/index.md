@@ -49,4 +49,4 @@ aisignoff declares **files**. It complements the declaration in **pull requests*
 
 Both use the same keys, so the job summary of the PR check can be copied into `SIGNOFF.toml`.
 
-With [`[history]`](history.md), the two come together: the pull request's declaration lands in git with its squash or merge commit (as trailers, or the ticked boxes of the pull request template), and aisignoff declares each line by the commit that brought it in. `SIGNOFF.toml` then holds the defaults, the files without lines, and attestations that re-declare whole files after a review.
+With [`[history]`](history.md), the two come together: the pull request's declaration lands in git with its squash or merge commit (as trailers, or the ticked boxes of the pull request template), and aisignoff declares each line by the commit that landed it on the default branch. `SIGNOFF.toml` then holds the defaults, the files without lines, and attestations that re-declare whole files after a review.
