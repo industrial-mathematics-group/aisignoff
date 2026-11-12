@@ -3,7 +3,7 @@
 # then run "pre-commit install".
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.13.0   # a release tag, the same version as in your workflows ([history] needs v0.6.0 or later)
+    rev: v0.14.0   # a release tag, the same version as in your workflows ([history] needs v0.6.0 or later)
     hooks:
       - id: aisignoff-lint
 
@@ -14,6 +14,6 @@ repos:
   #       name: aisignoff lint
   #       entry: aisignoff lint
   #       language: python
-  #       additional_dependencies: ["aisignoff==0.13.0"]
+  #       additional_dependencies: ["aisignoff==0.14.0"]
   #       pass_filenames: false
   #       always_run: true

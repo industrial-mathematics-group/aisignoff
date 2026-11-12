@@ -154,6 +154,9 @@ class Project:
         self.history_used = False
         # HEAD is a commit of the default branch, or will be one as it is (lint --landed)
         self.landed = False
+        self.reset: set[str] = set()  # files to compute from history instead of the snapshot (freeze --reset)
+        # check a changed SIGNOFF.snapshot.json by working it out again (off for that work itself)
+        self.check_snapshot = True
 
     def history_wanted(self) -> bool:
         return self.config.history.enabled
@@ -183,7 +186,79 @@ class Project:
         with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
             out = list(pool.map(one, files))
         self.history_warnings = history.warnings()
+        if self.check_snapshot and history.snapshot is not None and history.snapshot_changed():
+            problems, notes = self.verify_snapshot()
+            self.history_problems = self.history_problems + problems
+            self.history_notes = self.history_notes + notes
         return out
+
+    def verify_snapshot(self) -> tuple[list[str], list[str]]:
+        """(problems, notes) of checking SIGNOFF.snapshot.json: it must be what 'aisignoff freeze'
+        writes at its commit, from that commit's SIGNOFF.toml and the snapshot before it. That is
+        also what keeps the lines the snapshot before it had: freeze carries them over."""
+        import json
+        import tempfile
+        from . import __version__
+        from .history import SNAPSHOT, Snapshot, _git
+        try:
+            snapshot = Snapshot.read(self.root / SNAPSHOT)
+        except ValueError:
+            return [], []  # lint reports that already
+        if snapshot.version != __version__:
+            return [], [f"{SNAPSHOT} changed, and was written by aisignoff {snapshot.version or '(unknown)'}: this "
+                        f"is {__version__}, which may work levels out differently, so it isn't checked by working "
+                        "it out again. Review the change, or write it with this version"]
+        prefix = (_git(self.root, "rev-parse", "--show-prefix", check=False) or "").strip()
+        with tempfile.TemporaryDirectory(prefix="aisignoff-snapshot-") as tmp:
+            top = Path(tmp) / "at"
+            where = top / prefix if prefix else top
+            # no post-checkout hooks: reading another commit must not run the repository's code
+            if _git(self.root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(top),
+                    snapshot.commit, check=False) is None:
+                return [], [f"{SNAPSHOT}: its commit {snapshot.commit[:7]} can't be checked out, so it isn't checked"]
+            try:
+                inner = Project(where)
+                inner.check_snapshot, inner.landed, inner.reset = False, True, set(snapshot.reset)
+                results = inner.results(quiet=True)
+                history = inner.history
+                before = Snapshot.parse((where / SNAPSHOT).read_text(encoding="utf-8")) \
+                    if (where / SNAPSHOT).is_file() else None
+                config = inner.config
+            except Exception as e:  # noqa: BLE001 (an old SIGNOFF.toml, a broken commit: say so, don't crash lint)
+                return [], [f"{SNAPSHOT} couldn't be worked out again at {snapshot.commit[:7]} ({e}), so it isn't checked"]
+            finally:
+                _git(self.root, "worktree", "remove", "--force", str(top), check=False)
+        if history is None or history.base != snapshot.commit:
+            return [], [f"{SNAPSHOT} couldn't be worked out again at {snapshot.commit[:7]}, so it isn't checked"]
+        expected: dict[str, list[str]] = {}
+        for r in results:
+            if r.parts is None or r.path not in history.base_blobs:
+                continue
+            texts = [json.dumps({**p.declaration.as_dict(), "source": p.declaration.source}, sort_keys=True,
+                                ensure_ascii=False) for p in r.parts]
+            expected[r.path] = [texts[i] for i in r.line_parts]
+        actual = snapshot.line_declarations()
+        files = sorted(set(expected) | set(actual))
+        wrong = [f for f in files if expected.get(f) != actual.get(f)]
+        problems = []
+        if wrong:
+            lines = sum(sum(a != b for a, b in zip(expected.get(f, []), actual.get(f, [])))
+                        + abs(len(expected.get(f, [])) - len(actual.get(f, []))) for f in wrong)
+            problems.append(f"{SNAPSHOT} isn't what 'aisignoff freeze' writes at its commit {snapshot.commit[:7]}: "
+                            f"{lines} line(s) differ, in {wrong[0]}" + (f" and {len(wrong) - 1} more file(s)"
+                                                                       if len(wrong) > 1 else "")
+                            + ". It was edited by hand; restore it, or write it again with 'aisignoff freeze'")
+        old = [json.dumps(a, sort_keys=True) for a in (before.archive if before else [])]
+        new = [json.dumps(a, sort_keys=True) for a in snapshot.archive]
+        pruned = json.dumps({"commit": snapshot.commit,
+                             "commits": [{"commit": c.commit, **c.values} for c in config.commits],
+                             "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]},
+                            sort_keys=True)
+        if new != old and new != old + [pruned]:
+            problems.append(f"{SNAPSHOT}: its archive isn't the one before it, plus the [[commits]] and "
+                            f"[[attestations]] entries of {config.path.name} at {snapshot.commit[:7]} that "
+                            "'aisignoff freeze --prune' moves there. Restore it, or write it again with 'aisignoff freeze'")
+        return problems, []
 
     def _history(self, declared, base, quiet, use_snapshot=True):
         self.history_used = False
@@ -210,7 +285,7 @@ class Project:
         if isinstance(declared, Declaration):
             declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared")
         try:
-            history = History(self.root, self.config, declared, base, use_snapshot, self.landed)
+            history = History(self.root, self.config, declared, base, use_snapshot, self.landed, self.reset)
         except HistoryError as e:
             raise ProjectError(str(e))
         self.history_used = True
