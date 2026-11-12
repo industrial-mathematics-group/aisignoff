@@ -41,12 +41,12 @@ def test_a_pull_request_into_another_pull_request_fails_nothing(repo, capsys):
     code, out = lint(repo, capsys, "--strict")
     assert code == 0 and "2 line(s) that aren't on the default branch yet" in out
     r, _ = result(repo)
-    assert by_line(r)[2].declaration.short() == "G3 -- A1" and by_line(r)[2].advisory and r.errors == []
+    assert by_line(r)[2].declaration.short() == "G3 -- --" and by_line(r)[2].advisory and r.errors == []
     # B's description declares nothing for main: it is A's pull request that lands the lines there
     body = write(repo.parent, "b.md", D("G3", "H3", "A2"))
     code, out = lint(repo, capsys, "--declare-from", str(body), "--base", "a")
     assert code == 0 and "doesn't go into the default branch" in out
-    assert by_line(result(repo)[0])[3].declaration.short() == "G3 -- A1"
+    assert by_line(result(repo)[0])[3].declaration.short() == "G3 -- --"
     capsys.readouterr()
     assert main(["--root", str(repo), "diff", "a", "--json", "--declare-from", str(body)]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -146,7 +146,7 @@ def test_a_squashed_pull_request_whose_commits_live_on_in_the_next_one(repo):
     assert lines[6].declaration.short() == "G0 -- --" and lines[6].advisory and r.errors == []
     merge(repo, "b", "Merge B\n\n" + D("G3", "H2", "A2"))
     lines = by_line(result(repo)[0])
-    assert [lines[n].declaration.short() for n in (1, 2, 6)] == ["G0 H2 A0", "G3 H1 A1", "G0 H2 A2"]
+    assert [lines[n].declaration.short() for n in (1, 2, 6)] == ["G0 H2 A0", "G3 H1 A1", "G3 H2 A2"]
 
 
 def test_renamed_binary_empty_and_new_files_of_a_change(repo, capsys):
@@ -165,8 +165,9 @@ def test_renamed_binary_empty_and_new_files_of_a_change(repo, capsys):
         r, _ = result(repo, path)
         return [by_line(r)[n].declaration.short() for n in sorted(by_line(r))]
 
-    assert levels("moved.py") == ["G0 H2 A0"] * 4 + ["G3 H1 A1"] + ["G0 H2 A0"] * 5
-    assert levels("bin.dat") == ["G3 H1 A1"] and levels("empty.txt") == ["G0 H3 A0"]
+    # the commits' generation is shown; the reviews are what the pull request will declare
+    assert levels("moved.py") == ["G0 H2 A0"] * 4 + ["G3 -- --"] + ["G0 H2 A0"] * 5
+    assert levels("bin.dat") == ["G3 -- --"] and levels("empty.txt") == ["G0 H3 A0"]
     assert levels("new.py") == ["G0 H2 A0"] * 2
     body = write(repo.parent, "body.md", D("G2", "H2", "A2"))
     capsys.readouterr()
@@ -205,8 +206,8 @@ def frozen(repo, capsys):
     commit(repo, "AI change", G3)
     git(repo, "checkout", "-q", "-b", "pr")
     edit_lines(repo, [4], text="hand")
-    commit(repo, "by hand", "AI-Generation: G0")
-    merge(repo, "pr", "Merge pr\n\n" + D("G3", "H2", "A2"))
+    commit(repo, "by hand")
+    merge(repo, "pr", "Merge pr\n\n" + D("G0", "H2", "A2"))
     assert freeze(repo, capsys)[0] == 0
     commit(repo, "freeze")
     return repo
@@ -270,7 +271,7 @@ def test_a_branch_from_before_the_snapshot_that_merged_main(frozen, capsys):
     assert not (repo / "SIGNOFF.snapshot.json").exists()
     git(repo, "merge", "-q", "--no-ff", "main", "-m", "Merge branch 'main' into old")  # GitHub's "Update branch"
     r, project = result(repo)
-    assert shares(r) == {"G0 H2 A0": 6, "G3 H1 A1": 2, "G0 H2 A2": 1, "G3 -- A1": 1}
+    assert shares(r) == {"G0 H2 A0": 6, "G3 H1 A1": 2, "G0 H2 A2": 1, "G3 -- --": 1}
     assert r.errors == [] and project.history_problems == []
     capsys.readouterr()
     assert main(["--root", str(repo), "diff", "main", "--json", "-g", "G3", "--assisted-by", "M", "-H", "H1",

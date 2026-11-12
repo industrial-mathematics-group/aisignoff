@@ -13,6 +13,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:   # with a merge queue: checks the commit that will land (aisignoff >= 0.12)
   workflow_dispatch:
 
 permissions:

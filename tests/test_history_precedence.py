@@ -70,22 +70,32 @@ def test_the_merge_commit_owns_its_lines_and_a_branch_commit_only_says_generatio
     edit_lines(repo, [2, 3])
     commit(repo, "agent", D("G3", "H0", "A1", ai="M, self-check"))
     edit_lines(repo, [4], text="hand")
-    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H3\nReviewed-by: Bob")
+    hand = commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H3\nReviewed-by: Bob")
     edit_lines(repo, [5])
     commit(repo, "todo", "AI-Generation: TODO\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
-    merge(repo, "feature", "Merge feature\n\n" + D("G3", "H2", "A2"))
+    merge(repo, "feature", "Merge feature\n\n" + D("G2", "H2", "A2"))
     r, project = result(repo)
     lines = by_line(r)
+    # a commit inside can say a higher generation than the pull request for its lines
     assert lines[2].declaration.short() == "G3 H2 A2" and lines[2].kinds == ("branch", "commit", "commit")
+    # but not a lower one: "written by hand" would take the AI review requirement off its lines
+    assert lines[4].declaration.short() == "G2 H2 A2" and lines[4].kinds[0] == "commit"
     # the review that a commit inside claims doesn't count, higher or lower: the pull request's does
-    assert lines[4].declaration.short() == "G0 H2 A2" and lines[4].declaration.reviewed_by == ("Jane",)
-    assert lines[5].declaration.short() == "G3 H2 A2" and lines[5].kinds[0] == "commit"  # a TODO says nothing
+    assert lines[4].declaration.reviewed_by == ("Jane",)
+    assert lines[5].declaration.short() == "G2 H2 A2" and lines[5].kinds[0] == "commit"  # a TODO says nothing
+    assert r.errors == [] and project.history_warnings == []
+    with open(repo / "SIGNOFF.toml", "a") as f:  # a [[commits]] entry can say it: SIGNOFF.toml is reviewed
+        f.write(f'\n[[commits]]\ncommit = "{hand}"\nAI-Generation = "G0"\n')
+    r, project = result(repo)
+    lines = by_line(r)
+    assert lines[4].declaration.short() == "G0 H2 A2" and lines[4].kinds[0] == "branch"
     assert r.errors == [] and project.history_warnings == []
     merge_sha = git(repo, "rev-parse", "HEAD")
     with open(repo / "SIGNOFF.toml", "a") as f:  # a correction of the merge reaches all its lines
         f.write(f'\n[[commits]]\ncommit = "{merge_sha}"\nHuman-Review = "H3"\nReviewed-by = "Rita"\n')
     lines = by_line(result(repo)[0])
-    assert {lines[n].declaration.short() for n in (2, 3, 5)} == {"G3 H3 A2"} and lines[4].declaration.short() == "G0 H3 A2"
+    assert {lines[n].declaration.short() for n in (2, 3)} == {"G3 H3 A2"} and lines[5].declaration.short() == "G2 H3 A2"
+    assert lines[4].declaration.short() == "G0 H3 A2"
 
 
 def test_a_partial_declaration_doesnt_take_the_rest_from_the_file(repo):
@@ -115,7 +125,7 @@ def test_a_pull_request_merged_into_another_declares_nothing(repo):
     lines = by_line(r)
     assert lines[2].declaration.short() == "G3 H2 A2"
     assert lines[3].declaration.short() == "G3 H2 A2"  # B's description doesn't count
-    assert lines[4].declaration.short() == "G0 H2 A2"  # the commit that wrote it says G0
+    assert lines[4].declaration.short() == "G3 H2 A2"  # nor does a commit's G0 lower A's G3
     assert r.errors == [] and project.history_warnings == []
 
 
@@ -146,7 +156,7 @@ def test_stacked_pull_requests_land_the_same_whatever_the_method_and_order(repo)
     r, project = result(repo)
     lines = by_line(r)
     assert lines[2].declaration.short() == "G3 H2 A2"  # landed by B's merge, as B's diff into main showed it
-    assert lines[3].declaration.short() == "G0 H2 A2"
+    assert lines[3].declaration.short() == "G3 H2 A2"
     assert r.errors == []
 
 
@@ -168,7 +178,7 @@ def test_a_git_pull_merge_on_main_owns_what_it_brought_in(repo, capsys):
     lines = by_line(r)
     # the pull's merge commit landed the pull request's line on this main, and declares nothing
     assert lines[2].declaration.short() == "G0 H2 A0" and lines[9].declaration.short() == "G0 H3 A0"
-    assert len(project.history_warnings) == 1 and "declared merge(s) inside it" in project.history_warnings[0]
+    assert len(project.history_warnings) == 1 and "commit(s) inside it that declare their levels" in project.history_warnings[0]
     capsys.readouterr()
     assert main(["--root", str(repo), "lint"]) == 0 and main(["--root", str(repo), "lint", "--strict"]) == 1
     with open(repo / "SIGNOFF.toml", "a") as f:
@@ -223,7 +233,7 @@ def preview(repo, method, declare=True):
 
 
 def test_preview_of_a_merge(repo):
-    assert preview(repo, "merge")[0] == ["G3 H2 A2", "G0 H2 A2"]
+    assert preview(repo, "merge")[0] == ["G3 H2 A2", "G3 H2 A2"]  # a commit's G0 doesn't lower the description's G3
 
 
 def test_preview_of_a_squash_ignores_the_branch_commits(repo):
@@ -238,7 +248,7 @@ def test_preview_of_a_rebase_ignores_the_description(repo):
 def test_preview_without_the_description_fails_nothing(repo, capsys):
     from aisignoff.cli import main
     levels, r = preview(repo, "merge", declare=False)
-    assert levels == ["G3 TODO A1", "G0 -- --"]  # what the commits say, shown
+    assert levels == ["G3 -- --", "G0 -- --"]  # the generation the commits say, shown; the reviews are the pull request's
     assert r.errors == [] and all(p.advisory for n, p in by_line(r).items() if n in (2, 3))
     capsys.readouterr()
     assert main(["--root", str(repo), "lint", "--strict"]) == 0
@@ -275,10 +285,13 @@ def test_a_hand_written_commit_inside_a_self_checked_pull_request(repo):
     """A1 is the generating session checking itself: it doesn't reach lines a human wrote."""
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [2], text="hand")
-    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Jane")
+    hand = commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Jane")
     edit_lines(repo, [3])
     commit(repo, "agent")
     merge(repo, "feature", "Merge feature\n\n" + D("G3", "H1", "A1", ai="M, self-check"))
+    assert by_line(result(repo)[0])[2].declaration.short() == "G3 H1 A1"  # the message alone doesn't lower it
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{hand}"\nAI-Generation = "G0"\n')
     lines = by_line(result(repo)[0])
     assert lines[2].declaration.short() == "G0 H1 A0" and lines[2].errors == []
     assert lines[3].declaration.short() == "G3 H1 A1" and lines[3].errors == []

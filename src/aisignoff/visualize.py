@@ -15,11 +15,10 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, printable
+from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, counted_level, printable
 from .project import line_count, weighted_parts
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
-UNDECLARED = "undeclared"
 WEIGHTS = ("files", "lines")
 
 
@@ -27,7 +26,7 @@ WEIGHTS = ("files", "lines")
 
 def status_level(result, key: str) -> str:
     """Level for counting: the declared level if the declaration is valid, else 'undeclared'."""
-    return UNDECLARED if result.errors else result.declaration.get(key)
+    return counted_level(result.declaration, result.errors, key)
 
 
 def _new_dir(name: str, path: str) -> dict:
@@ -131,7 +130,7 @@ def _build_tree(root: Path, results) -> dict:
         for key, _, _ in AXES:
             for w in WEIGHTS:
                 for d, errors, amount in weighted[w]:
-                    file_counts[key][w][UNDECLARED if errors else d.get(key)] += amount
+                    file_counts[key][w][counted_level(d, errors, key)] += amount
         # the level of most lines (with one part: the file's level)
         levels = {key: max(file_counts[key]["lines"].items(), key=lambda kv: kv[1])[0]
                   if lines else status_level(r, key) for key, _, _ in AXES}
@@ -148,8 +147,8 @@ def _build_tree(root: Path, results) -> dict:
             leaf["counts"] = {key: {w: _ordered(key, file_counts[key][w]) for w in WEIGHTS} for key, _, _ in AXES}
         if r.parts is not None:
             leaf["parts"] = [{"lines": p.lines, "runs": p.runs, "declaration": p.declaration.as_dict(),
-                              "levels": {key: UNDECLARED if p.errors else p.declaration.get(key) for key, _, _ in AXES},
-                              "errors": p.errors} for p in r.parts]
+                              "levels": {key: counted_level(p.declaration, p.errors, key) for key, _, _ in AXES},
+                              "errors": p.errors, "advisory": p.advisory} for p in r.parts]
         node["children"][parts[-1]] = leaf
         for d in chain:
             d["files"] += 1

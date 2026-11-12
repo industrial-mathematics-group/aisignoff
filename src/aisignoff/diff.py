@@ -12,11 +12,10 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, Declaration, printable, validate
+from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, Declaration, counted_level, printable, validate
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
-UNDECLARED = "undeclared"
 
 
 class DiffError(Exception):
@@ -202,7 +201,7 @@ def _shares(root: Path, results) -> dict:
         counts = Counter()
         for r in results:
             for d, errors, w in weighted_parts(root, r, "lines"):
-                counts[UNDECLARED if errors else d.get(key)] += w
+                counts[counted_level(d, errors, key)] += w
         total = sum(counts.values()) or 1
         out[key] = {lv: 100 * c / total for lv, c in counts.items()}
     return out
@@ -271,13 +270,13 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
                 for target in (row, total):
                     target["added"] += 1
                     for key, _, _ in AXES:
-                        target["levels_added"][key][UNDECLARED if errors else d.get(key)] += 1
+                        target["levels_added"][key][counted_level(d, errors, key)] += 1
         if r_old is not None:
             for d, errors, _ in _line_declarations(r_old, removed):
                 for target in (row, total):
                     target["removed"] += 1
                     for key, _, _ in AXES:
-                        target["levels_removed"][key][UNDECLARED if errors else d.get(key)] += 1
+                        target["levels_removed"][key][counted_level(d, errors, key)] += 1
         elif old is not None:
             for target in (row, total):
                 target["removed"] += len(removed)

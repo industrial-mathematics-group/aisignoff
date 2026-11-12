@@ -87,7 +87,7 @@ Reviewed-by = "Jane Doe"
 - **`[history]`:** `enabled` (default `true` once the table is there), `default-branch` (default: `origin`'s default branch, else `main` or `master`), `undeclared` (`"baseline"`, the default: lines of a commit that declares nothing take the file-level declaration; `"error"`: `lint` fails), `require-trailers-since` (a commit: `undeclared = "error"` for the commits after it), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists), `merge-method` (`"merge"`, the default, `"squash"` or `"rebase"`: how pull requests land, for the lines of one that isn't merged yet), `ignore-whitespace` (default `true`: `git blame -w`).
 - **`[[commits]]` and `[[attestations]]`** take the declaration keys like an annotation, but only whole axes: at least one level, and a name list only next to its level.
 - With history, the annotations and inline tags become the fallback for lines that git doesn't declare.
-- **`SIGNOFF.snapshot.json`**, next to `SIGNOFF.toml`, is written by [`aisignoff freeze`](history.md#freezing-the-levels-aisignoff-freeze): the levels of every line as of one commit. Don't edit it by hand.
+- **`SIGNOFF.snapshot.json`**, next to `SIGNOFF.toml`, is written by [`aisignoff freeze`](history.md#freezing-the-levels-aisignoff-freeze): the levels of every line as of one commit. Don't edit it by hand, and review a change to it like a change to `SIGNOFF.toml`: `lint` checks that it matches its commit's files, not the levels in it.
 
 ## Which files are checked
 

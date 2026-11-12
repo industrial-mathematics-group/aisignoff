@@ -146,9 +146,8 @@ def test_merge_commit_declares_the_branch_and_its_commits_override(repo):
         "Merge feature\n\n" + G3.replace("Human-Review: H1", "Human-Review: H3").replace("Reviewed-by: Jane", "Reviewed-by: Rita"))
     r, _ = result(repo)
     by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
-    # the commit that wrote line 6 declares generation; reviews take the highest level (on a tie the
-    # later declaration, the merge's)
-    assert by_line[6].declaration.short() == "G2 H3 A1" and by_line[6].kinds == ("branch", "commit", "commit")
+    # the merge (the pull request) declares its lines; a commit inside can't lower the generation
+    assert by_line[6].declaration.short() == "G3 H3 A1" and by_line[6].kinds == ("commit", "commit", "commit")
     # a branch commit without a declaration takes the merge's (the pull request's) levels
     assert by_line[8].declaration.short() == "G3 H3 A1" and by_line[8].kinds == ("commit", "commit", "commit")
     # main's own commit since the branch point, and lines from before it, aren't the merge's
@@ -295,7 +294,8 @@ def test_diff_declare_fills_uncommitted_lines(repo, capsys):
                  "-a", "A1", "--ai-reviewed-by", "M"]) == 0
     data = json.loads(capsys.readouterr().out)
     # a declaration that leaves out an axis doesn't take it from the file: it is missing
-    assert data["total"]["levels_added"]["AI-Generation"] == {"undeclared": 1}
+    assert data["total"]["levels_added"]["Human-Review"] == {"undeclared": 1}
+    assert data["total"]["levels_added"]["AI-Generation"] == {"G2": 1}  # the axes that are given are shown
     assert main(["--root", str(repo), "diff", base, "--json", "-g", "G2", "--assisted-by", "M", "-H", "H1",
                  "--reviewed-by", "R", "-a", "A1", "--ai-reviewed-by", "M"]) == 0
     data = json.loads(capsys.readouterr().out)

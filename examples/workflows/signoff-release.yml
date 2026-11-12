@@ -32,11 +32,13 @@ jobs:
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
       - name: Write the reports
         run: |
-          # outside the work tree, or lint would count the reports as undeclared files
-          { aisignoff report; aisignoff report --tree; } > "$RUNNER_TEMP/aisignoff-report.txt"
-          aisignoff report --json > "$RUNNER_TEMP/aisignoff-report.json"
-          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html"
-          aisignoff lint || echo "::warning title=aisignoff::Some files in this release have no valid declaration; the reports list them as undeclared."
+          # outside the work tree, or lint would count the reports as undeclared files.
+          # --landed (aisignoff >= 0.12): the release is what it is, also when it is cut from a
+          # release branch, whose commits don't count as landed otherwise
+          { aisignoff report --landed; aisignoff report --tree --landed; } > "$RUNNER_TEMP/aisignoff-report.txt"
+          aisignoff report --json --landed > "$RUNNER_TEMP/aisignoff-report.json"
+          aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html" --landed
+          aisignoff lint --landed || echo "::warning title=aisignoff::Some files in this release have no valid declaration; the reports list them as undeclared."
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}

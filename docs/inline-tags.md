@@ -13,6 +13,8 @@ Source files and documents can carry their declaration in a comment within their
 
 `aisignoff annotate FILE … --inline` writes or updates these lines for you.
 
+With [line-by-line declarations](history.md) and a [snapshot](history.md#freezing-the-levels-aisignoff-freeze), the tags are the file-level declaration that undeclared lines took when the snapshot was made. Editing them later doesn't change those frozen lines: raise a reviewed file with `aisignoff attest` instead.
+
 ## What counts as a declaration
 
 Three rules keep documentation from being mistaken for a declaration.
