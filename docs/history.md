@@ -258,7 +258,7 @@ Like a coverage diff, it shows only what changed: the levels of the added lines 
 | `--depth N` | Group by folders down to depth `N` (default 1) |
 | `--files` | One row per file |
 | `--markdown` | A Markdown table, e.g. for the job summary of a pull request |
-| `--json` | Everything, including the levels of the removed lines |
+| `--json` | Everything, including the levels of the removed lines, with `format` and `aisignoff` at the top as in [`report --json`](commands.md#report) |
 | `-g`, `-H`, `-a` and the name options | Declare the change: lines after the base without a declaration of their own take these levels (not in files with `precedence = "override"`) |
 
 For the same change in the [folder report](report.md), with each changed line in its file: `aisignoff report --html report.html --with-source --since origin/main`.

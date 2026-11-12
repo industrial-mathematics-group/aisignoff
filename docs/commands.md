@@ -86,8 +86,8 @@ aisignoff report --html PATH [--title TITLE] [--with-source] [--since BASE]
 A summary per axis by default (with `[history]`: by lines). Invalid declarations count as "undeclared", as in the badges.
 
 - `--files`: one line per file, with its levels, where they come from, and any problems.
-- `--json`: the same per file, machine-readable.
-- `--tree`: the level mix of each folder. With `--markdown` a Markdown table (for job summaries), with `--json` the whole tree with its counts.
+- `--json`: the same per file, machine-readable: `{"format": 1, "aisignoff": VERSION, "files": [...]}`. `format` changes only when a key is removed or changes its meaning, see [Compatibility](compatibility.md).
+- `--tree`: the level mix of each folder. With `--markdown` a Markdown table (for job summaries), with `--json` the whole tree with its counts (with `format` and `aisignoff` at the top, as above).
 - `--html PATH`: an interactive folder report in a single HTML file. `--with-source` embeds the text of each file for its line view, `--since BASE` marks what changed since `BASE` (since its merge base with `HEAD`, as `diff`).
 
 Both are described in [Folder report](report.md).

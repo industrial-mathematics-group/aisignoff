@@ -258,7 +258,7 @@ def test_report_badge_tree_and_html_count_lines(repo, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "declared line by line" in out and "G3" in out
     assert main(["--root", str(repo), "report", "--json"]) == 0
-    data = {r["path"]: r for r in json.loads(capsys.readouterr().out)}
+    data = {r["path"]: r for r in json.loads(capsys.readouterr().out)["files"]}
     assert sum(p["lines"] for p in data["solver.py"]["parts"]) == 10
     assert main(["--root", str(repo), "badge", "--out", str(tmp_path / "b"), "--weight", "lines"]) == 0
     badge = json.loads((tmp_path / "b" / "aisignoff-generation.json").read_text())
@@ -345,3 +345,16 @@ def test_html_report_options_need_html(repo, capsys):
     assert main(["--root", str(repo), "report", "--with-source"]) == 2
     assert main(["--root", str(repo), "report", "--html", "x.html", "--since", "nope"]) == 2
     assert "not a commit" in capsys.readouterr().err
+
+
+def test_json_outputs_carry_the_format_version(repo, capsys):
+    from aisignoff import __version__
+    from aisignoff.cli import JSON_FORMAT
+    base = git(repo, "rev-parse", "HEAD")
+    edit_lines(repo, [3])
+    commit(repo, "AI change", G3)
+    for args in (["report", "--json"], ["report", "--tree", "--json"], ["diff", base, "--json"]):
+        capsys.readouterr()
+        assert main(["--root", str(repo), *args]) == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["format"] == JSON_FORMAT == 1 and data["aisignoff"] == __version__, args
