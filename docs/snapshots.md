@@ -40,13 +40,22 @@ The archived entries still count wherever levels are worked out from history: fo
 aisignoff freeze --reset src/solver.py docs/index.md
 ```
 
-`--reset FILE...` works these files out from history again, with the `[[commits]]` entries of `SIGNOFF.toml` and of the archive, the attestations, and the annotations and inline tags as they are now, instead of keeping their frozen levels. Use it to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation to frozen lines. The snapshot lists these files under `reset`, so its check works them out the same way. `lint` notes `[[commits]]` entries for commits from before the snapshot, which change no frozen line on their own.
+`--reset FILE...` works these files out from history again, with the `[[commits]]` entries of `SIGNOFF.toml` and of the archive, the attestations, and the annotations and inline tags as they are now, instead of keeping their frozen levels. Use it to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation to frozen lines. The snapshot lists these files under `reset`, so its check works them out the same way.
+
+Correcting a frozen generation takes two steps, since `freeze` runs on a commit of the default branch:
+
+1. Land the `[[commits]]` entry on the default branch. On its own it changes no frozen line, and `lint` notes that it is for a commit from before the snapshot.
+2. Run `aisignoff freeze --reset FILE` on that commit and land the new snapshot.
+
+`--reset` works out *every* line of the file with today's rules, not only the corrected commit's. Frozen levels that no current rule gives, such as levels kept from an older version of aisignoff, are replaced too.
 
 ## How a snapshot is checked
 
-The snapshot is generated, never edited by hand. When `SIGNOFF.snapshot.json` differs from the default branch's copy, or `HEAD`'s commit changed it, `lint` checks it by working it out again: it checks out the snapshot's commit in a temporary worktree (with git hooks off), computes what `freeze` would write there (from the snapshot before it, that commit's `SIGNOFF.toml` and the snapshot's `reset` files), and fails if any line's levels or names, or the archive, differ. `aisignoff freeze --check` runs the same check on its own.
+The snapshot is generated, never edited by hand. When `SIGNOFF.snapshot.json` differs from the default branch's copy, or a commit being checked changed it (`HEAD`'s commit, or on GitHub Actions every commit of the push), `lint` checks it by working it out again: it checks out the snapshot's commit in a temporary worktree (with git hooks off), computes what `freeze` would write there (from the snapshot before it, that commit's `SIGNOFF.toml` and the snapshot's `reset` files), and fails if any line's levels or names, or the archive, differ. `aisignoff freeze --check` runs the same check on its own. A snapshot that can't be checked, such as one whose commit isn't there, fails too.
 
-A snapshot written by another version of aisignoff isn't checked this way, since that version may work levels out differently; `lint` notes it. Review such a change like a change to `SIGNOFF.toml`, or write it again with your version.
+This holds whatever version wrote the snapshot: a snapshot written by another version of aisignoff that works levels out differently fails, and the message names both versions. Write the snapshot with the version your CI uses. git runs with the settings that change its results pinned, so a personal git config (an ignore-revs file of your own, another diff algorithm) doesn't change the levels.
+
+A snapshot only moves forward. `lint` also fails when the changed snapshot is of an older commit than the default branch's, or drops archived entries of the default branch's snapshot, which are recorded nowhere else: by putting back an older snapshot, deleting it, or taking one afresh. To take one afresh, put the archived entries back into `SIGNOFF.toml` first. `freeze --prune` writes each archived commit with its full hash, so it can't become ambiguous later.
 
 `lint` also fails when a file's blob or number of lines doesn't match the snapshot's commit. Such a file is resolved from history until the snapshot is restored or written again.
 

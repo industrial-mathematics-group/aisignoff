@@ -53,9 +53,39 @@ class HistoryError(Exception):
     pass
 
 
+# git with the settings that change what aisignoff reads pinned to git's defaults, so that a
+# personal or system config (another diff algorithm, other output formats; for an ignore-revs
+# file of one's own, see _blame) can't make one machine work out other levels than another
+GIT = ["git", "-c", "blame.markIgnoredLines=false",
+       "-c", "blame.markUnblamableLines=false", "-c", "diff.algorithm=myers", "-c", "diff.renames=true",
+       "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.relative=false",
+       "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false"]
+
+
+def comparable(declaration: dict) -> str:
+    """A snapshot declaration's levels and names as text to compare: not its source, which
+    only says where they came from, in words that may change between versions."""
+    return json.dumps({k: v for k, v in declaration.items() if k != "source"}, sort_keys=True, ensure_ascii=False)
+
+
+def archive_item(history: "History", config) -> dict:
+    """What 'aisignoff freeze --prune' moves into the archive: the [[commits]] and
+    [[attestations]] entries of SIGNOFF.toml, each commit by its full hash, so that it can't
+    become ambiguous later (an archived entry can't be edited)."""
+    return {"commit": history.base,
+            "commits": [{"commit": history._resolve(c.commit) or c.commit, **c.values} for c in config.commits],
+            "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]}
+
+
+def _entries(item: dict) -> list[str]:
+    """The entries of an archive item (or of SIGNOFF.toml in that shape), as comparable text."""
+    return [json.dumps({"commits": c}, sort_keys=True) for c in item.get("commits", [])] + \
+        [json.dumps({"attestations": a}, sort_keys=True) for a in item.get("attestations", [])]
+
+
 def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None) -> str | None:
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, input=stdin)
+        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True, input=stdin)
     except FileNotFoundError:
         raise HistoryError("git is not installed")
     if r.returncode != 0:
@@ -67,7 +97,7 @@ def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None)
 
 def _git_error(root: Path, *args: str) -> str:
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True)
     except FileNotFoundError:
         return ""
     return r.stderr.decode("utf-8", "replace") if r.returncode else ""
@@ -424,7 +454,7 @@ class Snapshot:
 
     def line_declarations(self) -> dict[str, list[str]]:
         """path -> the declaration of each line, as comparable text."""
-        texts = [json.dumps(d, sort_keys=True, ensure_ascii=False) for d in self.declarations]
+        texts = [comparable(d) for d in self.declarations]
         return {path: [texts[i] for a, b, i in entry["runs"] for _ in range(a, b + 1)]
                 for path, entry in self.files.items()}
 
@@ -538,6 +568,7 @@ class History:
         self.landed = landed
         self.reset = set(reset or ())
         self.archive: list[dict] = []  # of the snapshot: its entries count where it doesn't reach
+        self._frozen_shas: set[str] | None = None
         # landed, on a branch of its own (a release branch): its first-parent commits since the
         # default branch land its lines; what it has of the default branch is resolved as there
         self.release = False
@@ -714,15 +745,71 @@ class History:
             return False
         if self.base and _git(self.root, "show", f"{self.base}:{path}", check=False) != text:
             return True
-        parent = self._resolve("HEAD^1") if self.head else None
-        return bool(parent and _git(self.root, "diff", "--name-only", parent, "HEAD", "--", f":/{path}", check=False))
+        if not self.head:
+            return False
+        # HEAD's commit, or every commit of the push that CI runs for (GitHub's "before")
+        since = [self._resolve("HEAD^1"), self._pushed_from()]
+        return any(c and _git(self.root, "diff", "--name-only", c, "HEAD", "--", f":/{path}", check=False)
+                   for c in since)
+
+    def _pushed_from(self) -> str | None:
+        """The commit a push to the branch started from, on GitHub Actions (the event's "before"),
+        if HEAD has it: a snapshot changed by any commit of the push is checked, not only the last."""
+        name = os.environ.get("GITHUB_EVENT_PATH")
+        if not name:
+            return None
+        try:
+            with open(name, encoding="utf-8") as f:
+                before = json.load(f).get("before")
+        except (OSError, ValueError, AttributeError):
+            return None
+        if not isinstance(before, str) or not before.strip("0"):
+            return None
+        sha = self._resolve(before)
+        return sha if sha and self.is_ancestor(sha, self.head) else None
+
+    def snapshot_continuity(self) -> list[str]:
+        """Problems of a SIGNOFF.snapshot.json that goes back behind the default branch's: an
+        older commit, or archived entries dropped (they are recorded nowhere else). Entries put
+        back into SIGNOFF.toml may leave the archive, for a snapshot taken afresh."""
+        path = self.prefix + SNAPSHOT
+        text = _git(self.root, "show", f"{self.base}:{path}", check=False) if self.base else None
+        old = Snapshot.parse(text) if text else None
+        if old is None:
+            return []
+        try:
+            now = (self.root / SNAPSHOT).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            now = None
+        if now == text:
+            return []
+        new = Snapshot.parse(now) if now is not None else None
+        problems = []
+        if new is not None and new.commit != old.commit and not self.is_ancestor(old.commit, new.commit):
+            problems.append(f"{SNAPSHOT} is of commit {new.commit[:7]}, which is older than the default branch's "
+                            f"snapshot ({old.commit[:7]}) or not on its history: a snapshot only moves forward. "
+                            "Take a new one with 'aisignoff freeze' on the default branch")
+        kept = set()
+        for item in (new.archive if new else []):
+            kept.update(_entries(item))
+        live = {"commits": [{"commit": self._resolve(c.commit) or c.commit, **c.values} for c in self.config.commits],
+                "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in self.config.attestations]}
+        kept.update(_entries(live))
+        dropped = sum(1 for item in old.archive for e in _entries(item) if e not in kept)
+        if dropped:
+            what = "deleted" if new is None else "changed"
+            problems.append(f"{SNAPSHOT} was {what}, and that drops {dropped} archived [[commits]] or [[attestations]] "
+                            f"entr{'y' if dropped == 1 else 'ies'} of the default branch's snapshot, which are recorded "
+                            f"nowhere else. Keep its archive, or put the entries back into {self.config.path.name} "
+                            "first")
+        return problems
 
     def _blob_lines(self, blobs: set[str]) -> dict[str, int]:
         """blob -> its number of lines, counted as everywhere (a binary or empty file is one)."""
         if not blobs:
             return {}
         try:
-            r = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], capture_output=True,
+            r = subprocess.run([*GIT, "-C", str(self.root), "cat-file", "--batch"], capture_output=True,
                                input="".join(b + "\n" for b in sorted(blobs)).encode())
         except FileNotFoundError:
             raise HistoryError("git is not installed")
@@ -806,6 +893,11 @@ class History:
         for entry, archived in [(e, True) for e in self._archived("commits")] + [(e, False) for e in self.config.commits]:
             sha = self._resolve(entry.commit)
             where = f"{entry.filename} [[commits]] entry {entry.index}"
+            if archived and sha is None and "ambiguous" in _git_error(
+                    self.root, "rev-parse", "--verify", f"{entry.commit}^{{commit}}"):
+                self.problems.append(f"{where}: {entry.commit} is ambiguous now, so the archived entry can't be applied. "
+                                     f"Add a [[commits]] entry with its full hash to {self.config.path.name}")
+                continue
             if archived and (sha is None or (sha not in self.order and not self.is_ancestor(sha, "HEAD"))):
                 continue  # history that was rewritten: the snapshot has what it said
             if sha is None:
@@ -819,8 +911,9 @@ class History:
                 continue
             source = f"{entry.filename} [[commits]] {short(sha)}"
             pieces = pieces_from_values(entry.values, source, "commit")
-            if not archived and self.snapshot and self.is_ancestor(sha, self.snapshot.commit):
-                old += 1
+            if not archived and self.snapshot and self.is_ancestor(sha, self.snapshot.commit) \
+                    and sha not in self._frozen_entries():
+                old += 1  # added since the snapshot: it doesn't reflect it
             if not archived and sha not in self.order and sha not in self.pending and set(pieces) - {0} and not (
                     self.snapshot and self.is_ancestor(sha, self.snapshot.commit)):
                 self._warnings.append(f"{where}: {entry.commit} is a commit inside a pull request, so only its "
@@ -833,6 +926,25 @@ class History:
                               "and change no frozen line. Raise the review of frozen lines with 'aisignoff attest', "
                               "or apply the entries to a file's frozen lines with 'aisignoff freeze --reset FILE'")
         return out
+
+    def _frozen_entries(self) -> set[str]:
+        """The commits of the [[commits]] entries in SIGNOFF.toml at the snapshot's commit, whose
+        effect the snapshot has."""
+        if self._frozen_shas is None:
+            self._frozen_shas = set()
+            import tomllib
+            name = self.config.path.name
+            text = _git(self.root, "show", f"{self.snapshot.commit}:{self.prefix}{name}", check=False)
+            try:
+                tables = tomllib.loads(text).get("commits", []) if text else []
+            except tomllib.TOMLDecodeError:
+                tables = []
+            for table in tables if isinstance(tables, list) else []:
+                sha = self._resolve(table["commit"]) if isinstance(table, dict) and isinstance(
+                    table.get("commit"), str) else None
+                if sha:
+                    self._frozen_shas.add(sha)
+        return self._frozen_shas
 
     def _ignore_revs(self) -> list[str]:
         """--ignore-rev options from .git-blame-ignore-revs (or [history] ignore-revs-file).
@@ -909,7 +1021,7 @@ class History:
     def is_ancestor(self, a: str, b: str) -> bool:
         if (a, b) not in self._ancestor:
             try:
-                r = subprocess.run(["git", "-C", str(self.root), "merge-base", "--is-ancestor", a, b],
+                r = subprocess.run([*GIT, "-C", str(self.root), "merge-base", "--is-ancestor", a, b],
                                    capture_output=True)
                 self._ancestor[(a, b)] = r.returncode == 0
             except FileNotFoundError:
@@ -1130,7 +1242,8 @@ class History:
         each line of a file, at a commit or (rev None) in the working tree. 'stop' is the commit
         that blame doesn't look behind: lines from it or before it come back as stopped there,
         with their line number and path in it. Paths are relative to the top of the repository."""
-        args = ["blame", "--porcelain", *self.blame_options] + (["--first-parent"] if first_parent else [])
+        # an empty --ignore-revs-file first clears the list of a personal blame.ignoreRevsFile
+        args = ["blame", "--porcelain", "--ignore-revs-file=", *self.blame_options] + (["--first-parent"] if first_parent else [])
         out = _git(self.root, *args, *([f"^{stop}"] if stop else []), *([rev] if rev else []), "--", path)
         from .diff import _unquote
         rows: list[tuple[str, int, bool, str]] = []

@@ -154,3 +154,118 @@ def test_a_partial_commits_entry_on_an_undeclared_commit_says_how_to_raise_a_rev
     r, _ = result(repo)
     errors = " ".join(by_line(r)[2].errors)
     assert "the [[commits]] entry for commit" in errors and "aisignoff attest" in errors
+
+
+# ================================================================== the review of 0.14
+def test_a_hand_edit_fails_whatever_version_the_snapshot_says(repo, capsys):
+    assert run(repo, capsys, "freeze")[0] == 0
+    commit(repo, "freeze", HAND)
+    path = repo / "SIGNOFF.snapshot.json"
+    good = json.loads(path.read_text())
+    for version in ("0.13.0", None):
+        data = json.loads(json.dumps(good))
+        data["declarations"][0]["Human-Review"] = "H3"
+        if version:
+            data["aisignoff"] = version
+        else:
+            del data["aisignoff"]
+        path.write_text(json.dumps(data, indent=1) + "\n")
+        commit(repo, "edited, with another version", HAND)
+        code, out = lint(repo, capsys, "--strict")
+        assert code == 1 and "another aisignoff" in out, out
+        assert run(repo, capsys, "freeze", "--check")[0] == 1
+    # the source of a declaration is only words: another version may say it differently
+    data = json.loads(json.dumps(good))
+    data["aisignoff"] = "0.13.0"
+    data["declarations"][0]["source"] = "said differently"
+    path.write_text(json.dumps(data, indent=1) + "\n")
+    commit(repo, "another version's words", HAND)
+    code, out = lint(repo, capsys, "--strict")
+    assert code == 0, out
+
+
+def test_a_personal_ignore_revs_file_doesnt_change_the_levels(repo, capsys, monkeypatch, tmp_path_factory):
+    edit_lines(repo, [2], text="styled")
+    style = commit(repo, "style", G3)
+    other = tmp_path_factory.mktemp("home")
+    (other / "revs").write_text(style + "\n")
+    (other / "gitconfig").write_text(f"[blame]\n\tignoreRevsFile = {other / 'revs'}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(other / "gitconfig"))
+    assert levels(repo)[1] == "G3 H1 A1"
+    assert run(repo, capsys, "freeze")[0] == 0
+    commit(repo, "freeze", HAND)
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL")
+    assert lint(repo, capsys)[0] == 0
+
+
+def test_a_snapshot_cant_go_back_or_drop_archived_entries(repo, capsys):
+    assert run(repo, capsys, "freeze")[0] == 0
+    commit(repo, "freeze", HAND)
+    old = (repo / "SIGNOFF.snapshot.json").read_text()
+    frozen_with_entries(repo, capsys)  # a second freeze, with --prune
+    assert lint(repo, capsys, "--strict")[0] == 0
+    git(repo, "checkout", "-q", "-b", "back")
+    (repo / "SIGNOFF.snapshot.json").write_text(old)
+    commit(repo, "the first snapshot again", HAND)
+    code, out = lint(repo, capsys)
+    assert code == 1 and "only moves forward" in out and "drops 2 archived" in out
+    git(repo, "rm", "-q", "SIGNOFF.snapshot.json")
+    commit(repo, "no snapshot", HAND)
+    code, out = lint(repo, capsys)
+    assert code == 1 and "was deleted" in out
+
+
+def test_archived_hashes_are_full(repo, capsys):
+    edit_lines(repo, [2])
+    sha = commit(repo, "undeclared")
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{sha[:7]}"\n' + "".join(
+            f'{k.strip()} = "{v.strip()}"\n' for k, v in (line.split(":", 1) for line in G3.splitlines())))
+    commit(repo, "backfill", HAND)
+    assert run(repo, capsys, "freeze", "--prune")[0] == 0
+    (item,) = json.loads((repo / "SIGNOFF.snapshot.json").read_text())["archive"]
+    assert item["commits"][0]["commit"] == sha
+    commit(repo, "freeze", HAND)
+    assert lint(repo, capsys, "--strict")[0] == 0
+
+
+def test_a_snapshot_changed_below_the_last_commit_of_a_push_is_checked(repo, capsys, monkeypatch):
+    assert run(repo, capsys, "freeze")[0] == 0
+    before = commit(repo, "freeze", HAND)
+    path = repo / "SIGNOFF.snapshot.json"
+    data = json.loads(path.read_text())
+    data["declarations"][0]["Human-Review"] = "H3"
+    path.write_text(json.dumps(data, indent=1) + "\n")
+    commit(repo, "edited", HAND)
+    edit_lines(repo, [9], text="later")
+    commit(repo, "something else", HAND)
+    assert lint(repo, capsys)[0] == 0  # only HEAD's commit is looked at
+    event = repo.parent / "event.json"
+    event.write_text(json.dumps({"before": before}))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    assert lint(repo, capsys)[0] == 1
+
+
+def test_freeze_runs_again_before_the_snapshot_is_committed(repo, capsys):
+    edit_lines(repo, [2])
+    commit(repo, "AI change", G3)
+    assert run(repo, capsys, "freeze")[0] == 0
+    commit(repo, "freeze", HAND)
+    assert run(repo, capsys, "freeze", "--reset", str(repo / "solver.py"))[0] == 0
+    code, out = run(repo, capsys, "freeze")
+    assert code == 0, out
+    assert "reset" not in json.loads((repo / "SIGNOFF.snapshot.json").read_text())
+    commit(repo, "freeze again", HAND)
+    assert lint(repo, capsys)[0] == 0
+
+
+def test_the_note_counts_only_entries_added_since_the_snapshot(repo, capsys):
+    edit_lines(repo, [2])
+    sha = commit(repo, "undeclared")
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{sha}"\n' + "".join(
+            f'{k.strip()} = "{v.strip()}"\n' for k, v in (line.split(":", 1) for line in G3.splitlines())))
+    commit(repo, "backfill", HAND)
+    assert run(repo, capsys, "freeze")[0] == 0  # without --prune: the entry stays
+    commit(repo, "freeze", HAND)
+    assert "from before the snapshot" not in lint(repo, capsys)[1]

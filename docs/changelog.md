@@ -11,6 +11,13 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 - `--landed` on a release branch that merged the default branch keeps the levels of the lines that came from it, instead of giving them to the merge.
 - `lint` notes `[[commits]]` entries for commits from before the snapshot, which change no frozen line by themselves.
 - Smaller fixes: `freeze --prune` keeps the comment above the next table; a partial `[[commits]]` entry for a commit that declares nothing says how to raise a review with `attest`; the warning about undeclared pull requests names `aisignoff freeze --allow-warnings`.
+- The check compares levels and names, and checks a snapshot whatever version wrote it: another version that works levels out differently fails. A snapshot that can't be checked fails too, also in `freeze --check`.
+- A changed snapshot can't go back: an older commit than the default branch's snapshot, or dropped archived entries (by an older snapshot put back, a deleted one, or one taken afresh) fail `lint`.
+- git runs with the settings that change levels pinned, and blame clears a personal `blame.ignoreRevsFile`, so a personal git config can't make an honest snapshot fail the check.
+- `freeze --prune` archives each commit with its full hash; an archived hash that is ambiguous is reported.
+- On GitHub Actions, a snapshot changed by any commit of a push is checked, not only by the last one.
+- `freeze` can run again before the snapshot is committed, and starts from the committed one.
+- The note about `[[commits]]` entries from before the snapshot counts only entries added since it was taken.
 
 ## 0.13.0
 
