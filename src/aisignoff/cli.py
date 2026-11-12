@@ -471,9 +471,12 @@ def cmd_attest(args) -> int:
     if _git_out(root, "rev-parse", "--is-inside-work-tree") != "true":
         raise UsageError("attestations need a git repository")
     values = _values(args)
-    given = [k for k in (GEN, HUM, AIR) if k in values]
+    if GEN in values or ASSISTED in values:
+        raise UsageError("an attestation records a review (-H, -a): the generation of a line is declared by "
+                         "the commit that landed it, and corrected with a [[commits]] entry")
+    given = [k for k in (HUM, AIR) if k in values]
     if not given:
-        raise UsageError("give at least one level to attest (-g, -H or -a)")
+        raise UsageError("give at least one review level to attest (-H or -a)")
     if any(v == TODO or (isinstance(v, list) and TODO in v) for v in values.values()):
         raise UsageError("an attestation records a check that was done: TODO isn't allowed")
     problems = [e for e in validate(Declaration.from_mapping(values, "command line"))
@@ -528,6 +531,35 @@ def cmd_attest(args) -> int:
 
 
 # ---------------------------------------------------------------- freeze
+def _prune_toml(root: Path, annotations: int) -> None:
+    """Remove the [[commits]] and [[attestations]] tables from SIGNOFF.toml, with the comment
+    lines directly above each; the file is restored if the result isn't what was meant."""
+    import re
+    target = config_path(root)
+    old = target.read_text(encoding="utf-8")
+    header = re.compile(r"^\s*\[")
+    doomed = re.compile(r"^\s*\[\[\s*(commits|attestations)\s*\]\]\s*(#.*)?$")
+    kept: list[str] = []
+    skipping = False
+    for line in old.splitlines():
+        if header.match(line):
+            skipping = bool(doomed.match(line))
+            if skipping:
+                while kept and kept[-1].lstrip().startswith("#"):
+                    kept.pop()
+        if not skipping:
+            kept.append(line)
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).rstrip("\n") + "\n"
+    target.write_text(text, encoding="utf-8")
+    try:
+        config = load(root)
+        if config.commits or config.attestations or len(config.annotations) != annotations:
+            raise ConfigError("the entries could not be taken out cleanly")
+    except ConfigError as e:
+        target.write_text(old, encoding="utf-8")
+        raise UsageError(f"{e}; {target.name} was left unchanged, and no snapshot was written")
+
+
 def cmd_freeze(args) -> int:
     from .history import SNAPSHOT, Snapshot
     project = _open(args.root)
@@ -561,12 +593,26 @@ def cmd_freeze(args) -> int:
             print(f"! {printable(warning)}", file=sys.stderr)
         raise UsageError("'aisignoff lint' has warnings here; a snapshot would keep the levels they are about "
                          "for good, so settle them first (or pass --allow-warnings)")
-    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs)
+    archive = list(history.snapshot.archive) if history.snapshot else []
+    pruned = 0
+    if args.prune:
+        config = project.config
+        entries = {"commit": history.base,
+                   "commits": [{"commit": c.commit, **c.values} for c in config.commits],
+                   "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]}
+        pruned = len(entries["commits"]) + len(entries["attestations"])
+        if pruned:
+            archive.append(entries)
+            _prune_toml(root, len(config.annotations))
+    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs, archive)
     target = root / SNAPSHOT
     again = target.exists()
     target.write_text(text, encoding="utf-8")
     print(f"{'Updated' if again else 'Wrote'} {SNAPSHOT}: the levels of {lines} lines in {files} files as of commit "
           f"{history.base[:7]}.")
+    if pruned:
+        print(f"Moved {pruned} [[commits]] and [[attestations]] entries from {project.config.path.name} into its "
+              "archive: the snapshot has their levels. Commit both files together.")
     print("Commit it. Lines that don't change keep these levels; lines changed after that commit are declared "
           "by the commits that land them.")
     return 0
@@ -1085,6 +1131,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_diff)
 
     p = sub.add_parser("freeze", help="record the levels of every line as of the default branch's commit ([history])")
+    p.add_argument("--prune", action="store_true", help=f"move the [[commits]] and [[attestations]] entries of "
+                   f"{FILENAME} into the snapshot's archive: their levels are in the snapshot")
     p.add_argument("--allow-warnings", action="store_true", help="freeze although lint has warnings (undeclared "
                    "reverts and merges: their lines keep the file-level declaration)")
     p.set_defaults(func=cmd_freeze)
