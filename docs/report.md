@@ -59,9 +59,9 @@ Files excluded in `SIGNOFF.toml` (`exclude = [...]`) never appear, as in `lint`.
 
 ### Axes and colours
 
-The axis buttons choose what the sunburst, the line strip and the line margins show: **Generation**, **Human review**, **AI review**, or the **Review gap**. The review gap of a line is its generation level minus its human review level, never below 0: G3 tested at H1 has a gap of 2, G0 or G3 reviewed at H3 have none. It is shown like a fourth axis, although it follows from the other two, so it can be averaged, sorted and searched for like them; the *Gap* column of the table shows its average.
+The axis buttons choose what the sunburst, the line strip and the line margins show: **Generation**, **Human review**, **AI review**, or the **Review gap**. The review gap of a line is its generation level minus its human review level, never below 0: G3 tested at H1 has a gap of 2, G0 or G3 reviewed at H3 have none. It is shown like a fourth axis, although it follows from the other two, so it can be averaged, sorted and searched for like them, and the table has a *Gap* column with its distribution like the other axes.
 
-Each axis has its own hue (generation blue, human review green, AI review violet, gap orange), with its four levels in four clearly different lightness steps, chosen for light and dark mode separately. The lowest level is always the one closest to the background.
+Each axis has its own ramp of four colours, from light for level 0 to dark for level 3. The steps are far apart in lightness and also turn in hue (generation runs from yellow over orange and crimson to purple), so neighbouring levels stay apart even in the thin line strip. The colours are the same in light and dark mode, so a colour always means the same level.
 
 ### Folder colour
 
