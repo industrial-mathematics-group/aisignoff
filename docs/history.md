@@ -26,13 +26,13 @@ The axes combine them differently:
 | **Generation** | The most specific declaration: an attestation that gives it, else the commit that wrote the line, else the merges it came through (the innermost first), else the commit that landed it | How a line was written is known best by whoever wrote it: a hand-written G0 commit stays G0 inside an AI-written pull request |
 | **Human review**, **AI review** | The **highest** level among all of them. On a tie, the names of the later one | Each of them saw the line as it is now, and a later review of the whole pull request doesn't undo a closer review of a commit (nor the other way round) |
 
-A `TODO` inside a pull request yields to any level, but a `TODO` of the pull request itself (or of the commit that landed the line) wins: "a person still has to review this" stays until it's filled in.
+A `TODO` inside a pull request yields to any level, but a `TODO` of the pull request itself (or of the commit that landed the line) wins over the levels inside it: "a person still has to review this" stays until it's filled in, by a `[[commits]]` entry for that commit or by an attestation of the file (the review it asked for).
 
-**A1 doesn't reach hand-written lines.** A1 means the session that generated the change checked its own work, so it only describes lines that session wrote. A line whose generation is G0, such as a hand-written commit inside a pull request ticked A1, takes the next AI review down: A2 or A3 if anything around it declares one, else A0.
+**A1 doesn't reach hand-written lines.** A1 means the session that generated the change checked its own work, so it only describes lines that session wrote. A line whose generation is G0, such as a hand-written commit inside a pull request ticked A1, takes the next AI review down: A2 or A3 if anything around it declares one, else A0. A declaration that gives G0 and A1 itself is invalid, as in `SIGNOFF.toml`.
 
-**Raised reviews are reported.** No declaration lowers a review, so a commit inside a pull request that declares a higher review than the pull request (often an agent claiming a review before anyone did it) sets the level of its lines. `lint` names each such commit with the `[[commits]]` entry that would settle it, and `lint --strict` fails on them. A level that is too high is corrected with a [`[[commits]]` entry](#correcting-a-commit) for the commit that declared it; corrections themselves are never reported.
+**Raised reviews are reported.** No declaration lowers a review, so a commit inside a pull request that declares a higher review than the pull request (often an agent claiming a review before anyone did it) sets the level of its lines. `lint` names each such commit with the `[[commits]]` entry that would settle it, and `lint --strict` fails on them. The same goes for a review that only a commit inside declares, when the pull request declares levels but leaves that axis out. A level that is too high is corrected with a [`[[commits]]` entry](#correcting-a-commit) for the commit that declared it; corrections themselves are never reported.
 
-When none of them declares anything for a line, it takes **the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags. That is the baseline for lines from before declared commits. But once anything around the line declares some axis, an axis that all of them leave out is **missing**, and `lint` reports it: a commit that declares only `AI-Generation: G3` doesn't get the review of the old code from the file.
+When none of the commits declares anything for a line, it takes **the file-level declaration**: the matching annotation in `SIGNOFF.toml`, or the file's inline tags. That is the baseline for lines from before declared commits. But once a commit around the line declares some axis, an axis that all of them leave out is **missing**, and `lint` reports it: a commit that declares only `AI-Generation: G3` doesn't get the review of the old code from the file. Attestations don't count for this rule: `attest -H` on old, undeclared code raises its review, and generation and AI review stay at the file level.
 
 As a flow, for one line and one axis:
 
@@ -42,7 +42,7 @@ flowchart TD
     collect --> any{"Does any of them<br/>give this axis?"}
     any -- "yes, generation" --> gen(["The most specific:<br/>attestation, branch commit,<br/>inner merge, landing commit"])
     any -- "yes, a review" --> rev(["The highest level"])
-    any -- "no" --> other{"Does any of them<br/>give another axis?"}
+    any -- "no" --> other{"Does any commit among them<br/>give another axis?"}
     other -- "yes" --> missing(["Missing: lint fails"])
     other -- "no" --> required{"Is the landing commit after<br/>require-trailers-since?"}
     required -- "yes" --> fail(["lint fails"])
@@ -106,7 +106,7 @@ Reviewed-by: Jane Doe
 AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating session
 ```
 
-- **Anywhere in the message body**, at the start of a line, not only in git's trailer paragraph at the end: a `Co-authored-by:` paragraph after them, or the co-author block GitHub appends to squash commits, doesn't hide them. Lines in fenced code blocks and HTML comments don't count, so a message can quote an example. A block that is never closed isn't one, and neither is inline code at the start of a line (```` ```like this``` ````), so neither hides what follows. The subject line doesn't count either.
+- **Anywhere in the message body**, at the start of a line, not only in git's trailer paragraph at the end: a `Co-authored-by:` paragraph after them, or the co-author block GitHub appends to squash commits, doesn't hide them. Lines in fenced code blocks and HTML comments don't count, so a message can quote an example. A block or comment that is never closed isn't one (the blocks before it still are), inline code at the start of a line (```` ```like this``` ````) opens no block, and `` `<!--` `` in inline code opens no comment, so none of them hides what follows. The subject line doesn't count either.
 - **An axis counts when its level is there.** A name on its own, such as the common `Reviewed-by:` trailer without `Human-Review:`, declares nothing.
 - **Declare what you know.** A commit made by an AI agent knows its generation and its own self-check (`AI-Generation`, `AI-Review`), but not the human review that comes later: leave `Human-Review` to the pull request. Because reviews take the highest level, a review claimed too early would stick (`lint` reports it, and `[[commits]]` corrects it). In a repository that lands pull requests by rebase, there is no pull request declaration: every commit declares all three axes.
 - **Pull requests:** set *Settings → General → Pull Requests* → the default commit message of merge commits (and of squash commits, if you allow them) to **Pull request title and description**, and put the lines in the pull request description. The declaration then lands in git with the code. GitHub's default message for merge commits holds only the title, so without this setting the declaration never reaches git.
@@ -135,7 +135,7 @@ A pull request template can declare the levels with checkboxes instead, as the t
 
 Boxes in fenced code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models.
 
-A commit declares itself one way or the other. One with both "Key: value" lines and ticked level boxes is reported by `lint`; until a `[[commits]]` entry for that commit settles it, both count, the lines winning where they overlap.
+A commit declares itself one way or the other. One with both "Key: value" lines and ticked level boxes is reported by `lint`; until a `[[commits]]` entry for that commit settles it (any entry counts as settled, so check the axes where the two disagree), both count, the lines winning where they overlap.
 
 So each pull request declares its own lines, and `SIGNOFF.toml` doesn't grow with every pull request: it keeps the defaults for lines without a declaration, `[[commits]]` corrections and attestations.
 
@@ -170,7 +170,9 @@ enabled = true
 merge-method = "merge"   # the default; or "squash", or "rebase"
 ```
 
-The same applies to `aisignoff diff BASE -g/-H/-a` on the branch itself: the commits after the base are resolved as the merge will resolve them, with the declaration standing for the pull request.
+The same applies to `aisignoff diff BASE -g/-H/-a` on the branch itself: the commits after the base are resolved as the merge will resolve them, with the declaration standing for the pull request. That includes a branch that merged the base meanwhile (GitHub's *Update branch*); lines of the base it brought in keep the base's declarations.
+
+Without `--declare`, as in `lint` on the merge preview, the pull request description isn't known yet: axes that the branch's commits leave out show the file-level declaration until it lands. `signoff-pr-diff.yml` passes the description, so its table shows what will land.
 
 With `squash`, the branch's commits are ignored (the squash commit won't have them) and only the declaration passed with `aisignoff diff -g/-H/-a` (the pull request description) counts. With `rebase`, that declaration is ignored and only the branch's commits count; since they land as they are, the preview isn't exempt from `require-trailers-since` or from the missing-axis check.
 
