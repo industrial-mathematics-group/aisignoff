@@ -419,7 +419,7 @@ def test_cli_workflow(tmp_path, capsys):
                  "--reviewed-by", "Jane"]) == 0
     capsys.readouterr()
     assert main(["--root", root, "report", "--json"]) == 0
-    data = {x["path"]: x for x in json.loads(capsys.readouterr().out)}
+    data = {x["path"]: x for x in json.loads(capsys.readouterr().out)["files"]}
     assert data["results/run1.csv"]["AI-Review"] == "A2"
     assert data["src/solver.jl"]["Human-Review"] == "H2"
 

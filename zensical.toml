@@ -26,6 +26,8 @@ nav = [
   { "Folder report" = "report.md" },
   { "Example workflows" = "integration.md" },
   { "Migrating" = "migrating.md" },
+  { "Compatibility" = "compatibility.md" },
+  { "Changelog" = "changelog.md" },
   { "Development" = "development.md" },
 ]
 

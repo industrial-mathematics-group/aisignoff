@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.11.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "1.0.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   changed-files:
@@ -41,7 +41,7 @@ jobs:
           import json, os, sys
 
           changed = [p for p in open(sys.argv[1], encoding="utf-8").read().split("\0") if p]
-          report = {r["path"]: r for r in json.load(open(sys.argv[2], encoding="utf-8"))}
+          report = {r["path"]: r for r in json.load(open(sys.argv[2], encoding="utf-8"))["files"]}
 
           def esc(s):  # workflow command messages
               return s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")

@@ -214,14 +214,15 @@ def cmd_report(args) -> int:
         if not args.tree:
             return 0
         if args.json:
-            print(json.dumps(tree, indent=2, ensure_ascii=False))
+            print(json.dumps({**_json_header(), **tree}, indent=2, ensure_ascii=False))
         elif args.markdown:
             print(visualize.render_markdown(tree, args.weight, args.depth, args.files))
         else:
             print(visualize.render_text(tree, args.weight, args.depth, args.files))
         return 0
     if args.json:
-        print(json.dumps([_result_json(r) for r in results], indent=2, ensure_ascii=False))
+        print(json.dumps({**_json_header(), "files": [_result_json(r) for r in results]},
+                         indent=2, ensure_ascii=False))
         return 0
     if args.files:
         width = max((len(r.path) for r in results), default=4)
@@ -258,6 +259,15 @@ def cmd_report(args) -> int:
                 print(f"  {level:<10} {name:<38} {counts[level]:>5g}  {100 * counts[level] / total:5.1f}%")
         print()
     return 0
+
+
+# Version of the --json output of report and diff. Raised only for changes that can break a
+# reader (a key removed, renamed or with a new meaning); new keys may appear at any time.
+JSON_FORMAT = 1
+
+
+def _json_header() -> dict:
+    return {"format": JSON_FORMAT, "aisignoff": __version__}
 
 
 def _result_json(r) -> dict:
@@ -461,7 +471,7 @@ def cmd_diff(args) -> int:
     except (diff.DiffError, ProjectError) as e:
         raise UsageError(str(e))
     if args.json:
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+        print(json.dumps({**_json_header(), **data}, indent=2, ensure_ascii=False))
     elif args.markdown:
         print(diff.render_markdown(data))
     else:
