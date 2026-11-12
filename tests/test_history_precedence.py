@@ -307,3 +307,17 @@ def test_attestation_of_a_path_renamed_away_and_recreated(repo):
     project = Project(repo)
     project.results(quiet=True)
     assert any("was renamed to moved.py" in p for p in project.history_problems)
+
+
+def test_on_a_push_event_nothing_is_a_preview(repo, monkeypatch):
+    first = git(repo, "rev-parse", "HEAD")
+    text = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", f'enabled = true\nrequire-trailers-since = "{first}"')
+    (repo / "SIGNOFF.toml").write_text(text)
+    commit(repo, "config", D("G0", "H2", "A0"))
+    git(repo, "checkout", "-q", "-b", "pr")
+    edit_lines(repo, [3])
+    commit(repo, "undeclared")
+    merge(repo, "pr", f"Merge {'a' * 40} into {'b' * 40}")
+    assert by_line(result(repo)[0])[3].errors == []  # the preview: exempt
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    assert any("require-trailers-since" in e for e in by_line(result(repo)[0])[3].errors)
