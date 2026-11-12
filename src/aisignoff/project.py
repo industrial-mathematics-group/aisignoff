@@ -186,28 +186,28 @@ class Project:
         with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
             out = list(pool.map(one, files))
         self.history_warnings = history.warnings()
-        if self.check_snapshot and history.snapshot is not None and history.snapshot_changed():
-            problems, notes = self.verify_snapshot()
+        if self.check_snapshot:
+            problems = history.snapshot_continuity()
+            if history.snapshot is not None and history.snapshot_changed():
+                problems += self.verify_snapshot()
             self.history_problems = self.history_problems + problems
-            self.history_notes = self.history_notes + notes
         return out
 
-    def verify_snapshot(self) -> tuple[list[str], list[str]]:
-        """(problems, notes) of checking SIGNOFF.snapshot.json: it must be what 'aisignoff freeze'
-        writes at its commit, from that commit's SIGNOFF.toml and the snapshot before it. That is
-        also what keeps the lines the snapshot before it had: freeze carries them over."""
+    def verify_snapshot(self) -> list[str]:
+        """Problems of SIGNOFF.snapshot.json: it must be what 'aisignoff freeze' (this version,
+        with git's settings pinned) writes at its commit, from that commit's SIGNOFF.toml and the
+        snapshot before it: the same levels and names for every line, and the same archive. That
+        also keeps the lines the snapshot before it had: freeze carries them over. Whatever version
+        wrote it, it is checked; a snapshot that can't be checked fails."""
         import json
         import tempfile
         from . import __version__
-        from .history import SNAPSHOT, Snapshot, _git
+        from .history import SNAPSHOT, Snapshot, _git, archive_item, comparable
         try:
             snapshot = Snapshot.read(self.root / SNAPSHOT)
         except ValueError:
-            return [], []  # lint reports that already
-        if snapshot.version != __version__:
-            return [], [f"{SNAPSHOT} changed, and was written by aisignoff {snapshot.version or '(unknown)'}: this "
-                        f"is {__version__}, which may work levels out differently, so it isn't checked by working "
-                        "it out again. Review the change, or write it with this version"]
+            return []  # lint reports that already
+        cant = f"{SNAPSHOT} can't be checked, so it isn't trusted: "
         prefix = (_git(self.root, "rev-parse", "--show-prefix", check=False) or "").strip()
         with tempfile.TemporaryDirectory(prefix="aisignoff-snapshot-") as tmp:
             top = Path(tmp) / "at"
@@ -215,7 +215,7 @@ class Project:
             # no post-checkout hooks: reading another commit must not run the repository's code
             if _git(self.root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(top),
                     snapshot.commit, check=False) is None:
-                return [], [f"{SNAPSHOT}: its commit {snapshot.commit[:7]} can't be checked out, so it isn't checked"]
+                return [cant + f"its commit {snapshot.commit[:7]} can't be checked out"]
             try:
                 inner = Project(where)
                 inner.check_snapshot, inner.landed, inner.reset = False, True, set(snapshot.reset)
@@ -224,18 +224,18 @@ class Project:
                 before = Snapshot.parse((where / SNAPSHOT).read_text(encoding="utf-8")) \
                     if (where / SNAPSHOT).is_file() else None
                 config = inner.config
+                pruned = json.dumps(archive_item(history, config), sort_keys=True) if history else ""  # needs the worktree
             except Exception as e:  # noqa: BLE001 (an old SIGNOFF.toml, a broken commit: say so, don't crash lint)
-                return [], [f"{SNAPSHOT} couldn't be worked out again at {snapshot.commit[:7]} ({e}), so it isn't checked"]
+                return [cant + f"it couldn't be worked out again at {snapshot.commit[:7]} ({e})"]
             finally:
                 _git(self.root, "worktree", "remove", "--force", str(top), check=False)
         if history is None or history.base != snapshot.commit:
-            return [], [f"{SNAPSHOT} couldn't be worked out again at {snapshot.commit[:7]}, so it isn't checked"]
+            return [cant + f"it couldn't be worked out again at {snapshot.commit[:7]}"]
         expected: dict[str, list[str]] = {}
         for r in results:
             if r.parts is None or r.path not in history.base_blobs:
                 continue
-            texts = [json.dumps({**p.declaration.as_dict(), "source": p.declaration.source}, sort_keys=True,
-                                ensure_ascii=False) for p in r.parts]
+            texts = [comparable(p.declaration.as_dict()) for p in r.parts]
             expected[r.path] = [texts[i] for i in r.line_parts]
         actual = snapshot.line_declarations()
         files = sorted(set(expected) | set(actual))
@@ -247,18 +247,17 @@ class Project:
             problems.append(f"{SNAPSHOT} isn't what 'aisignoff freeze' writes at its commit {snapshot.commit[:7]}: "
                             f"{lines} line(s) differ, in {wrong[0]}" + (f" and {len(wrong) - 1} more file(s)"
                                                                        if len(wrong) > 1 else "")
-                            + ". It was edited by hand; restore it, or write it again with 'aisignoff freeze'")
+                            + (". It was edited by hand, or written by another git" if snapshot.version == __version__
+                               else f". It was edited by hand, or written by another aisignoff (it says "
+                               f"{snapshot.version or 'no version'}; this is {__version__})")
+                            + ". Write it again with 'aisignoff freeze', with the version CI uses")
         old = [json.dumps(a, sort_keys=True) for a in (before.archive if before else [])]
         new = [json.dumps(a, sort_keys=True) for a in snapshot.archive]
-        pruned = json.dumps({"commit": snapshot.commit,
-                             "commits": [{"commit": c.commit, **c.values} for c in config.commits],
-                             "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]},
-                            sort_keys=True)
         if new != old and new != old + [pruned]:
             problems.append(f"{SNAPSHOT}: its archive isn't the one before it, plus the [[commits]] and "
                             f"[[attestations]] entries of {config.path.name} at {snapshot.commit[:7]} that "
                             "'aisignoff freeze --prune' moves there. Restore it, or write it again with 'aisignoff freeze'")
-        return problems, []
+        return problems
 
     def _history(self, declared, base, quiet, use_snapshot=True):
         self.history_used = False

@@ -456,13 +456,16 @@ def cmd_annotate(args) -> int:
 
 
 # ---------------------------------------------------------------- attest
-def _git_out(root: Path, *args: str) -> str | None:
+def _git_out(root: Path, *args: str, strip: bool = True) -> str | None:
     import subprocess
+    from .history import GIT
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True, text=True)
     except FileNotFoundError:
         raise UsageError("git is not installed")
-    return r.stdout.strip() if r.returncode == 0 else None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() if strip else r.stdout
 
 
 def cmd_attest(args) -> int:
@@ -584,12 +587,12 @@ def cmd_freeze(args) -> int:
             raise UsageError(f"there is no {SNAPSHOT} to check")
         project.check_snapshot = False
         _results(project)
-        problems, notes = project.verify_snapshot()
+        problems = project.verify_snapshot()
+        if project.history is not None:
+            problems += project.history.snapshot_continuity()
         for line in project.history_problems + problems:
             print(f"✗ {printable(line)}")
-        for line in notes:
-            print(f"! {printable(line)}")
-        if not problems and not notes and not project.history_problems:
+        if not problems and not project.history_problems:
             print(f"{SNAPSHOT} is what 'aisignoff freeze' writes at its commit. ✓")
         return 1 if problems or project.history_problems else 0
     reset = []
@@ -599,13 +602,38 @@ def cmd_freeze(args) -> int:
             raise UsageError(f"--reset {arg}: give files of the project")
         reset.append(Path(rel).as_posix())
     project.reset = set(reset)
+    target = root / SNAPSHOT
+    # a snapshot written but not committed yet (freeze run before): start again from HEAD's, so
+    # that this run has the same start as the check of what it writes; put it back if this fails
+    pending = target.read_text(encoding="utf-8") if target.is_file() else None
+    prefix = (_git_out(root, "rev-parse", "--show-prefix") or "")
+    committed = _git_out(root, "show", f"HEAD:{prefix}{SNAPSHOT}", strip=False)
+    if pending is not None and pending != committed:
+        if committed is None:
+            target.unlink()
+        else:
+            target.write_text(committed, encoding="utf-8")
+        project = _open(args.root)
+        project.reset = set(reset)
+    try:
+        return _freeze(args, project, reset)
+    except BaseException:
+        if pending is not None and pending != committed:
+            target.write_text(pending, encoding="utf-8")
+        raise
+
+
+def _freeze(args, project, reset: list[str]) -> int:
+    from .history import SNAPSHOT, Snapshot, archive_item
+    root = project.root
     results = _results(project)
     history = project.history
     if history is None:
         raise UsageError("a snapshot needs the whole git history (not a shallow clone)")
     if history.base is None:
         raise UsageError("there is no commit to freeze yet")
-    dirty = [line[3:] for line in (_git_out(root, "status", "--porcelain", "--untracked-files=all") or "").splitlines()
+    dirty = [line[3:] for line in (_git_out(root, "status", "--porcelain", "--untracked-files=all", strip=False)
+                                   or "").splitlines()
              if line[3:].strip('"') != (history.prefix + SNAPSHOT)]
     if history.head != history.base or dirty:
         what = "the working tree has changes" if history.head == history.base else \
@@ -630,16 +658,14 @@ def cmd_freeze(args) -> int:
     pruned = 0
     if args.prune:
         config = project.config
-        entries = {"commit": history.base,
-                   "commits": [{"commit": c.commit, **c.values} for c in config.commits],
-                   "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]}
+        entries = archive_item(history, config)
         pruned = len(entries["commits"]) + len(entries["attestations"])
         if pruned:
             archive.append(entries)
             _prune_toml(root, len(config.annotations))
     text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs, archive, reset)
     target = root / SNAPSHOT
-    again = target.exists()
+    again = bool(_git_out(root, "ls-files", "--", SNAPSHOT)) or target.exists()
     target.write_text(text, encoding="utf-8")
     print(f"{'Updated' if again else 'Wrote'} {SNAPSHOT}: the levels of {lines} lines in {files} files as of commit "
           f"{history.base[:7]}.")

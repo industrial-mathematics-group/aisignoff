@@ -13,6 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, Declaration, counted_level, printable, validate
+from .history import GIT
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
@@ -23,7 +24,7 @@ class DiffError(Exception):
 
 
 def _git(root: Path, *args: str, check: bool = True) -> str:
-    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True)
     if r.returncode != 0 and check:
         raise DiffError(f"git {args[0]} failed: {r.stderr.decode('utf-8', 'replace').strip()}")
     return r.stdout.decode("utf-8", "surrogateescape") if r.returncode == 0 else ""
