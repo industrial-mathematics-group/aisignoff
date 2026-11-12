@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.10.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.10.1"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   diff:
