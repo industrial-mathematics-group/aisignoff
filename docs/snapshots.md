@@ -53,9 +53,9 @@ Correcting a frozen generation takes two steps, since `freeze` runs on a commit 
 
 The snapshot is generated, never edited by hand. When `SIGNOFF.snapshot.json` differs from the default branch's copy, or a commit being checked changed it (`HEAD`'s commit, or on GitHub Actions every commit of the push), `lint` checks it by working it out again: it checks out the snapshot's commit in a temporary worktree (with git hooks off), computes what `freeze` would write there (from the snapshot before it, that commit's `SIGNOFF.toml` and the snapshot's `reset` files), and fails if any line's levels or names, or the archive, differ. `aisignoff freeze --check` runs the same check on its own. A snapshot that can't be checked, such as one whose commit isn't there, fails too.
 
-This holds whatever version wrote the snapshot: a snapshot written by another version of aisignoff that works levels out differently fails, and the message names both versions. Write the snapshot with the version your CI uses. git runs with the settings that change its results pinned, so a personal git config (an ignore-revs file of your own, another diff algorithm) doesn't change the levels.
+The snapshot records the `"rules"` it was written under, a number that a release raises only when it changes the levels some line gets. A snapshot of the running version's rules is checked whatever version wrote it. One written under other rules can't be compared: as a change it fails ("written under other rules"), and as the default branch's snapshot it is accepted as it is (`freeze --check` notes it). So write a new snapshot with the version your CI uses, and land a snapshot of an older version before you raise the version CI pins (see [Migrating](migrating.md#from-011-or-earlier-with-history)). git runs with the settings that change its results pinned, so a personal git config (an ignore-revs file of your own, another diff algorithm) doesn't change the levels.
 
-A snapshot only moves forward. `lint` also fails when the changed snapshot is of an older commit than the default branch's, or drops archived entries of the default branch's snapshot, which are recorded nowhere else: by putting back an older snapshot, deleting it, or taking one afresh. To take one afresh, put the archived entries back into `SIGNOFF.toml` first. `freeze --prune` writes each archived commit with its full hash, so it can't become ambiguous later.
+A snapshot only moves forward. `lint` also fails when the changed snapshot is of an older commit than the default branch's, or drops archived entries of the default branch's snapshot, which are recorded nowhere else: by putting back an older snapshot, deleting it, or taking one afresh. In a pull request, the snapshot is compared with the default branch's. On the default branch itself it is compared with the commit below `HEAD`, and on GitHub Actions with every commit of the push; pushed without CI, such a change is only caught by the next pull request's run, against a branch that has it already. Protect the default branch so that changes land through pull requests. To take one afresh, put the archived entries back into `SIGNOFF.toml` first. `freeze --prune` writes each archived commit with its full hash, so it can't become ambiguous later.
 
 `lint` also fails when a file's blob or number of lines doesn't match the snapshot's commit. Such a file is resolved from history until the snapshot is restored or written again.
 
@@ -66,7 +66,8 @@ The snapshot has one line per distinct declaration and one per file, so a new sn
 ```json
 {
  "format": 1,
- "aisignoff": "0.14.0",
+ "aisignoff": "1.0.0rc1",
+ "rules": 1,
  "commit": "f4d6052e6d7ff657fac433bfec90d22689c7130f",
  "declarations": [
   {"AI-Generation": "G0", "Human-Review": "H2", "AI-Review": "A0", "Assisted-by": [], "AI-Reviewed-by": [], "Reviewed-by": ["Jane Doe"], "source": "SIGNOFF.toml [1]"},
@@ -78,4 +79,4 @@ The snapshot has one line per distinct declaration and one per file, so a new sn
 }
 ```
 
-A run is `[first line, last line, index into declarations]`. Optional keys are `reset` (files worked out again) and `archive` (pruned entries).
+A run is `[first line, last line, index into declarations]`. `rules` is the number of the rules levels were worked out by (see above). Optional keys are `reset` (files worked out again) and `archive` (pruned entries).

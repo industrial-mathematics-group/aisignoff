@@ -226,13 +226,13 @@ def test_history_falls_back_outside_git_and_in_shallow_clones(tmp_path_factory, 
     subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{repo}", str(shallow)], check=True)
     project = Project(shallow)
     assert project.results()[0].parts is None
+    assert "fetch-depth: 0" in project.history_problems[0]  # lint fails: the check would pass unnoticed
     assert "shallow clone" in capsys.readouterr().err
 
 
 def test_config_validation(tmp_path):
     bad = {
         '[history]\nenabled = "yes"\n': "'enabled' must be true or false",
-        '[history]\nfoo = 1\n': "unknown key",
         '[[commits]]\ncommit = "xyz"\nHuman-Review = "H1"\n': "commit hash",
         '[[commits]]\ncommit = "abcd"\nReviewed-by = "J"\n': "declare at least one level",
         '[[attestations]]\npath = "a/*.py"\nblob = "' + "a" * 40 + '"\nHuman-Review = "H1"\n': "no glob",

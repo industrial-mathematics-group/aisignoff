@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.14.0"
+      - run: pip install "aisignoff==1.0.0rc1"
       - run: aisignoff lint
 ```
 
@@ -109,7 +109,7 @@ Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to e
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.14.0   # the same version as in your workflows
+    rev: v1.0.0rc1   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

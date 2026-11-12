@@ -12,6 +12,8 @@ uv run --no-project --with aisignoff==0.11.0 python freeze-from-0.11.py
 git switch -c freeze && git add SIGNOFF.snapshot.json && git commit -m "Freeze the declarations of 0.11"
 ```
 
+Land this snapshot while your CI still runs 0.11, and raise the version your workflows pin in a later pull request. A newer aisignoff checks a changed snapshot by working it out again under its own rules, and a snapshot written under 0.11's rules can't be compared, so it fails as a change. Once it is on the default branch, it is accepted as it is.
+
 Without it, run `aisignoff lint` after upgrading and settle what it reports: move `[[commits]]` review entries for commits inside pull requests to the merge commit (or attest the file), and declare merged templates without a ticked generation or human review box with a `[[commits]]` entry.
 
 ## From aidecl

@@ -213,7 +213,7 @@ def cmd_lint(args) -> int:
     _print_errors(results, args.max_files)
     for index in unused:
         print(f"{'✗' if args.strict else '!'} {project.config.path.name} annotation [{index}] matches no file")
-    for warning in project.history_warnings:
+    for warning in project.config.warnings + project.history_warnings:
         print(f"{'✗' if args.strict else '!'} {printable(warning)}")
 
     for note in project.history_notes:
@@ -229,7 +229,8 @@ def cmd_lint(args) -> int:
         lines = sum(p.lines for r in results for p in r.parts or ())
         bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors and not p.advisory)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
-    failed = bad > 0 or bool(project.history_problems) or (args.strict and (unused or project.history_warnings))
+    failed = bad > 0 or bool(project.history_problems) or (args.strict and (unused or project.history_warnings
+                                                                                    or project.config.warnings))
     if failed:
         print(f"See {SPEC_URL}")
     else:
@@ -458,9 +459,9 @@ def cmd_annotate(args) -> int:
 # ---------------------------------------------------------------- attest
 def _git_out(root: Path, *args: str, strip: bool = True) -> str | None:
     import subprocess
-    from .history import GIT
+    from .history import GIT, git_env
     try:
-        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True, text=True)
+        r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True, text=True)
     except FileNotFoundError:
         raise UsageError("git is not installed")
     if r.returncode != 0:
@@ -587,12 +588,15 @@ def cmd_freeze(args) -> int:
             raise UsageError(f"there is no {SNAPSHOT} to check")
         project.check_snapshot = False
         _results(project)
-        problems = project.verify_snapshot()
+        changed = project.history is None or project.history.snapshot_changed()
+        problems, notes = project.verify_snapshot(changed)
         if project.history is not None:
             problems += project.history.snapshot_continuity()
         for line in project.history_problems + problems:
             print(f"✗ {printable(line)}")
-        if not problems and not project.history_problems:
+        for line in notes:
+            print(f"! {printable(line)}")
+        if not problems and not notes and not project.history_problems:
             print(f"{SNAPSHOT} is what 'aisignoff freeze' writes at its commit. ✓")
         return 1 if problems or project.history_problems else 0
     reset = []
@@ -609,6 +613,11 @@ def cmd_freeze(args) -> int:
     prefix = (_git_out(root, "rev-parse", "--show-prefix") or "")
     committed = _git_out(root, "show", f"HEAD:{prefix}{SNAPSHOT}", strip=False)
     if pending is not None and pending != committed:
+        earlier = Snapshot.parse(pending)
+        dropped = sorted(set(earlier.reset if earlier else ()) - set(reset))
+        if dropped:
+            print(f"note: this starts again from the committed {SNAPSHOT}, so the files of the uncommitted one's "
+                  f"--reset are frozen as before unless given again: {', '.join(dropped)}", file=sys.stderr)
         if committed is None:
             target.unlink()
         else:
@@ -641,6 +650,10 @@ def _freeze(args, project, reset: list[str]) -> int:
         raise UsageError(f"a snapshot is taken of a commit of the default branch, but {what}. Check that commit "
                          f"out with nothing else changed (git switch --detach {history.base[:7]}), run 'aisignoff "
                          f"freeze', and commit {SNAPSHOT} from there, on a new branch if you use pull requests")
+    if history.remote_tip and not history.is_ancestor(history.base, history.remote_tip):
+        raise UsageError(f"commit {history.base[:7]} isn't on origin's default branch yet (the local branch has "
+                         "commits that aren't pushed): a snapshot of it would never be on the default branch. Push "
+                         f"first, or freeze at origin's commit (git switch --detach {history.remote_tip[:7]})")
     bad = [r.path for r in results if r.errors]
     if bad or project.history_problems:
         for problem in project.history_problems:
@@ -1219,6 +1232,14 @@ def main(argv: list[str] | None = None) -> int:
     except UsageError as e:
         print(f"aisignoff {args.command}: {e}", file=sys.stderr)
         return 2
+    except BrokenPipeError:
+        # the reader stopped (report --json | head): not an error, and nothing more to say
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        return 0
 
 
 if __name__ == "__main__":

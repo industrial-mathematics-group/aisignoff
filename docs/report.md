@@ -24,7 +24,7 @@ AI review
 The shares count files, or lines with `[history]`. Each axis is counted on its own, with an *undeclared* share for what is missing, `TODO`, invalid or has an error about that axis ([how axes are counted](levels.md#how-reports-count-an-axis)).
 
 - `--files` gives one line per file: its levels (with `[history]`, the share of each combination of levels), where they come from (`SIGNOFF.toml [2]` is the second annotation, `inline` a tag in the file), and any problems.
-- `--json` gives the same per file for other tools: `{"format": 1, "aisignoff": VERSION, "files": [...]}`. With `[history]`, each file has `parts`: runs of lines with one declaration, with `kinds` (where each axis comes from) and `advisory` (lines that haven't landed and wait for their pull request). See [Compatibility](compatibility.md) for what `format` promises.
+- `--json` gives the same per file for other tools: `{"format": 1, "aisignoff": VERSION, "files": [...]}`. With `[history]`, each file has `parts`: runs of lines with one declaration, with `kinds` (where each axis comes from) and `advisory` (lines that haven't landed and wait for their pull request). See [JSON output](#json-output) for every key and [Compatibility](compatibility.md) for what `format` promises.
 
 ## Folder tree: `report --tree`
 
@@ -136,3 +136,38 @@ Publish the files somewhere public, such as a `badges` branch (`signoff-badges.y
 ```
 
 raw.githubusercontent.com only serves public repositories.
+
+## JSON output
+
+`report --json`, `report --tree --json` and `diff --json` start with `"format": 1` and `"aisignoff"` (the version that wrote it). These are the keys of format 1. New keys may appear; readers ignore keys they don't know.
+
+**`report --json`:** `files`, a list with one object per file:
+
+| Key | Value |
+|---|---|
+| `path` | the file, relative to the project root |
+| `AI-Generation`, `Human-Review`, `AI-Review` | the file's level on each axis (with `[history]`, see `parts` for its lines), or `null` |
+| `Assisted-by`, `Reviewed-by`, `AI-Reviewed-by` | lists of names |
+| `source` | where the declaration comes from |
+| `errors` | list of problems (empty when valid) |
+| `parts` | only with `[history]`: a list of runs of lines with one declaration |
+
+Each part has the six level and name keys above, `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `frozen`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
+
+**`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` (shares, 0 to 1) and `lines` (numbers), by level and `undeclared`.
+
+**`diff --json`:**
+
+| Key | Value |
+|---|---|
+| `base`, `base_name`, `base_tip` | the commit compared with, as given, and the tip of that branch |
+| `files` | how many files changed |
+| `history` | whether lines were resolved from history |
+| `rows` | one per folder (or file with `--files`): `name`, `added`, `removed`, `levels_added`, `levels_removed` (per axis, lines by level) |
+| `total` | the same for the whole change |
+| `attested` | attestations the change adds: `path`, `blob`, `levels` |
+| `before`, `after` | the repository's shares by lines, per axis and level |
+| `problems`, `notes`, `note` | messages for the reader |
+
+`lint` has no JSON output: its result is its exit code (0, 1 or 2).
+
