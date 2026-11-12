@@ -1,13 +1,11 @@
 # Changelog
 
-What changed in each release. From 1.0.0 on, aisignoff follows semantic versioning as described in [Compatibility](compatibility.md).
+What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
-## 1.0.0
-
-The first stable release. Formats, command-line options and the `--json` output now only change in a compatible way within 1.x.
+## 0.12.0
 
 - **Breaking:** the `--json` output of `report` and `diff` starts with `"format": 1` and `"aisignoff"` (the version that wrote it). `report --json` is now an object with the files under `"files"`, instead of a bare list. Change `json.load(f)` to `json.load(f)["files"]`; the [example workflow](integration.md) does this already.
-- New [Compatibility](compatibility.md) page: what 1.x promises and what may still change.
+- New [Compatibility](compatibility.md) page: what is meant to stay stable and what may still change.
 - This changelog.
 
 ## 0.11.0

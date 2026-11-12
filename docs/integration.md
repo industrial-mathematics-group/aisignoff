@@ -87,7 +87,7 @@ aisignoff provides a hook for [pre-commit](https://pre-commit.com), so undeclare
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0   # the same version as in your workflows
+    rev: v0.12.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```
