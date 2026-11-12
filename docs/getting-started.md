@@ -1,4 +1,4 @@
-# Getting started
+# Quick start
 
 ## Install
 
@@ -6,83 +6,70 @@
 pipx install aisignoff        # or: uv tool install aisignoff, or: pip install aisignoff
 ```
 
-aisignoff needs Python 3.11 or newer and has no other dependencies. For the latest development version:
+aisignoff needs Python 3.11 or newer and git, and has no other dependencies. For the development version: `pipx install "git+https://github.com/industrial-mathematics-group/aisignoff"`.
 
-```bash
-pipx install "git+https://github.com/industrial-mathematics-group/aisignoff"
-```
+## 1. Declare the files
 
-## Declare a repository
-
-Run these in the repository root.
-
-**1. Set a default for everything.** Here: written by a human, reviewed line by line, no AI review.
+In the repository root, set a default for everything. Here: written by a human, reviewed line by line, no AI review.
 
 ```bash
 aisignoff init -g G0 -H H2 -a A0 --reviewed-by "Jane Doe"
 ```
 
-This creates [`SIGNOFF.toml`](signoff-toml.md) with one annotation for `**`.
-
-**2. Declare what is different,** by file, folder or glob:
+This creates a commented [`SIGNOFF.toml`](files.md) with one annotation for `**`. Then declare what is different, by file, folder or quoted glob. The last matching annotation wins:
 
 ```bash
 aisignoff annotate results/ -g G2 -H H1 -a A1 \
     --assisted-by "Claude Opus 5.5 (Anthropic)" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), same session" \
-    --reviewed-by "Jane Doe"
-
-aisignoff annotate "scripts/*.jl" -g G1 -H H3 -a A2 \
-    --assisted-by "GitHub Copilot" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), new session" \
+    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), self-check by the generating session" \
     --reviewed-by "Jane Doe"
 ```
 
-Each call appends an annotation. The last matching one wins, so later, more specific annotations override the default.
-
-**3. Check that every file is declared correctly:**
+Check the result:
 
 ```bash
-aisignoff lint
-aisignoff report --files      # one line per file, with where its declaration comes from
+aisignoff lint            # fails if any file lacks a valid declaration
+aisignoff report --files  # one line per file, with where its levels come from
 ```
 
-Add the check to [CI](ci.md) so it stays that way.
+For what the levels mean and what each one requires, see [Levels and rules](levels.md).
 
-## What `annotate` checks
+## 2. Check it in CI
 
-`annotate` refuses incomplete declarations and anything below the repository's [policy](signoff-toml.md#minimum-levels). Examples are G2 without `--assisted-by`, or G2 with `-a A0`. It also checks that the resulting `SIGNOFF.toml` is still valid, and leaves it unchanged if not.
-
-Paths are handled like this:
-
-- **Inside the project root:** files outside `--root` are refused, also with `--inline`.
-- **Files and folders:** existing files are matched exactly, even with `*` or `?` in their name. A folder becomes `folder/**`.
-- **Globs:** quote them, e.g. `"scripts/*.jl"`.
-    - Inside the project, they're read relative to the current directory, as the shell would.
-    - With `--root` from outside the project, they're relative to the root.
-    - Globs with `..` or absolute paths are refused.
-
-## Leaving the human review open
-
-When an AI agent declares its own work, the human review isn't done yet. Use `TODO`:
+Add a workflow that runs `aisignoff lint` on every push and pull request, and require it in the branch protection of the default branch:
 
 ```bash
-aisignoff annotate src/solver.py -g G3 -H TODO -a A1 \
-    --assisted-by "Claude Opus 5.5 (Anthropic)" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), self-check by the generating session"
+mkdir -p .github/workflows
+curl -sSfL -o .github/workflows/signoff.yml \
+  https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/main/examples/workflows/signoff-lint.yml
 ```
 
-`-H TODO` without `--reviewed-by` writes `Reviewed-by` as TODO too, so the person fills in both together. `lint` fails until they do.
+The workflow file needs a declaration like any other file; the default for `**` usually covers it. More on this in [CI and workflows](ci.md).
 
-## Declaring inside files
+## 3. Declare lines from pull requests (optional)
 
-Text files can carry their declaration in a header comment instead:
+When code is developed through pull requests, let each pull request declare the lines it changes:
 
-```bash
-aisignoff annotate analysis.py --inline -g G2 -H H1 -a A1 \
-    --assisted-by "Claude Opus 5.5 (Anthropic)" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), same session" \
-    --reviewed-by "Jane Doe"
-```
+1. Add `[history]` to `SIGNOFF.toml`:
 
-See [Inline tags](inline-tags.md) for the rules.
+    ```toml
+    [history]
+    enabled = true
+    merge-method = "squash"   # or "merge" (the default) or "rebase": how your pull requests land
+    ```
+
+2. In *Settings → General → Pull Requests*, set the default commit message for merge and squash commits to **Pull request title and description**, so the description lands in git.
+3. Declare the levels in each pull request description, as "Key: value" lines or with the checkboxes of a pull request template:
+
+    ```
+    AI-Generation: G3
+    Assisted-by: Claude Opus 5.5 (Anthropic)
+    Human-Review: H1
+    Reviewed-by: Jane Doe
+    AI-Review: A1
+    AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating session
+    ```
+
+4. Check out the whole history in CI (`fetch-depth: 0`), and add the [description check](ci.md#checking-the-pull-request-description) so an incomplete description fails before the merge.
+
+Existing lines keep the file-level declarations until they change. When everything passes, record the result with a [snapshot](snapshots.md) so it stays as it is. The full model is in [Declaring lines](history.md).

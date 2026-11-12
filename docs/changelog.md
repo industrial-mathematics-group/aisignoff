@@ -4,7 +4,7 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 
 ## 0.14.0
 
-- A second snapshot no longer fails `lint` when a line moved, or came back as it was, between the two. `lint` now checks a changed `SIGNOFF.snapshot.json` by [working it out again](history.md#freezing-the-levels-aisignoff-freeze) at its commit, in a temporary worktree, instead of comparing it with the snapshot before it. This catches any hand edit, including names, new lines and the archive.
+- A second snapshot no longer fails `lint` when a line moved, or came back as it was, between the two. `lint` now checks a changed `SIGNOFF.snapshot.json` by [working it out again](snapshots.md) at its commit, in a temporary worktree, instead of comparing it with the snapshot before it. This catches any hand edit, including names, new lines and the archive.
 - New `aisignoff freeze --check` runs that check on its own.
 - New `aisignoff freeze --reset FILE...` works files out from history again instead of keeping their frozen levels: to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation. It replaces removing a file's entry from the snapshot by hand, which `lint` now rejects.
 - The `[[commits]]` and `[[attestations]]` entries that `freeze --prune` archived count wherever levels are worked out from history: files the snapshot doesn't have (also ones included later), files worked out again, and files whose blob doesn't match.
@@ -15,16 +15,16 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 ## 0.13.0
 
 - **Breaking:** an attestation records reviews only. `attest -g` is gone, and an `AI-Generation` in an existing `[[attestations]]` entry no longer counts (`lint` warns). Correct the generation of a commit with a `[[commits]]` entry.
-- New `aisignoff freeze --prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into an `archive` in `SIGNOFF.snapshot.json`: [the snapshot has their levels](history.md#freezing-the-levels-aisignoff-freeze), so `SIGNOFF.toml` starts afresh after each freeze.
+- New `aisignoff freeze --prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into an `archive` in `SIGNOFF.snapshot.json`: [the snapshot has their levels](snapshots.md), so `SIGNOFF.toml` starts afresh after each freeze.
 - `lint` fails when a snapshot changes lines that the snapshot before it already had, other than raising a review that an attestation gives. This catches a snapshot edited by hand.
 - `lint` warns about commits that look like pull requests ("Merge pull request #12 …", "… (#12)") and declare nothing, in one line (`--strict` fails).
 
 ## 0.12.0
 
-- **Breaking:** [one owner per line](history.md#where-a-lines-levels-come-from). The commit that lands a line on the default branch (a direct commit, a squash commit, or a pull request's merge commit) declares it. Commits and pull requests inside it no longer declare reviews. A commit inside a merge can still say a higher `AI-Generation` for its lines; a lower one, such as G0 in a pull request declared G3, needs a `[[commits]]` entry, since it takes the AI review requirement off the lines. This replaces "generation from the most specific declaration, reviews from the highest" of 0.10, the warnings about raised reviews, and the special handling of pull requests merged into each other. See [Migrating](migrating.md#from-011-with-history) to keep the levels of existing code.
-- New [`aisignoff freeze`](history.md#freezing-the-levels-aisignoff-freeze) writes `SIGNOFF.snapshot.json`, the levels of every line as of a commit of the default branch. Lines that don't change keep them, whatever later versions or settings would work out, and history is only read from that commit on.
+- **Breaking:** [one owner per line](history.md#one-owner-per-line). The commit that lands a line on the default branch (a direct commit, a squash commit, or a pull request's merge commit) declares it. Commits and pull requests inside it no longer declare reviews. A commit inside a merge can still say a higher `AI-Generation` for its lines; a lower one, such as G0 in a pull request declared G3, needs a `[[commits]]` entry, since it takes the AI review requirement off the lines. This replaces "generation from the most specific declaration, reviews from the highest" of 0.10, the warnings about raised reviews, and the special handling of pull requests merged into each other. See [Upgrading](migrating.md#from-011-or-earlier-with-history) to keep the levels of existing code.
+- New [`aisignoff freeze`](snapshots.md) writes `SIGNOFF.snapshot.json`, the levels of every line as of a commit of the default branch. Lines that don't change keep them, whatever later versions or settings would work out, and history is only read from that commit on.
 - **Breaking:** lines that aren't on the default branch yet (a feature branch, a pull request's merge preview, uncommitted changes) are the diff against it, and fail nothing on their own. Without a declaration for the change they show the generation their commits say, and their reviews as undeclared. The merge preview is no longer recognised by its subject and `GITHUB_EVENT_NAME`. New setting `default-branch` in `[history]`.
-- New `lint --declare-from FILE`, `report --declare-from FILE` and `diff --declare-from FILE` read a pull request description as its merge or squash commit's message will be read; `lint` then checks that it is complete. `diff` accepts `TODO` levels. A declaration for a pull request into another branch than the default one isn't applied. [`signoff-pr-diff.yml`](integration.md) no longer imports aisignoff's Python modules.
+- New `lint --declare-from FILE`, `report --declare-from FILE` and `diff --declare-from FILE` read a pull request description as its merge or squash commit's message will be read; `lint` then checks that it is complete. `diff` accepts `TODO` levels. A declaration for a pull request into another branch than the default one isn't applied. [`signoff-pr-diff.yml`](ci.md#example-workflows) no longer imports aisignoff's Python modules.
 - **Breaking:** a pull request template with no generation or human review box ticked, and a level line left empty (`Human-Review:`), are a `TODO` that `lint` reports, instead of silently taking the file-level declaration.
 - New setting `undeclared = "error"` in `[history]`: every commit that lands lines on the default branch must declare them.
 - New `--landed` for `lint`, `report` and `badge`: `HEAD` is checked as a commit of the default branch. A merge queue's run on GitHub Actions (`merge_group`) is recognised by itself, so the commit that will land is checked as in 0.11; release branches need the option.
@@ -33,7 +33,7 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 - `freeze` refuses when `lint` has warnings (`--allow-warnings` overrides) and prints what stands in its way. `lint` also fails when a snapshot's runs don't cover a file's lines. Files the snapshot doesn't have are resolved from history.
 - `lint` warns about reverts (also through a pull request) and `git pull` merges that own lines without declaring them, and about `[[commits]]` entries that give a review to a commit inside a pull request (`--strict` fails).
 - `report --json` says where each level of a part comes from (`kinds`) and whether the part has landed (`advisory`).
-- **Breaking:** the `--json` output of `report` and `diff` starts with `"format": 1` and `"aisignoff"` (the version that wrote it). `report --json` is now an object with the files under `"files"`, instead of a bare list. Change `json.load(f)` to `json.load(f)["files"]`; the [example workflow](integration.md) does this already.
+- **Breaking:** the `--json` output of `report` and `diff` starts with `"format": 1` and `"aisignoff"` (the version that wrote it). `report --json` is now an object with the files under `"files"`, instead of a bare list. Change `json.load(f)` to `json.load(f)["files"]`; the [example workflow](ci.md#example-workflows) does this already.
 - New [Compatibility](compatibility.md) page: what is meant to stay stable and what may still change.
 - This changelog.
 
@@ -80,7 +80,7 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 ## 0.5.0
 
 - [Folder report](report.md): `report --tree` and `report --html`.
-- [Example workflows](integration.md) and a pre-commit hook.
+- [Example workflows](ci.md#example-workflows) and a pre-commit hook.
 - Documentation built with Zensical.
 
 ## 0.4.x
