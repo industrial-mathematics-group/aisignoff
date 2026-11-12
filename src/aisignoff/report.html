@@ -136,7 +136,7 @@ footer a { color: var(--accent); }
 <div class="controls">
   <div class="group"><label>Axis</label><div class="seg" id="axis"></div></div>
   <div class="group"><label>Folder colour</label><div class="seg" id="mode">
-    <button data-v="majority">Majority</button><button data-v="weakest">Weakest link</button><button data-v="gap">Review gap</button>
+    <button data-v="average">Average</button><button data-v="majority">Majority</button><button data-v="weakest">Weakest link</button>
   </div></div>
   <div class="group"><label>Size by</label><div class="seg" id="weight">
     <button data-v="files">Files</button><button data-v="lines">Lines</button>
@@ -168,17 +168,26 @@ footer a { color: var(--accent); }
 "use strict";
 const { meta, tree } = JSON.parse(document.getElementById("data").textContent);
 const UNDECLARED = "undeclared";
-const GEN = meta.axes[0].key, HUM = meta.axes[1].key;
-const AXIS = Object.fromEntries(meta.axes.map(a => [a.key, a]));
-// one ramp per axis (lightest = lowest level), from the badge colours
-const RAMPS = [["#dbe4fb", "#a7bbf0", "#6b8ae4", "#2f4fb8"],
-               ["#d8efd3", "#a6d99b", "#5fb84d", "#2b7a1d"],
-               ["#eadcf3", "#cfaee6", "#a978cc", "#6f3a8f"]];
-const GAP_RAMP = ["#c9d1d9", "#f2cc60", "#e09b3d", "#9a6700"];
+const GEN = meta.axes[0].key, HUM = meta.axes[1].key, GAP = "gap";
+// the review gap: generation level minus human review level, never below 0 (G3 reviewed at H1 = 2)
+const GAP_AXIS = { key: GAP, title: "Review gap", levels: { "0": "review as deep as the AI share",
+  "1": "review one level short", "2": "two levels short", "3": "three levels short" } };
+const AXES = [...meta.axes, GAP_AXIS];
+const AXIS = Object.fromEntries(AXES.map(a => [a.key, a]));
+// one ordinal ramp per axis, the same in light and dark mode so a colour always means the same level.
+// Each ramp steps far apart in lightness (OKLCH L 0.87 / 0.71 / 0.55 / 0.39) and turns its hue as it
+// darkens, so neighbouring levels differ in both and stay apart even in the thin line strips
+const RAMPS = {
+  [GEN]: ["#f3de90", "#f28e42", "#c93a5f", "#65247d"],
+  [HUM]: ["#e2e58d", "#68c36d", "#008b86", "#124a7b"],
+  [meta.axes[2].key]: ["#f7cce7", "#cf8ec9", "#8d5ab1", "#413781"],
+  [GAP]: ["#f5dc98", "#e9a03e", "#c46016", "#7d3317"],
+};
+const ramp = key => RAMPS[key];
 const MODES = {
+  average: "Each folder (and each file with several declarations) takes the weighted average of its levels over its {weight}, coloured between the steps: 50% H0 and 50% H2 look like H1. A red outline marks folders with files that lack a valid declaration.",
   majority: "Each folder takes the level that covers most of its {weight}. A red outline marks folders with files that lack a valid declaration.",
-  weakest: "Each folder takes its weakest level: the least-reviewed file inside (for generation, the highest AI share). Use it to find the files that hold a folder back.",
-  gap: "Review gap of a file = its generation level minus its human review level, never below 0 (G3 reviewed at H1 = 2). Folders show the average over their {weight}.",
+  weakest: "Each folder takes its weakest level: the least-reviewed file inside (for generation and the review gap, the highest). Use it to find the files that hold a folder back.",
 };
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const $ = id => document.getElementById(id);
@@ -206,35 +215,35 @@ const levelIndex = (key, lv) => levelKeys(key).indexOf(lv);
 function prepare(n, parent) {
   n.parent = parent;
   byPath.set(n.path, n);
-  n.gap = { files: [0, 0], lines: [0, 0] };  // [sum of weighted gaps, declared weight]
   if (n.type === "file") {
-    // with line-level declarations (history), a file has parts: runs of lines with one declaration
-    const parts = n.parts || [{ lines: n.lines, levels: n.levels }];
-    let sum = 0, declared = 0;
-    for (const p of parts) {
-      if (p.levels[GEN] === UNDECLARED || p.levels[HUM] === UNDECLARED) continue;
-      sum += Math.max(0, levelIndex(GEN, p.levels[GEN]) - levelIndex(HUM, p.levels[HUM])) * p.lines;
-      declared += p.lines;
-    }
-    if (declared) {
-      const g = sum / declared, total = n.lines || 1;
-      n.fileGap = Math.round(g * 10) / 10;
-      n.gap = { files: [sum / total, declared / total], lines: [sum, declared] };
-    }
     if (!n.counts) n.counts = Object.fromEntries(meta.axes.map(a => [a.key, {
       files: { [n.levels[a.key]]: 1 }, lines: { [n.levels[a.key]]: n.lines } }]));
+    // with line-level declarations (history), a file has parts: runs of lines with one declaration
+    const parts = n.parts || [{ lines: n.lines, levels: n.levels }];
+    const gaps = { files: {}, lines: {} }, total = parts.reduce((s, p) => s + p.lines, 0) || 1;
+    for (const p of parts) {
+      const g = partGap(p);
+      gaps.lines[g] = (gaps.lines[g] || 0) + p.lines;
+      gaps.files[g] = (gaps.files[g] || 0) + p.lines / total;
+    }
+    n.counts[GAP] = gaps;
+    n.levels = { ...n.levels, [GAP]: parts.length === 1 ? partGap(parts[0]) : folderLevel(n, GAP, "majority", "lines") };
     return;
   }
+  n.counts[GAP] = { files: {}, lines: {} };
   for (const c of n.children) {
     prepare(c, n);
-    for (const w of ["files", "lines"]) { n.gap[w][0] += c.gap[w][0]; n.gap[w][1] += c.gap[w][1]; }
+    for (const w of ["files", "lines"]) for (const [g, v] of Object.entries(c.counts[GAP][w])) n.counts[GAP][w][g] = (n.counts[GAP][w][g] || 0) + v;
   }
 }
+function partGap(p) {
+  if (p.levels[GEN] === UNDECLARED || p.levels[HUM] === UNDECLARED) return UNDECLARED;
+  return String(Math.max(0, levelIndex(GEN, p.levels[GEN]) - levelIndex(HUM, p.levels[HUM])));
+}
 prepare(tree, null);
-const meanGap = n => n.gap[state.weight][1] ? n.gap[state.weight][0] / n.gap[state.weight][1] : null;
 
 // ---------------------------------------------------------------- state (kept in the URL hash)
-const state = { path: "", axis: GEN, mode: "majority", weight: "files", file: null, sort: null, dir: 1,
+const state = { path: "", axis: GEN, mode: "average", weight: "files", file: null, sort: null, dir: 1,
   changes: "all", onlyChanged: true, line: null };
 const SINCE = meta.since;  // with 'report --html --since BASE': files and folders carry added/removed/changed
 const sinceText = () => SINCE.commit.startsWith(SINCE.name) ? SINCE.name : `${SINCE.name} (${SINCE.commit.slice(0, 7)})`;
@@ -244,6 +253,7 @@ function readHash() {
   if (byPath.has(h.get("path")) && byPath.get(h.get("path")).type === "dir") state.path = h.get("path");
   if (AXIS[h.get("axis")]) state.axis = h.get("axis");
   if (MODES[h.get("mode")]) state.mode = h.get("mode");
+  if (h.get("mode") === "gap") state.axis = GAP;  // the review gap was a folder colour mode before 0.11
   if (["files", "lines"].includes(h.get("weight"))) state.weight = h.get("weight");
   state.file = byPath.has(h.get("file")) ? h.get("file") : null;
   if (SINCE && h.get("changes") === "changed") state.changes = "changed";
@@ -253,7 +263,7 @@ function writeHash() {
   const h = new URLSearchParams();
   if (state.path) h.set("path", state.path);
   if (state.axis !== GEN) h.set("axis", state.axis);
-  if (state.mode !== "majority") h.set("mode", state.mode);
+  if (state.mode !== "average") h.set("mode", state.mode);
   if (state.weight !== "files") h.set("weight", state.weight);
   if (state.file) h.set("file", state.file);
   if (state.changes !== "all") h.set("changes", state.changes);
@@ -263,27 +273,36 @@ function writeHash() {
 }
 
 // ---------------------------------------------------------------- colours
-function rank(key, lv) {  // higher = worse (more AI, less review); undeclared is worst
+function rank(key, lv) {  // higher = worse (more AI, less review, a wider gap); undeclared is worst
   if (lv === UNDECLARED) return 99;
   const i = levelIndex(key, lv);
-  return key === GEN ? i : -i;
+  return key === GEN || key === GAP ? i : -i;
 }
 function levelColour(key, lv) {
   if (lv === UNDECLARED) return css("--undeclared");
-  return RAMPS[meta.axes.findIndex(a => a.key === key)][levelIndex(key, lv)];
+  return ramp(key)[levelIndex(key, lv)];
 }
 function mix(a, b, t) {
   const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   const [x, y] = [p(a), p(b)];
   return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
 }
-function gapColour(g) {
-  if (g == null) return css("--undeclared");
-  const i = Math.min(2, Math.floor(g)), t = Math.min(1, g - i);
-  return mix(GAP_RAMP[i], GAP_RAMP[i + 1], t);
+function averageOf(n, key, weight = state.weight) {  // weighted mean level index (0-3) of the declared parts
+  let s = 0, w = 0;
+  for (const [lv, c] of Object.entries(n.counts[key][weight])) {
+    if (lv === UNDECLARED || !c) continue;
+    s += c * levelIndex(key, lv); w += c;
+  }
+  return w ? s / w : null;
 }
-function folderLevel(n, key, mode) {
-  const counts = n.counts[key][state.weight];
+function averageColour(key, a) {
+  if (a == null) return css("--undeclared");
+  const r = ramp(key), i = Math.min(2, Math.floor(a));
+  return mix(r[i], r[i + 1], Math.min(1, a - i));
+}
+const averageText = (key, a) => a == null ? "no valid declarations" : `average ${key === GAP ? "" : levelKeys(key)[0][0]}${a.toFixed(1)}`;
+function folderLevel(n, key, mode, weight = state.weight) {
+  const counts = n.counts[key][weight];
   const present = Object.keys(counts).filter(lv => counts[lv] > 0);
   if (!present.length) return null;
   if (mode === "weakest") return present.reduce((a, b) => rank(key, b) > rank(key, a) ? b : a);
@@ -291,14 +310,14 @@ function folderLevel(n, key, mode) {
   return present.reduce((a, b) => counts[b] > counts[a] || (counts[b] === counts[a] && rank(key, b) > rank(key, a)) ? b : a);
 }
 function colourOf(n) {
-  if (state.mode === "gap") return n.type === "file" ? gapColour(n.fileGap ?? null) : gapColour(meanGap(n));
-  const lv = n.type === "file" ? n.levels[state.axis] : folderLevel(n, state.axis, state.mode);
+  if (state.mode === "average" && (n.type === "dir" || mixed(n))) return averageColour(state.axis, averageOf(n, state.axis));
+  const lv = n.type === "file" && !mixed(n) ? n.levels[state.axis] : folderLevel(n, state.axis, state.mode === "average" ? "majority" : state.mode);
   return lv ? levelColour(state.axis, lv) : css("--border");
 }
 function mixText(n, key) {
   const counts = n.counts[key][state.weight];
   const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
-  return Object.entries(counts).map(([lv, c]) => `${lv} ${Math.round(100 * c / total)}%`).join(" · ");
+  return Object.entries(counts).map(([lv, c]) => `${key === GAP && lv !== UNDECLARED ? "gap " : ""}${lv} ${Math.round(100 * c / total)}%`).join(" · ");
 }
 
 // ---------------------------------------------------------------- sunburst
@@ -318,7 +337,7 @@ function drawChart() {
   const rings = Math.max(1, depthBelow(focus, MAX_RINGS));
   const ringW = (R - R0) / rings;
   const svg = svgEl("svg", { viewBox: `0 0 ${SIZE} ${SIZE}`, role: "img",
-    "aria-label": `Sunburst of ${focus.path || meta.title}, coloured by ${state.mode === "gap" ? "review gap" : AXIS[state.axis].title}` });
+    "aria-label": `Sunburst of ${focus.path || meta.title}, coloured by ${AXIS[state.axis].title}` });
   const place = (n, a0, a1, depth) => {
     const total = n[state.weight];
     if (!total || depth > rings) return;
@@ -358,15 +377,15 @@ function showTip(e, n) {
   const tip = $("tip");
   const lines = [el("b", { text: (n.path || meta.title) + (n.type === "dir" ? "/" : "") })];
   if (n.type === "file") {
-    lines.push(el("div", { text: (mixed(n) ? `${AXIS[state.axis].title}: ${mixText(n, state.axis)}` : meta.axes.map(a => n.levels[a.key]).join(" · ")) + (n.fileGap != null ? ` · gap ${n.fileGap}` : "") }));
+    lines.push(el("div", { text: mixed(n) ? `${AXIS[state.axis].title}: ${mixText(n, state.axis)}`
+      : meta.axes.map(a => n.levels[a.key]).join(" · ") + (n.levels[GAP] !== UNDECLARED ? ` · gap ${n.levels[GAP]}` : "") }));
+    if (mixed(n)) lines.push(el("div", { text: averageText(state.axis, averageOf(n, state.axis)) }));
     if (n.errors.length) lines.push(el("div", { class: "bad-name", text: n.errors.join("; ") }));
     if (SINCE && isChanged(n)) lines.push(el("div", { text: `+${fmt(n.added)} −${fmt(n.removed)} lines since ${SINCE.name}` }));
   } else {
     lines.push(el("div", { text: `${fmt(n.files)} files · ${fmt(n.lines)} lines` }));
-    if (state.mode === "gap") {
-      const g = meanGap(n);
-      lines.push(el("div", { text: g == null ? "no valid declarations" : `average review gap ${g.toFixed(2)}` }));
-    } else lines.push(el("div", { text: `${AXIS[state.axis].title}: ${mixText(n, state.axis)}` }));
+    lines.push(el("div", { text: `${AXIS[state.axis].title}: ${mixText(n, state.axis)}` }));
+    lines.push(el("div", { text: averageText(state.axis, averageOf(n, state.axis)) }));
     if (n.errors) lines.push(el("div", { class: "bad-name", text: `${n.errors} file(s) without a valid declaration` }));
     if (SINCE && isChanged(n)) lines.push(el("div", { text: `+${fmt(n.added)} −${fmt(n.removed)} lines in ${fmt(n.changed_files)} file(s) since ${SINCE.name}` }));
   }
@@ -381,12 +400,11 @@ function hideTip() { $("tip").style.display = "none"; }
 // ---------------------------------------------------------------- legend
 function drawLegend() {
   const items = [];
-  if (state.mode === "gap") {
-    items.push(el("span", {}, el("i", { class: "ramp", style: `background:linear-gradient(90deg,${GAP_RAMP.join(",")})` }), "review gap 0 → 3"));
-  } else {
-    for (const [lv, name] of Object.entries(AXIS[state.axis].levels))
-      items.push(el("span", {}, el("i", { class: "sw", style: `background:${levelColour(state.axis, lv)}` }), `${lv} ${name}`));
-  }
+  for (const [lv, name] of Object.entries(AXIS[state.axis].levels))
+    items.push(el("span", {}, el("i", { class: "sw", style: `background:${levelColour(state.axis, lv)}` }),
+      `${state.axis === GAP ? "gap " : ""}${lv} ${name}`));
+  if (state.mode === "average")
+    items.push(el("span", {}, el("i", { class: "ramp", style: `background:linear-gradient(90deg,${ramp(state.axis).join(",")})` }), "averages in between"));
   items.push(el("span", {}, el("i", { class: "sw", style: `background:${css("--undeclared")}` }), "undeclared or invalid"));
   $("legend").replaceChildren(...items);
 }
@@ -396,8 +414,7 @@ const COLUMNS = [
   { id: "name", title: "Name" },
   { id: "files", title: "Files", num: true },
   { id: "lines", title: "Lines", num: true },
-  ...meta.axes.map(a => ({ id: a.key, title: a.title })),
-  { id: "gap", title: "Gap", num: true },
+  ...AXES.map(a => ({ id: a.key, title: a.key === GAP ? "Gap" : a.title })),
   ...(SINCE ? [{ id: "added", title: "Changed", num: true }] : []),
 ];
 function score(n, key) {  // average level index, worse = higher (for sorting)
@@ -409,7 +426,6 @@ function score(n, key) {  // average level index, worse = higher (for sorting)
 function sortValue(n, col) {
   if (col === "name") return n.name.toLowerCase();
   if (col === "files" || col === "lines" || col === "added") return n[col] || 0;
-  if (col === "gap") return n.type === "file" ? (n.fileGap ?? 10) : (meanGap(n) ?? 10);
   return score(n, col);
 }
 const mixed = n => n.type === "file" && Array.isArray(n.parts) && n.parts.length > 1;
@@ -433,8 +449,9 @@ function drawTable() {
       state.sort = c.id; drawTable();
     } });
     if (state.sort === c.id) th.setAttribute("aria-sort", state.dir > 0 ? "ascending" : "descending");
-    if (meta.axes.some(a => a.key === c.id)) th.title = "Sort by average level: worst first";
-    if (c.id === "gap") th.title = "Average review gap (generation level minus human review level)";
+    if (AXIS[c.id]) th.title = c.id === GAP
+      ? "Review gap (generation level minus human review level). Sort by average gap: widest first"
+      : "Sort by average level: worst first";
     return th;
   });
   $("thead").replaceChildren(...head);
@@ -455,12 +472,9 @@ function drawTable() {
     const name = el("td", { class: "name" }, el("span", {
       class: (n.type === "dir" ? "dir " : "") + (bad ? "bad-name" : ""),
       text: n.name + (n.type === "dir" ? "/" : "") }));
-    const g = n.type === "file" ? n.fileGap : meanGap(n);
-    const gap = el("td", { class: "num" }, g == null ? "–" :
-      el("span", { class: "chip" }, el("i", { class: "sw", style: `background:${gapColour(g)}` }), n.type === "file" ? String(g) : g.toFixed(1)));
     const tr = el("tr", { onclick: () => n.type === "dir" ? go(n.path) : selectFile(n.path) },
       name, el("td", { class: "num", text: fmt(n.files) }), el("td", { class: "num", text: fmt(n.lines) }),
-      ...meta.axes.map(a => el("td", {}, bar(n, a.key))), gap,
+      ...AXES.map(a => el("td", {}, bar(n, a.key))),
       ...(SINCE ? [el("td", { class: "num changed-cell", text: isChanged(n) ? `+${fmt(n.added)} −${fmt(n.removed)}` : "" })] : []));
     if (n.path === state.file) tr.classList.add("selected");
     tr.addEventListener("mousemove", e => showTip(e, n));
@@ -488,7 +502,8 @@ function drawPanel() {
   add("Assisted-by", d["Assisted-by"]);
   add("Reviewed-by", d["Reviewed-by"]);
   add("AI-Reviewed-by", d["AI-Reviewed-by"]);
-  add("Review gap", n.fileGap != null ? String(n.fileGap) : null);
+  const g = averageOf(n, GAP, "lines");
+  add("Review gap", g == null ? null : Number.isInteger(g) ? String(g) : `${g.toFixed(1)} on average`);
   add(mixed(n) ? "Most lines from" : "Declared in", d.source === "none" ? "nowhere" : d.source);
   add("Size", `${fmt(n.lines)} lines`);
   const kids = [el("button", { class: "close", "aria-label": "Close", text: "×", onclick: () => { state.file = null; render(); } }),
@@ -516,9 +531,7 @@ function fileParts(n) {
   return [{ lines: n.lines, runs: [[1, n.lines]], levels: n.levels, declaration: n.declaration, errors: n.errors }];
 }
 function partColour(p) {
-  if (state.mode !== "gap") return levelColour(state.axis, p.levels[state.axis]);
-  if (p.levels[GEN] === UNDECLARED || p.levels[HUM] === UNDECLARED) return css("--undeclared");
-  return gapColour(Math.max(0, levelIndex(GEN, p.levels[GEN]) - levelIndex(HUM, p.levels[HUM])));
+  return levelColour(state.axis, state.axis === GAP ? partGap(p) : p.levels[state.axis]);
 }
 const partText = p => `${meta.axes.map(a => p.levels[a.key]).join(" ")} · ${p.declaration.source === "none" ? "undeclared" : p.declaration.source}`;
 const lineLink = (n, a, b) => meta.link ? meta.link + n.path.split("/").map(encodeURIComponent).join("/") + `#L${a}` + (b && b > a ? `-L${b}` : "") : null;
@@ -544,7 +557,7 @@ function drawLines(n) {
   const onlyChanged = !!(src && SINCE && changed.size && state.onlyChanged);
 
   const head = el("div", { class: "lines-head" }, el("h3", { text: "Lines" }),
-    el("span", { class: "hint", text: state.mode === "gap" ? "coloured by review gap" : `coloured by ${AXIS[state.axis].title.toLowerCase()}` }));
+    el("span", { class: "hint", text: `coloured by ${AXIS[state.axis].title.toLowerCase()}` }));
   if (SINCE && n.changed) {
     head.append(el("span", { class: "hint", text: changed.size ? `+${fmt(n.added)} −${fmt(n.removed)} since ${SINCE.name}` : `unchanged since ${SINCE.name}` }));
     if (src && changed.size) {
@@ -624,13 +637,12 @@ function drawHeader() {
   $("stats").replaceChildren(
     stat(fmt(tree.files), "files"), stat(fmt(tree.lines), "lines"),
     tree.errors ? stat(fmt(tree.errors), "without a valid declaration", "bad") : stat("✓", "all files declared"),
-    ...meta.axes.map(a => stat(mixText(tree, a.key) || "–", a.title, "mix")),
+    ...AXES.map(a => stat(mixText(tree, a.key) || "–", a.title, "mix")),
     ...(SINCE ? [stat(`+${fmt(tree.added)} −${fmt(tree.removed)}`, `lines in ${fmt(tree.changed_files)} file(s) since ${sinceText()}`, "mix")] : []));
 }
 function drawControls() {
   for (const [id, key] of [["axis", "axis"], ["mode", "mode"], ["weight", "weight"], ["changes", "changes"]])
     for (const b of $(id).children) b.setAttribute("aria-pressed", String(b.dataset.v === state[key]));
-  for (const b of $("axis").children) b.disabled = state.mode === "gap";
   $("explain").textContent = MODES[state.mode].replace("{weight}", state.weight) + (state.changes === "changed"
     ? ` Showing what changed since ${sinceText()}; unchanged parts are faded.` : "");
 }
@@ -649,7 +661,7 @@ function render() { writeHash(); drawHeader(); drawControls(); drawCrumbs(); dra
 function go(path) { state.path = path; if (state.file && !state.file.startsWith(path ? path + "/" : "")) state.file = null; hideTip(); render(); }
 function selectFile(path) { const n = byPath.get(path); state.path = n.parent.path; state.file = path; state.line = null; hideTip(); render(); }
 
-$("axis").append(...meta.axes.map(a => el("button", { "data-v": a.key, text: a.title })));
+$("axis").append(...AXES.map(a => el("button", { "data-v": a.key, text: a.title })));
 if (SINCE) { $("changes-group").hidden = false; $("changed-button").textContent = `Changed since ${SINCE.name}`; }
 for (const [id, key] of [["axis", "axis"], ["mode", "mode"], ["weight", "weight"], ["changes", "changes"]])
   $(id).addEventListener("click", e => { const v = e.target.dataset && e.target.dataset.v; if (v && !e.target.disabled) { state[key] = v; render(); } });
@@ -673,7 +685,6 @@ $("q").addEventListener("keydown", e => {
 });
 document.addEventListener("click", e => { if (!e.target.closest(".search")) $("results").style.display = "none"; });
 addEventListener("hashchange", () => { readHash(); render(); });
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 
 readHash();
 if (state.file) state.path = byPath.get(state.file).parent.path;

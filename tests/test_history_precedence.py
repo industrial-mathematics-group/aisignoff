@@ -321,3 +321,61 @@ def test_on_a_push_event_nothing_is_a_preview(repo, monkeypatch):
     assert by_line(result(repo)[0])[3].errors == []  # the preview: exempt
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     assert any("require-trailers-since" in e for e in by_line(result(repo)[0])[3].errors)
+
+
+# ------------------------------------------------------------------ 0.10.1 review
+def test_an_attestation_fills_the_landing_todo(repo, capsys):
+    from aisignoff.cli import main
+    edit_lines(repo, [2])
+    commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
+    assert "TODO" in by_line(result(repo)[0])[2].declaration.short()
+    assert main(["--root", str(repo), "attest", str(repo / "solver.py"), "-H", "H2", "--reviewed-by", "Jane"]) == 0
+    line = by_line(result(repo)[0])[2]
+    assert line.declaration.short() == "G3 H2 A1" and line.errors == []
+
+
+def test_comments_in_code_spans_and_unclosed_comments_hide_nothing():
+    tr = D("G3", "H1", "A1")
+    for body in (f"Skip `<!--` comments in PR bodies.\n\n{tr}\n", f"Text\n<!-- never closed\n\n{tr}\n"):
+        assert {i: p.level for i, p in parse_trailers(body, "c").items()} == {0: "G3", 1: "H1", 2: "A1"}, body
+
+
+def test_a_stray_fence_keeps_earlier_blocks_closed():
+    body = "Example:\n```\nHuman-Review: H3\nReviewed-by: Jane Doe\n```\n\n" + D("G3", "H1", "A1") + "\n```\n"
+    pieces = parse_trailers(body, "c")
+    assert pieces[1].level == "H1" and pieces[1].names == ("Jane",) and not pieces[1].problems
+
+
+def test_diff_declare_after_merging_the_base_into_the_branch(repo, capsys):
+    from aisignoff.cli import main
+    git(repo, "checkout", "-q", "-b", "feat")
+    edit_lines(repo, [2])
+    commit(repo, "agent part")
+    git(repo, "checkout", "-q", "main")
+    write(repo, "b.py", "main moved on\n")
+    commit(repo, "direct on main", D("G0", "H3", "A0"))
+    git(repo, "checkout", "-q", "feat")
+    git(repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main' into feat", "main")
+    capsys.readouterr()
+    assert main(["--root", str(repo), "diff", "main", "--json", "-g", "G3", "--assisted-by", "M", "-H", "H1",
+                 "--reviewed-by", "J", "-a", "A1", "--ai-reviewed-by", "M"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["total"]["levels_added"]["AI-Generation"] == {"G3": 1}
+    r = next(r for r in Project(repo).results(quiet=True) if r.path == "b.py")
+    assert r.parts[0].declaration.short() == "G0 H3 A0"  # main's line stays main's
+
+
+def test_a_commit_declaring_g0_with_a1_itself_is_an_error(repo):
+    edit_lines(repo, [2])
+    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A1\nAI-Reviewed-by: M")
+    line = by_line(result(repo)[0])[2]
+    assert line.declaration.short() == "G0 H1 A1" and any("G0 has no generating AI session" in e for e in line.errors)
+
+
+def test_a_review_only_a_branch_commit_declares_is_reported(repo):
+    git(repo, "checkout", "-q", "-b", "contrib")
+    edit_lines(repo, [2])
+    commit(repo, "contribution", D("G3", "H3", "A1", by="Jane Doe"))
+    merge(repo, "contrib", "Merge contrib\n\nAI-Generation: G3\nAssisted-by: M\nAI-Review: A1\nAI-Reviewed-by: M")
+    r, project = result(repo)
+    assert any("doesn't declare" in w and "Human-Review H3" in w for w in project.history_warnings)

@@ -108,35 +108,50 @@ _FENCE = re.compile(r"^\s*(```+|~~~+)")
 _KEY_LINE = re.compile(r"^([A-Za-z][A-Za-z-]*):[ \t]*(.*?)\s*$")
 
 
-def _prose_lines(text: str, fences: bool = True) -> list[str]:
+_CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
+
+
+def _prose_lines(text: str) -> list[str]:
     """The lines of a message outside fenced code blocks and HTML comments: a template or an
     example quoted in a message declares nothing. A backtick line whose info string has a
-    backtick (inline code at the start of a line) opens no block, as in CommonMark; a block that
-    is never closed isn't one either (so a stray fence can't hide the declaration after it)."""
-    out, fence, comment = [], None, False
-    for line in text.splitlines():
+    backtick (inline code at the start of a line) opens no block, as in CommonMark, and a
+    `<!--` inside inline code opens no comment. A block or comment that is never closed isn't
+    one: its opening line counts as text, the blocks before it stay blocks (so a stray fence
+    or comment can neither hide the declaration after it nor make a quoted example count)."""
+    plain: set[int] = set()  # openers that are never closed
+    while True:
+        out, opener = _prose_pass(text.splitlines(), plain)
+        if opener is None:
+            return out
+        plain.add(opener)
+
+
+def _prose_pass(lines: list[str], plain: set[int]) -> tuple[list[str], int | None]:
+    out, fence, comment, opened = [], None, False, None
+    for n, line in enumerate(lines):
         if comment:
             if "-->" not in line:
                 continue
             comment, line = False, line.split("-->", 1)[1]
-        m = _FENCE.match(line) if fences else None
+        m = _FENCE.match(line) if n not in plain else None
         if fence:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip()[len(m.group(1)):]:
                 fence = None
             continue
         if m and not (m.group(1)[0] == "`" and "`" in line.strip()[len(m.group(1)):]):
-            fence = m.group(1)
+            fence, opened = m.group(1), n
             continue
-        while "<!--" in line:  # a comment, also one opened mid-line
-            before, after = line.split("<!--", 1)
-            if "-->" in after:
-                line = before + after.split("-->", 1)[1]
-            else:
-                line, comment = before, True
+        if n not in plain:
+            rest = _CODE_SPAN.sub(lambda c: "\0" * len(c.group(0)), line)  # code spans hold no comment
+            while "<!--" in rest:  # a comment, also one opened mid-line
+                i = rest.index("<!--")
+                j = rest.find("-->", i + 4)
+                if j >= 0:
+                    line, rest = line[:i] + line[j + 3:], rest[:i] + rest[j + 3:]
+                else:
+                    line, rest, comment, opened = line[:i], rest[:i], True, n
         out.append(line)
-    if fence:  # never closed: not a code block
-        return _prose_lines(text, fences=False)
-    return out
+    return out, opened if (fence or comment) else None
 
 
 def parse_trailers(text: str, source: str) -> dict[int, Piece]:
@@ -329,14 +344,21 @@ class History:
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         # 'aisignoff diff --declare': the declaration of changes after declared_after that carry none
         self.declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared") if declared else {}
-        self.declared_after = self.newest
-        if declared_after:
-            if declared_after in self.order:
-                self.declared_after = self.order[declared_after]
-            elif self.declared:
-                self.problems.append(f"--declare: {short(declared_after)} is not on the first-parent history of HEAD, "
-                                     "so it's unclear which lines are new; the declaration was not applied")
+        # the commits of HEAD's first-parent chain that aren't in declared_after: the change being declared
+        # (a branch that merged the base meanwhile has the base as the second parent of that merge)
+        self.unlanded: set[str] = set()
+        self.base: str | None = None
+        self._base_chain: list[str] | None = None
+        if declared_after and self.declared:
+            out = _git(self.root, "rev-list", "--first-parent", "HEAD", f"^{declared_after}", check=False) \
+                if self.order and self.is_ancestor(declared_after, "HEAD") else None
+            if out is None:
+                self.problems.append(f"--declare: {short(declared_after)} is not in the first-parent history of HEAD "
+                                     "or its merges, so it's unclear which lines are new; the declaration was not applied")
                 self.declared = {}
+            else:
+                self.unlanded = set(out.split())
+                self.base = self._resolve(declared_after)
 
     # ------------------------------------------------------------ commits
     def _load_chain(self) -> None:
@@ -607,6 +629,21 @@ class History:
                     break
         return found
 
+    def _base_landing(self, sha: str) -> str:
+        """The first commit of the base's first-parent chain (aisignoff diff --declare) that contains a commit."""
+        if self._base_chain is None:
+            self._base_chain = (_git(self.root, "rev-list", "--first-parent", "--reverse", self.base,
+                                     check=False) or "").split()
+        chain = self._base_chain
+        lo, hi = 0, len(chain)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if self.is_ancestor(sha, chain[mid]):
+                hi = mid
+            else:
+                lo = mid + 1
+        return chain[lo] if lo < len(chain) else sha
+
     def _landing(self, sha: str) -> str | None:
         """The first commit of this branch's first-parent chain that contains a commit."""
         chain = sorted(self.order, key=self.order.get)
@@ -659,6 +696,7 @@ class History:
             return [UNCOMMITTED] * n, None
         landing = self._blame(path, first_parent=True)
         needs_branch = self._rebase_preview() or any(
+            c in self.unlanded and len(self.parents.get(c, [])) > 1 for c in set(landing)) or any(
             c and len(self.parents.get(c, [])) > 1 and self._branch_declares(c) for c in set(landing))
         off_chain = any(commit for _, commit, _ in self.attestations.get(path, []))
         original = self._blame(path, first_parent=False) if needs_branch or off_chain else None
@@ -722,10 +760,16 @@ class History:
         elif commit is None:  # a shallow boundary: older than anything we can see
             ordinal, members = 0, []
         else:
+            if commit in self.unlanded and orig and orig != commit and self.is_ancestor(orig, self.base):
+                # a line of the base that a merge of it into the branch brought in: it isn't part of the
+                # change, so it resolves as on the base, by the commit that landed it there
+                commit = self._base_landing(orig)
+                self.commit_pieces(commit)
             ordinal = self.order.get(commit, 0)
             members = self.chain(commit, orig)
-        unlanded = preview or (bool(self.declared) and ordinal > self.declared_after)
-        declare = bool(self.declared) and ordinal > self.declared_after and method != "rebase"
+        new = commit == UNCOMMITTED or commit in self.unlanded  # part of the change given with --declare
+        unlanded = preview or (bool(self.declared) and new)
+        declare = bool(self.declared) and new and method != "rebase"
         if unlanded:
             if preview:
                 members = members[1:]  # the preview merge itself won't land
@@ -750,26 +794,34 @@ class History:
         awaiting = unlanded and not declare and method != "rebase"
         lands = orig if unlanded and method == "rebase" and orig else commit  # the commit that will carry the line
         out = []
+        gen_layer = None  # where generation came from: ("a", rank) for an attestation, ("l", rank) for a commit layer
         for i, (level, _) in enumerate(AXES):
             from_attestation = [(rank, pieces[i]) for rank, pieces in attested if i in pieces]
             from_layers = [(rank, kind, pieces[i]) for rank, kind, pieces in layers if i in pieces]
             best = None
             if i == 0:  # generation: the most specific
                 if from_attestation:
-                    best = max(from_attestation, key=lambda t: t[0])[1]
+                    rank, best = max(from_attestation, key=lambda t: t[0])
+                    gen_layer = ("a", rank)
                 elif from_layers:  # a level beats TODO
                     filled = [t for t in from_layers if _level_value(t[2].level) >= 0] or from_layers
                     rank, kind, p = min(filled, key=lambda t: t[0])
                     best = replace(p, kind=kind)
-            elif i in landing and landing[i].level == TODO:  # the pull request isn't reviewed yet
+                    gen_layer = ("l", rank)
+            elif i in landing and landing[i].level == TODO and not any(
+                    _level_value(p.level) >= 0 for _, p in from_attestation):
+                # the pull request isn't reviewed yet (a later review of the file, an attestation, counts)
                 best = replace(landing[i], kind=layers[0][1])
             else:  # reviews: the highest; the later one on a tie
                 found = [((_level_value(p.level), 1, rank), p) for rank, p in from_attestation]
                 found += [((_level_value(p.level), 0, (rank, 0)), replace(p, kind=kind)) for rank, kind, p in from_layers]
                 if i == 2 and out[0] is not None and out[0].level == "G0":
-                    # A1 is the generating session checking itself: there is none for hand-written lines
-                    self_checks = [t for t in found if t[1].level == "A1"]
-                    found = [t for t in found if t[1].level != "A1"]
+                    # A1 is the generating session checking itself: there is none for hand-written lines.
+                    # From the declaration that says G0 itself, G0 with A1 is invalid, and validate says so.
+                    def same(key):
+                        return gen_layer == ("a", key[2]) if key[1] else gen_layer == ("l", key[2][0])
+                    self_checks = [t for t in found if t[1].level == "A1" and not same(t[0])]
+                    found = [t for t in found if t[1].level != "A1" or same(t[0])]
                     if not found and self_checks:
                         p = max(self_checks, key=lambda t: t[0])[1]
                         found = [((0, 0, 0), replace(p, level="A0", names=()))]
@@ -802,6 +854,11 @@ class History:
         out = []
         for (source, axis, level), mine in sorted(self.raised.items()):
             sha = source.split()[1] if source.startswith("commit ") else None
+            if mine.level is None:
+                out.append(f"{source} declares {axis} {level}, which {mine.source} doesn't declare; it counts for "
+                           f"the lines it wrote" + (f'; if nobody did that review, correct it: [[commits]] commit = '
+                                                    f'"{sha}" with the right {axis}' if sha else ""))
+                continue
             fix = (f'; if that is too high, correct it: [[commits]] commit = "{sha}" {axis} = "{mine.level}"'
                    if sha else "")
             out.append(f"{source} declares {axis} {level}, higher than {mine.source} ({mine.level}); "
@@ -810,9 +867,13 @@ class History:
 
     def _note_raised(self, i: int, best: Piece, landing: dict[int, Piece]) -> None:
         """A review that a commit inside a pull request declares higher than the pull request itself."""
+        if not landing or best.kind == "attestation" or "[[commits]]" in best.source:  # a correction is deliberate
+            return
         mine = landing.get(i)
-        if mine is None or best is mine or best.kind == "attestation" or mine.level == best.level \
-                or "[[commits]]" in best.source:  # a correction is deliberate
+        if mine is None:  # the pull request declares levels, but not this one: only the commit inside does
+            some = next(iter(landing.values()))
+            mine = Piece(None, (), some.source, some.kind)
+        if best is mine or mine.level == best.level:
             return
         if _level_value(best.level) > _level_value(mine.level):
             self.raised.setdefault((best.source, AXES[i][0], best.level), mine)

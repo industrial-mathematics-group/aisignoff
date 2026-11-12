@@ -57,17 +57,23 @@ With [`[history]`](history.md), a file can mix levels like a folder: the table s
 
 Files excluded in `SIGNOFF.toml` (`exclude = [...]`) never appear, as in `lint`. Without a valid declaration, a file counts as *undeclared* on all three axes and is shown in red.
 
+### Axes and colours
+
+The axis buttons choose what the sunburst, the line strip and the line margins show: **Generation**, **Human review**, **AI review**, or the **Review gap**. The review gap of a line is its generation level minus its human review level, never below 0: G3 tested at H1 has a gap of 2, G0 or G3 reviewed at H3 have none. It is shown like a fourth axis, although it follows from the other two, so it can be averaged, sorted and searched for like them, and the table has a *Gap* column with its distribution like the other axes.
+
+Each axis has its own ramp of four colours, from light for level 0 to dark for level 3. The steps are far apart in lightness and also turn in hue (generation runs from yellow over orange and crimson to purple), so neighbouring levels stay apart even in the thin line strip. The colours are the same in light and dark mode, so a colour always means the same level.
+
 ### Folder colour
 
-A file has one level per axis, but a folder holds a mix. Three ways to colour folders, chosen at the top of the report:
+A file has one level per axis, but a folder holds a mix (and so does a file whose lines were declared differently). Three ways to colour them, chosen at the top of the report:
 
 | Colour | A folder shows | Good for |
 |---|---|---|
-| **Majority** (default) | The level that covers most of its files or lines; a red outline when any file inside is undeclared | The overall picture |
-| **Weakest link** | Its weakest level: the least-reviewed file inside, or for generation the highest AI share | Finding the files that hold a folder back |
-| **Review gap** | The average gap of its files, from grey (0) to brown (3) | Finding AI-written code that had little human review |
+| **Average** (default) | The weighted average of its levels over its files or lines, coloured between the steps: 50% H0 and 50% H2 look like H1. A red outline when any file inside is undeclared | The first overview |
+| **Majority** | The level that covers most of its files or lines | Which level is typical |
+| **Weakest link** | Its weakest level: the least-reviewed file inside, or for generation and the gap the highest | Finding the files that hold a folder back |
 
-The review gap of a file is its generation level minus its human review level, never below 0: G3 tested at H1 has a gap of 2, G0 or G3 reviewed at H3 have none. The axis buttons are off in this mode, because the gap combines two axes.
+Undeclared files don't count towards an average; they keep their red outline.
 
 ## Publishing the report
 
