@@ -74,10 +74,11 @@ The levels of the lines added since `BASE` (a commit, branch or tag), the remove
 ## freeze
 
 ```bash
-aisignoff freeze [--prune] [--allow-warnings]
+aisignoff freeze [--prune] [--reset FILE...] [--allow-warnings]
+aisignoff freeze --check
 ```
 
-Writes `SIGNOFF.snapshot.json`: the levels of every line as of the commit that is checked out. Lines that don't change keep these levels from then on; commit the file. Needs `[history]`, a commit of the default branch with a clean working tree, and a `lint` that passes without warnings (`--allow-warnings` accepts them); otherwise it prints what `lint` reports. `--prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into the snapshot's archive, since their levels are in the snapshot. See [Freezing the levels](history.md#freezing-the-levels-aisignoff-freeze).
+Writes `SIGNOFF.snapshot.json`: the levels of every line as of the commit that is checked out. Lines that don't change keep these levels from then on; commit the file. Needs `[history]`, a commit of the default branch with a clean working tree, and a `lint` that passes without warnings (`--allow-warnings` accepts them); otherwise it prints what `lint` reports. `--prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into the snapshot's archive, since their levels are in the snapshot. `--reset FILE...` works these files out from history again (with the entries of `SIGNOFF.toml` and the archive, and the annotations as they are now) instead of keeping their frozen levels. `--check` only checks that the committed `SIGNOFF.snapshot.json` is what `freeze` writes at its commit; `lint` does that by itself when the file changed. See [Freezing the levels](history.md#freezing-the-levels-aisignoff-freeze).
 
 ## lint
 

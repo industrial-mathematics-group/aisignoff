@@ -369,7 +369,7 @@ def test_freeze_prune_moves_the_entries_into_the_snapshots_archive(repo, capsys)
     assert len(json.loads((repo / "SIGNOFF.snapshot.json").read_text())["archive"]) == 2
 
 
-def test_a_snapshot_cant_change_lines_the_one_before_it_had(repo, capsys):
+def test_a_snapshot_edited_by_hand_fails_lint(repo, capsys):
     frozen_with_entries(repo, capsys)
     edit_lines(repo, [9])
     commit(repo, "another AI change", G3)
@@ -385,15 +385,13 @@ def test_a_snapshot_cant_change_lines_the_one_before_it_had(repo, capsys):
         code, out = lint(repo, capsys)
         return code, out
 
-    # a review raised by hand, in a file that changed since the first snapshot
-    code, out = edited('"AI-Review": "A2"', '"AI-Review": "A3"')
-    assert code == 1 and "changes the levels of lines that the snapshot before it" in out and "solver.py" in out
-    code, out = edited('"AI-Generation": "G3", "Human-Review": "H3"', '"AI-Generation": "G1", "Human-Review": "H3"')
-    assert code == 1 and "keeps its generation" in out  # generation changed
-    code, out = edited('"Human-Review": "H3"', '"Human-Review": "H1"')
-    assert code == 1  # a review lowered
-    # the line that landed after the first snapshot isn't its business
-    assert edited('"Human-Review": "H1", "AI-Review": "A1"', '"Human-Review": "H2", "AI-Review": "A1"')[0] == 0
+    # any hand edit, of lines the snapshot before it had or of later ones: freeze wouldn't write it
+    for old, new in [('"AI-Review": "A2"', '"AI-Review": "A3"'),
+                     ('"AI-Generation": "G3", "Human-Review": "H3"', '"AI-Generation": "G1", "Human-Review": "H3"'),
+                     ('"Human-Review": "H3"', '"Human-Review": "H1"'),
+                     ('"Human-Review": "H1", "AI-Review": "A1"', '"Human-Review": "H2", "AI-Review": "A1"')]:
+        code, out = edited(old, new)
+        assert code == 1 and "isn't what 'aisignoff freeze' writes" in out and "solver.py" in out, (old, out)
     path.write_text(good)
     assert lint(repo, capsys)[0] == 0
     # raised by an attestation: that is what a new snapshot may do

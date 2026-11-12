@@ -540,14 +540,25 @@ def _prune_toml(root: Path, annotations: int) -> None:
     header = re.compile(r"^\s*\[")
     doomed = re.compile(r"^\s*\[\[\s*(commits|attestations)\s*\]\]\s*(#.*)?$")
     kept: list[str] = []
+    skipped: list[str] = []
     skipping = False
     for line in old.splitlines():
         if header.match(line):
-            skipping = bool(doomed.match(line))
+            was, skipping = skipping, bool(doomed.match(line))
             if skipping:
                 while kept and kept[-1].lstrip().startswith("#"):
                     kept.pop()
-        if not skipping:
+            elif was:
+                # the comment lines right above this table, after a blank line, are this table's
+                block: list[str] = []
+                while skipped and skipped[-1].lstrip().startswith("#"):
+                    block.insert(0, skipped.pop())
+                if block and (not skipped or not skipped[-1].strip()):
+                    kept.extend(["", *block])
+            skipped = []
+        if skipping:
+            skipped.append(line)
+        else:
             kept.append(line)
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).rstrip("\n") + "\n"
     target.write_text(text, encoding="utf-8")
@@ -566,6 +577,28 @@ def cmd_freeze(args) -> int:
     root = project.root
     if not project.config.history.enabled:
         raise UsageError("a snapshot records line-by-line declarations: enable [history] in SIGNOFF.toml first")
+    if args.check:
+        if args.reset or args.prune:
+            raise UsageError("--check only checks: it can't go with --reset or --prune")
+        if not (root / SNAPSHOT).is_file():
+            raise UsageError(f"there is no {SNAPSHOT} to check")
+        project.check_snapshot = False
+        _results(project)
+        problems, notes = project.verify_snapshot()
+        for line in project.history_problems + problems:
+            print(f"✗ {printable(line)}")
+        for line in notes:
+            print(f"! {printable(line)}")
+        if not problems and not notes and not project.history_problems:
+            print(f"{SNAPSHOT} is what 'aisignoff freeze' writes at its commit. ✓")
+        return 1 if problems or project.history_problems else 0
+    reset = []
+    for arg in args.reset or ():
+        rel = os.path.relpath(_real(arg), str(root))
+        if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel) or not os.path.isfile(arg):
+            raise UsageError(f"--reset {arg}: give files of the project")
+        reset.append(Path(rel).as_posix())
+    project.reset = set(reset)
     results = _results(project)
     history = project.history
     if history is None:
@@ -604,7 +637,7 @@ def cmd_freeze(args) -> int:
         if pruned:
             archive.append(entries)
             _prune_toml(root, len(config.annotations))
-    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs, archive)
+    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs, archive, reset)
     target = root / SNAPSHOT
     again = target.exists()
     target.write_text(text, encoding="utf-8")
@@ -1133,6 +1166,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("freeze", help="record the levels of every line as of the default branch's commit ([history])")
     p.add_argument("--prune", action="store_true", help=f"move the [[commits]] and [[attestations]] entries of "
                    f"{FILENAME} into the snapshot's archive: their levels are in the snapshot")
+    p.add_argument("--reset", nargs="+", metavar="FILE", help="work these files out from history again (with "
+                   "SIGNOFF.toml and the archive) instead of keeping their frozen levels")
+    p.add_argument("--check", action="store_true", help="check that SIGNOFF.snapshot.json is what freeze writes at its "
+                   "commit (lint does this when the file changed)")
     p.add_argument("--allow-warnings", action="store_true", help="freeze although lint has warnings (undeclared "
                    "reverts and merges: their lines keep the file-level declaration)")
     p.set_defaults(func=cmd_freeze)

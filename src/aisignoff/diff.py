@@ -230,6 +230,7 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
         _git(root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(top), sha)
         try:
             base_project = Project(where)
+            base_project.check_snapshot = False
             # as the base's own report: by its SIGNOFF.toml, with its commit as the default branch's
             base_results = base_project.results(quiet=True)
             base_attestations = {(a.path, a.blob) for a in base_project.config.attestations}
