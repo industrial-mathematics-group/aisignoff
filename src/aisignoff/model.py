@@ -212,6 +212,35 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
     return errors
 
 
+UNDECLARED = "undeclared"
+_AXIS_WORDS = (
+    (AIR, re.compile(rf"{AI_REVIEWED}|{AIR}|requires at least A\d|G0 has no generating AI session")),
+    (HUM, re.compile(rf"(?<!AI-){REVIEWED}|{HUM}|requires at least H\d")),
+    (GEN, re.compile(rf"{ASSISTED}|{GEN}|generation level")),
+)
+
+
+def error_axes(error: str) -> tuple[str, ...]:
+    """The axes an error of validate (or a problem found while reading a declaration) is about;
+    all three when it doesn't say."""
+    found = tuple(key for key, words in _AXIS_WORDS if words.search(error))
+    return found or LEVEL_KEYS
+
+
+def counted_level(d: Declaration, errors: list[str], key: str) -> str:
+    """The level of one axis as report, diff and the badges count it: the declared level, or
+    'undeclared' when that axis has none (missing, TODO, invalid) or an error is about it. An
+    error about another axis leaves this one as declared."""
+    level = d.get(key)
+    if level not in LEVELS[key] or any(key in error_axes(e) for e in errors):
+        return UNDECLARED
+    return level
+
+
+def counted_short(d: Declaration, errors: list[str]) -> str:
+    return " ".join("--" if (v := counted_level(d, errors, key)) == UNDECLARED else v for key in LEVEL_KEYS)
+
+
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 

@@ -29,6 +29,8 @@ jobs:
 
 Then require the check in the branch protection of `main`, so no file goes undeclared. With [line-by-line declarations](history.md), check out the whole history: `actions/checkout` with `fetch-depth: 0`. That also fetches the default branch, which aisignoff needs to tell which lines have landed. In a pull request, the lines it adds fail nothing on their own, since its description declares them when it lands; `aisignoff lint --declare-from` checks the description before the merge ([Lines that haven't landed yet](history.md#lines-that-havent-landed-yet)).
 
+With a **merge queue**, add `merge_group:` to the workflow's triggers. The queue's run checks out the commit that will land, and `lint` checks it as landed: this is the run that catches a description that was left unfilled. On a **release branch**, or a tag cut from one, run `aisignoff lint --landed` and `aisignoff report --landed`, since commits that aren't on the default branch fail nothing otherwise and show only what they claim themselves.
+
 More complete versions, with badges, a summary of the files a pull request changes, release reports and a pre-commit hook, are in [Example workflows](integration.md).
 
 !!! tip "Industrial Mathematics Group"

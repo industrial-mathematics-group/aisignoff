@@ -14,7 +14,7 @@ from . import __version__, inline
 from .config import FILENAME, LEGACY_FILENAME, VERSION, ConfigError, LegacyConfig, config_path, load, read_toml
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, KEYS, LIST_KEYS, REVIEWED,
-                    TODO, Declaration, Policy, canonical_key, printable, validate)
+                    TODO, Declaration, Policy, canonical_key, counted_level, counted_short, printable, validate)
 from .project import Project, ProjectError, list_files, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
@@ -155,10 +155,13 @@ def _declared(args):
     return {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ())) for i, p in pieces.items()}
 
 
-def cmd_lint(args) -> int:
-    project = _open(args.root)
+def _history_results(project: Project, args):
+    """The results as lint and report see them: with the change that hasn't landed declared from
+    --declare-from (from --base on), or with HEAD as a commit of the default branch (--landed)."""
     declared = _declared(args)
     base = None
+    if args.landed and declared is not None:
+        raise UsageError("--landed says that nothing is waiting for a pull request: it can't go with --declare-from")
     if args.base:
         if declared is None:
             raise UsageError("--base needs --declare-from")
@@ -167,28 +170,47 @@ def cmd_lint(args) -> int:
             base = merge_base(project.root, args.base)
         except DiffError as e:
             raise UsageError(str(e))
+    project.landed = args.landed
     try:
-        results = project.results(declared=declared, base=base)
+        return project.results(declared=declared, base=base)
     except ProjectError as e:
         raise UsageError(str(e))
-    if not results:
-        print(f"✗ no files found below {project.root}")
-        return 1
-    files = [r.path for r in results]
+
+
+def _print_errors(results, max_files: int, file=None) -> None:
     by_error = defaultdict(list)
     for r in results:
         for e in r.errors:
             by_error[e].append(r.path)
+    for error, paths in sorted(by_error.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        print(f"✗ {printable(error)}: {len(paths)} file(s)", file=file)
+        for p in paths[:max_files]:
+            print(f"    {printable(p)}", file=file)
+        if len(paths) > max_files:
+            print(f"    … and {len(paths) - max_files} more", file=file)
+
+
+def _waiting(results) -> str | None:
+    """A note about the lines that wait for their pull request's declaration, if there are any."""
+    waiting = sum(p.lines for r in results for p in r.parts or () if p.advisory and p.errors)
+    if not waiting:
+        return None
+    return (f"{waiting} line(s) that aren't on the default branch yet are not fully declared: the pull request "
+            "that lands them declares them (--declare-from reads its description)")
+
+
+def cmd_lint(args) -> int:
+    project = _open(args.root)
+    results = _history_results(project, args)
+    if not results:
+        print(f"✗ no files found below {project.root}")
+        return 1
+    files = [r.path for r in results]
     unused = project.unused_annotations(files)
 
     for problem in project.history_problems:
         print(f"✗ {printable(problem)}")
-    for error, paths in sorted(by_error.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        print(f"✗ {printable(error)}: {len(paths)} file(s)")
-        for p in paths[: args.max_files]:
-            print(f"    {printable(p)}")
-        if len(paths) > args.max_files:
-            print(f"    … and {len(paths) - args.max_files} more")
+    _print_errors(results, args.max_files)
     for index in unused:
         print(f"{'✗' if args.strict else '!'} {project.config.path.name} annotation [{index}] matches no file")
     for warning in project.history_warnings:
@@ -196,10 +218,9 @@ def cmd_lint(args) -> int:
 
     for note in project.history_notes:
         print(f"! {printable(note)}")
-    waiting = sum(p.lines for r in results for p in r.parts or () if p.advisory and p.errors)
+    waiting = _waiting(results)
     if waiting:
-        print(f"! {waiting} line(s) that aren't on the default branch yet are not fully declared: the pull request "
-              "that lands them declares them (lint --declare-from checks its description)")
+        print(f"! {waiting}")
 
     bad = sum(1 for r in results if r.errors)
     print()
@@ -227,7 +248,7 @@ def cmd_report(args) -> int:
     if args.tree and args.json and args.markdown:
         raise UsageError("give --json or --markdown, not both")
     project = _open(args.root)
-    results = _results(project)
+    results = _history_results(project, args)
     if (args.with_source or args.since) and not args.html:
         raise UsageError("--with-source and --since need --html")
     if args.html or args.tree:
@@ -258,8 +279,12 @@ def cmd_report(args) -> int:
             print(json.dumps({**_json_header(), **tree}, indent=2, ensure_ascii=False))
         elif args.markdown:
             print(visualize.render_markdown(tree, args.weight, args.depth, args.files))
+            if _waiting(results):
+                print(f"\n_{_waiting(results)}_")
         else:
             print(visualize.render_text(tree, args.weight, args.depth, args.files))
+            if _waiting(results):
+                print(f"\nnote: {_waiting(results)}")
         return 0
     if args.json:
         print(json.dumps({**_json_header(), "files": [_result_json(r) for r in results]},
@@ -273,7 +298,7 @@ def cmd_report(args) -> int:
                 total = sum(p.lines for p in r.parts)
                 shares = Counter()
                 for p in r.parts:
-                    shares["undeclared" if p.errors else p.declaration.short()] += p.lines
+                    shares[counted_short(p.declaration, p.errors)] += p.lines
                 what = " · ".join(f"{k} {100 * n / total:.0f}%" for k, n in shares.most_common())
                 line = f"{status} {r.path:<{width}}  {what}"
             else:
@@ -293,12 +318,14 @@ def cmd_report(args) -> int:
         counts = Counter()
         for r in results:
             for d, errors, w in weighted_parts(project.root, r, weight):
-                counts["undeclared" if errors else d.get(key)] += w
+                counts[counted_level(d, errors, key)] += w
         print(title)
         for level, name in list(levels.items()) + [("undeclared", "missing or invalid declaration")]:
             if counts[level]:
                 print(f"  {level:<10} {name:<38} {counts[level]:>5g}  {100 * counts[level] / total:5.1f}%")
         print()
+    if _waiting(results):
+        print(f"note: {_waiting(results)}")
     return 0
 
 
@@ -473,6 +500,11 @@ def cmd_attest(args) -> int:
                 chosen.append(rel)
         else:
             raise UsageError(f"{arg} is not a file that needs a declaration (excluded or ignored?)")
+    for rel in chosen:
+        annotation = project.config.match(rel)
+        if annotation is not None and annotation.precedence == "override":
+            raise UsageError(f'{rel} is declared by an annotation with precedence = "override", which an '
+                             "attestation can't raise; change the annotation instead (aisignoff annotate)")
 
     block = []
     for rel in chosen:
@@ -520,9 +552,15 @@ def cmd_freeze(args) -> int:
     if bad or project.history_problems:
         for problem in project.history_problems:
             print(f"✗ {printable(problem)}", file=sys.stderr)
+        _print_errors(results, 10, file=sys.stderr)
         raise UsageError("'aisignoff lint' fails here"
-                         + (f" ({len(bad)} file(s), e.g. {printable(bad[0])})" if bad else "")
+                         + (f" ({len(bad)} file(s))" if bad else "")
                          + "; a snapshot would keep those errors for good, so fix them first")
+    if project.history_warnings and not args.allow_warnings:
+        for warning in project.history_warnings:
+            print(f"! {printable(warning)}", file=sys.stderr)
+        raise UsageError("'aisignoff lint' has warnings here; a snapshot would keep the levels they are about "
+                         "for good, so settle them first (or pass --allow-warnings)")
     text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs)
     target = root / SNAPSHOT
     again = target.exists()
@@ -580,6 +618,7 @@ def badge_json(label: str, counts: Counter, keys: list[str], color: str) -> dict
 
 def cmd_badge(args) -> int:
     project = _open(args.root)
+    project.landed = args.landed
     results = _results(project)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -589,7 +628,7 @@ def cmd_badge(args) -> int:
         counts = Counter()
         for r in results:
             for d, errors, w in weighted_parts(project.root, r, args.weight):
-                counts["undeclared" if errors else d.get(key)] += w
+                counts[counted_level(d, errors, key)] += w
         label = {GEN: "AI generation", HUM: "human review", AIR: "AI review"}[key] + suffix
         (out / filename).write_text(json.dumps(badge_json(label, counts, [*levels, "undeclared"], color),
                                                ensure_ascii=False))
@@ -960,6 +999,20 @@ def _add_values(p: argparse.ArgumentParser, required: bool) -> None:
     p.add_argument("--ai-reviewed-by", action="append", metavar="MODEL", help="repeatable (A1-A3)")
 
 
+def _add_history_options(p) -> None:
+    _add_declare_from(p)
+    p.add_argument("--base", metavar="REV", help="with --declare-from: the branch the pull request goes into "
+                   "(a pull request into another branch than the default one declares nothing)")
+    _add_landed(p)
+    p.set_defaults(generation=None, human=None, ai=None, assisted_by=None, reviewed_by=None, ai_reviewed_by=None)
+
+
+def _add_landed(p) -> None:
+    p.add_argument("--landed", action="store_true", help="[history]: HEAD is a commit of the default branch, or "
+                   "lands on it as it is (a merge queue's commit, a release branch): every commit must declare "
+                   "its lines as on the default branch")
+
+
 def _add_declare_from(p) -> None:
     p.add_argument("--declare-from", metavar="FILE", help="declare the change from the text of its pull request "
                    "description (- for standard input), read as the merge or squash commit's message will be")
@@ -982,11 +1035,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--strict", action="store_true", help="also fail on warnings: annotations that match no file, "
                    "reverts and merges that own lines without declaring them")
     p.add_argument("--max-files", type=int, default=10, help="files listed per problem (default 10)")
-    _add_declare_from(p)
-    p.add_argument("--base", metavar="REV", help="with --declare-from: the branch the pull request goes into "
-                   "(a pull request into another branch than the default one declares nothing)")
-    p.set_defaults(func=cmd_lint, generation=None, human=None, ai=None, assisted_by=None, reviewed_by=None,
-                   ai_reviewed_by=None)
+    _add_history_options(p)
+    p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("report", help="summary of the declarations")
     p.add_argument("--files", action="store_true", help="one line per file")
@@ -1001,6 +1051,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --html: embed the text of each file, for a line-by-line view in the report")
     p.add_argument("--since", metavar="BASE",
                    help="with --html: mark the lines changed since commit BASE, e.g. origin/main or the last release tag")
+    _add_history_options(p)
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("annotate", help=f"declare files in {FILENAME} (or inline with --inline)")
@@ -1034,11 +1085,14 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_diff)
 
     p = sub.add_parser("freeze", help="record the levels of every line as of the default branch's commit ([history])")
+    p.add_argument("--allow-warnings", action="store_true", help="freeze although lint has warnings (undeclared "
+                   "reverts and merges: their lines keep the file-level declaration)")
     p.set_defaults(func=cmd_freeze)
 
     p = sub.add_parser("badge", help="write shields.io endpoint JSON files")
     p.add_argument("--out", default="badges", help="output directory (default: badges)")
     p.add_argument("--weight", choices=["files", "lines"], default="files")
+    _add_landed(p)
     p.set_defaults(func=cmd_badge)
 
     p = sub.add_parser("migrate", help="convert declarations of versions 1 (V0-V3) and 2 (A-, A0-A3)")

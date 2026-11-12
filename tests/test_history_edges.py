@@ -399,16 +399,22 @@ def test_squash_commit_with_checkboxes_declares_its_lines(repo):
 
 
 def test_a_branch_commit_says_generation_and_the_merge_the_reviews(repo):
-    """A hand-written commit says what it knows for its lines, G0; the reviews are those of the
-    pull request, whose merge commit lands the lines (the commit's own H2 doesn't count)."""
+    """A hand-written commit inside an AI-written pull request: its G0 counts once a [[commits]]
+    entry says so (a commit message alone can't lower the generation); the reviews are those of
+    the pull request, whose merge commit lands the lines (the commit's own H2 doesn't count)."""
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [4])
-    commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Pascal")
+    hand = commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Pascal")
     edit_lines(repo, [9], text="ai")
     commit(repo, "AI part")
     git(repo, "checkout", "-q", "main")
     git(repo, "merge", "-q", "--no-ff", "feature", "-m",
         "Merge feature\n\n" + TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"))
+    r, _ = result(repo)
+    by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
+    assert by_line[4].declaration.short() == "G3 H1 A2" and by_line[4].kinds[0] == "commit"
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{hand}"\nAI-Generation = "G0"\n')
     r, _ = result(repo)
     by_line = {n: p for p in r.parts for a, b in p.runs for n in range(a, b + 1)}
     assert by_line[4].declaration.short() == "G0 H1 A2" and by_line[4].errors == []

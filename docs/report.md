@@ -55,7 +55,7 @@ writes a single HTML file. It needs no server and no internet connection, so it 
 
 With [`[history]`](history.md), a file can mix levels like a folder: the table shows bars for it, and its details list the lines behind each level (with links to them on GitHub Actions). Shares by *files* then count each file once, split by its lines.
 
-Files excluded in `SIGNOFF.toml` (`exclude = [...]`) never appear, as in `lint`. Without a valid declaration, a file counts as *undeclared* on all three axes and is shown in red.
+Files excluded in `SIGNOFF.toml` (`exclude = [...]`) never appear, as in `lint`. Without a declaration, a file counts as *undeclared* on all three axes and is shown in red. With an invalid one, the axis that the error is about counts as undeclared, and the others as declared.
 
 ### Axes and colours
 

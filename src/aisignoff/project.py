@@ -152,6 +152,8 @@ class Project:
         self.history_notes: list[str] = []  # for the reader: never a failure
         self.history = None  # the History of the last results(), when it was used
         self.history_used = False
+        # HEAD is a commit of the default branch, or will be one as it is (lint --landed)
+        self.landed = False
 
     def history_wanted(self) -> bool:
         return self.config.history.enabled
@@ -208,7 +210,7 @@ class Project:
         if isinstance(declared, Declaration):
             declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared")
         try:
-            history = History(self.root, self.config, declared, base, use_snapshot)
+            history = History(self.root, self.config, declared, base, use_snapshot, self.landed)
         except HistoryError as e:
             raise ProjectError(str(e))
         self.history_used = True
