@@ -122,6 +122,8 @@ class Config:
     history: HistorySettings = field(default_factory=HistorySettings)
     commits: list[CommitEntry] = field(default_factory=list)
     attestations: list[Attestation] = field(default_factory=list)
+    # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
+    warnings: list[str] = field(default_factory=list)
 
     def is_excluded(self, path: str) -> bool:
         return any(matches(p, path) for p in self.exclude)
@@ -188,9 +190,11 @@ def load(root: Path) -> Config:
                            f"it to version {VERSION}.")
     if type(version) is not int or version != VERSION:
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
+    warnings = []
     unknown = set(data) - {"version", "exclude", "policy", "annotations", "history", "commits", "attestations"}
     if unknown:
-        raise ConfigError(f"{name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
+        warnings.append(f"{name}: unknown top-level key(s) {', '.join(sorted(unknown))}, ignored (a typo, or a "
+                        "setting of a later aisignoff?)")
     exclude = _str_list(data.get("exclude", []), f"{name}: 'exclude'")
     for p in exclude:
         compile_glob(p)
@@ -215,7 +219,7 @@ def load(root: Path) -> Config:
             raise ConfigError(f"{where}: precedence must be 'closest' or 'override'")
         values = _parse_values(table, ("path", "precedence"), where)
         annotations.append(Annotation(index=i, paths=paths, precedence=precedence, values=values, filename=name))
-    history = _parse_history(data.get("history"), name)
+    history = _parse_history(data.get("history"), name, warnings)
     commits = []
     for i, table in enumerate(_tables(data, "commits", name), start=1):
         where = f"{name} [[commits]] entry {i}"
@@ -239,7 +243,7 @@ def load(root: Path) -> Config:
         attestations.append(Attestation(index=i, path=apath.removeprefix("./"), blob=blob.lower(), values=values,
                                         filename=name))
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
-                  commits=commits, attestations=attestations)
+                  commits=commits, attestations=attestations, warnings=warnings)
 
 
 def _is_hex(s: str, minimum: int) -> bool:
@@ -285,7 +289,7 @@ def _check_axes(values: dict, where: str) -> None:
             raise ConfigError(f"{where}: {names} without {level}")
 
 
-def _parse_history(table, name: str) -> HistorySettings:
+def _parse_history(table, name: str, warnings: list[str]) -> HistorySettings:
     if table is None:
         return HistorySettings()
     where = f"{name} [history]"
@@ -293,7 +297,8 @@ def _parse_history(table, name: str) -> HistorySettings:
         raise ConfigError(f"{where} must be a table")
     unknown = set(table) - set(HISTORY_KEYS)
     if unknown:
-        raise ConfigError(f"{where}: unknown key(s) {', '.join(sorted(unknown))} (use {', '.join(HISTORY_KEYS)})")
+        warnings.append(f"{where}: unknown key(s) {', '.join(sorted(unknown))}, ignored (this version knows "
+                        f"{', '.join(HISTORY_KEYS)})")
     enabled = table.get("enabled", True)
     if not isinstance(enabled, bool):
         raise ConfigError(f"{where}: 'enabled' must be true or false")

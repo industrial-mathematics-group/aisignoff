@@ -146,7 +146,6 @@ def test_config_errors(tmp_path):
     bad = {
         'version = 4\n': "version = 3",
         'version = true\n': "version = 3",
-        'version = 3\nfoo = 1\n': "unknown top-level",
         'version = 3\n[[annotations]]\nAI-Generation = "G0"\n': "'path' is required",
         'version = 3\n[[annotations]]\npath = "**"\nAI-Generation = "G7"\n': "invalid AI-Generation",
         'version = 3\n[[annotations]]\npath = "**"\nAI-Review = "A5"\n': "invalid AI-Review",
@@ -163,6 +162,13 @@ def test_config_errors(tmp_path):
         (tmp_path / "SIGNOFF.toml").write_text(text)
         with pytest.raises(ConfigError, match=message):
             load(tmp_path)
+
+
+def test_unknown_settings_are_warnings(tmp_path):
+    # a later 1.x may add optional settings: an older install warns about them instead of failing
+    (tmp_path / "SIGNOFF.toml").write_text('version = 3\nfoo = 1\n[history]\nbar = 2\n')
+    config = load(tmp_path)
+    assert len(config.warnings) == 2 and "foo" in config.warnings[0] and "bar" in config.warnings[1]
 
 
 def test_version_1_points_to_migrate(tmp_path):

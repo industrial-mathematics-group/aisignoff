@@ -5,7 +5,7 @@ import json
 from aisignoff.project import Project
 
 from test_history import G3, commit, edit_lines, git, repo, result  # noqa: F401
-from test_history_precedence import D, by_line
+from test_history_precedence import D, by_line, merge
 from test_history_snapshot import lint
 from test_review_012 import frozen_with_entries, levels, run
 
@@ -60,6 +60,11 @@ def test_freeze_check_and_lint_catch_any_hand_edit(repo, capsys):
     code, out, checked = edited(lambda d: d.update(archive=[{"commit": d["commit"], "commits": [], "attestations": [
         {"path": "solver.py", "blob": "0" * 40, "Human-Review": "H3", "Reviewed-by": "Mallory"}]}]))
     assert code == 1 and checked == 1 and "its archive isn't" in out
+    # taking the made-up item out again, straight on the default branch, drops an archived entry
+    code, out = lint(repo, capsys)
+    assert code == 1 and "drops 1 archived" in out
+    edit_lines(repo, [9], text="later")
+    commit(repo, "the next commit", HAND)
     assert lint(repo, capsys)[0] == 0
 
 
@@ -157,22 +162,23 @@ def test_a_partial_commits_entry_on_an_undeclared_commit_says_how_to_raise_a_rev
 
 
 # ================================================================== the review of 0.14
-def test_a_hand_edit_fails_whatever_version_the_snapshot_says(repo, capsys):
+def test_a_hand_edit_fails_whatever_version_or_rules_the_snapshot_says(repo, capsys):
     assert run(repo, capsys, "freeze")[0] == 0
     commit(repo, "freeze", HAND)
     path = repo / "SIGNOFF.snapshot.json"
     good = json.loads(path.read_text())
-    for version in ("0.13.0", None):
+    assert good["rules"] == 1
+    for key, value in [("aisignoff", "0.13.0"), ("aisignoff", None), ("rules", 0), ("rules", None)]:
         data = json.loads(json.dumps(good))
         data["declarations"][0]["Human-Review"] = "H3"
-        if version:
-            data["aisignoff"] = version
+        if value is None:
+            del data[key]
         else:
-            del data["aisignoff"]
+            data[key] = value
         path.write_text(json.dumps(data, indent=1) + "\n")
         commit(repo, "edited, with another version", HAND)
         code, out = lint(repo, capsys, "--strict")
-        assert code == 1 and "another aisignoff" in out, out
+        assert code == 1 and ("isn't what 'aisignoff freeze' writes" in out or "under other rules" in out), out
         assert run(repo, capsys, "freeze", "--check")[0] == 1
     # the source of a declaration is only words: another version may say it differently
     data = json.loads(json.dumps(good))
@@ -269,3 +275,149 @@ def test_the_note_counts_only_entries_added_since_the_snapshot(repo, capsys):
     assert run(repo, capsys, "freeze")[0] == 0  # without --prune: the entry stays
     commit(repo, "freeze", HAND)
     assert "from before the snapshot" not in lint(repo, capsys)[1]
+
+
+# ================================================================== the v1.0 readiness review
+def test_the_json_keys_of_format_1(repo, capsys):
+    """What docs/report.md lists: a key removed or renamed raises "format"."""
+    edit_lines(repo, [2])
+    commit(repo, "AI change", G3)
+    code, out = run(repo, capsys, "report", "--json")
+    data = json.loads(out)
+    assert set(data) == {"format", "aisignoff", "files"} and data["format"] == 1
+    f = next(f for f in data["files"] if f["path"] == "solver.py")
+    levels = {"AI-Generation", "Human-Review", "AI-Review", "Assisted-by", "Reviewed-by", "AI-Reviewed-by", "source"}
+    assert set(f) == levels | {"path", "errors", "parts"}
+    assert set(f["parts"][0]) == levels | {"errors", "lines", "runs", "kinds", "advisory"}
+    data = json.loads(run(repo, capsys, "report", "--tree", "--json")[1])
+    assert {"format", "aisignoff", "name", "path", "type", "files", "lines", "errors", "counts", "children"} <= set(data)
+    assert set(data["counts"]["AI-Generation"]) == {"files", "lines"}
+    data = json.loads(run(repo, capsys, "diff", "HEAD~1", "--json")[1])
+    assert {"format", "aisignoff", "base", "base_name", "base_tip", "files", "history", "rows", "total", "attested",
+            "before", "after", "problems", "notes", "note"} <= set(data)
+    assert set(data["total"]) == {"name", "added", "removed", "levels_added", "levels_removed"}
+
+
+def test_a_snapshot_of_other_rules_is_accepted_only_as_it_is(repo, capsys):
+    assert run(repo, capsys, "freeze")[0] == 0
+    path = repo / "SIGNOFF.snapshot.json"
+    data = json.loads(path.read_text())
+    data["aisignoff"] = "0.11.0"
+    del data["rules"]
+    data["declarations"][0]["Human-Review"] = "H3"  # an older version worked it out differently
+    path.write_text(json.dumps(data, indent=1) + "\n")
+    commit(repo, "freeze with an older version", HAND)
+    edit_lines(repo, [9], text="later")
+    commit(repo, "later", HAND)
+    # on the default branch, unchanged: accepted as it is, by lint and freeze --check
+    assert lint(repo, capsys, "--strict")[0] == 0
+    code, out = run(repo, capsys, "freeze", "--check")
+    assert code == 0 and "under other rules" in out and "accepted as it is" in out
+    # as a change it fails
+    git(repo, "checkout", "-q", "-b", "edit")
+    data["declarations"][0]["Reviewed-by"] = ["Someone"]
+    path.write_text(json.dumps(data, indent=1) + "\n")
+    commit(repo, "changed", HAND)
+    code, out = lint(repo, capsys)
+    assert code == 1 and "under other rules" in out
+    assert run(repo, capsys, "freeze", "--check")[0] == 1
+
+
+def test_a_0_13_archive_with_short_hashes_passes(repo, capsys):
+    edit_lines(repo, [2])
+    sha = commit(repo, "undeclared")
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{sha[:7]}"\n' + "".join(
+            f'{k.strip()} = "{v.strip()}"\n' for k, v in (line.split(":", 1) for line in G3.splitlines())))
+    commit(repo, "backfill", HAND)
+    assert run(repo, capsys, "freeze", "--prune")[0] == 0
+    path = repo / "SIGNOFF.snapshot.json"
+    path.write_text(path.read_text().replace(sha, sha[:7]))  # as 0.13 archived it
+    commit(repo, "freeze", HAND)
+    code, out = run(repo, capsys, "freeze", "--check")
+    assert code == 0, out
+
+
+def test_a_pull_requests_run_needs_the_default_branch(tmp_path, capsys, monkeypatch):
+    git(tmp_path, "init", "-q", "-b", "develop")
+    git(tmp_path, "config", "user.email", "t@example.com")
+    git(tmp_path, "config", "user.name", "T")
+    (tmp_path / "SIGNOFF.toml").write_text('version = 3\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
+                                           'AI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\nReviewed-by = "J"\n')
+    (tmp_path / "a.py").write_text("1\n")
+    commit(tmp_path, "one", HAND)
+    git(tmp_path, "checkout", "-q", "-b", "pr")
+    (tmp_path / "a.py").write_text("2\n")
+    commit(tmp_path, "agent", G3)
+    body = tmp_path.parent / "body.md"
+    body.write_text("Just a description.\n")
+    code, out = lint(tmp_path, capsys, "--declare-from", str(body), "--base", "HEAD^1")
+    assert code == 1 and "there is no default branch here" in out
+    # GitHub's event names it
+    event = tmp_path.parent / "event.json"
+    event.write_text(json.dumps({"repository": {"default_branch": "develop"}}))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    code, out = lint(tmp_path, capsys, "--declare-from", str(body), "--base", "HEAD^1")
+    assert code == 1 and "declares no Human-Review" in out and "no default branch" not in out
+
+
+def test_a_branch_commit_that_says_only_its_generation_takes_the_models_of_the_pull_request(repo, capsys):
+    git(repo, "checkout", "-q", "-b", "pr")
+    edit_lines(repo, [2])
+    commit(repo, "agent", "AI-Generation: G3")
+    merge(repo, "pr", "Merge pull request #5\n\n" + D("G1", "H2", "A1"))
+    lines = by_line(result(repo)[0])
+    assert lines[2].declaration.short() == "G3 H2 A1" and lines[2].declaration.assisted_by == ("M",)
+    assert lint(repo, capsys)[0] == 0
+    # a description that names no model: the message says which commit
+    git(repo, "checkout", "-q", "-b", "pr2")
+    edit_lines(repo, [3])
+    commit(repo, "agent 2", "AI-Generation: G3")
+    merge(repo, "pr2", "Merge pull request #6\n\n" + D("G0", "H2", "A0"))
+    code, out = lint(repo, capsys)
+    assert code == 1 and "agent 2" in out and "but no Assisted-by" in out
+
+
+def test_a_snapshot_deleted_straight_on_the_default_branch_fails(repo, capsys):
+    frozen_with_entries(repo, capsys)
+    git(repo, "rm", "-q", "SIGNOFF.snapshot.json")
+    commit(repo, "no snapshot", HAND)
+    code, out = lint(repo, capsys)
+    assert code == 1 and "was deleted" in out
+
+
+def test_a_declared_commit_in_the_ignore_revs_file_is_a_warning(repo, capsys):
+    edit_lines(repo, [2])
+    sha = commit(repo, "AI change (#4)", G3)
+    (repo / ".git-blame-ignore-revs").write_text(sha + "\n")
+    commit(repo, "ignore it", HAND)
+    code, out = lint(repo, capsys, "--strict")
+    assert code == 1 and ".git-blame-ignore-revs lists commit" in out and "declares levels" in out
+
+
+def test_a_pull_request_merged_into_one_that_says_less_ai_is_a_warning(repo, capsys):
+    git(repo, "checkout", "-q", "-b", "a")
+    edit_lines(repo, [2], text="a")
+    commit(repo, "a")
+    git(repo, "checkout", "-q", "-b", "b")
+    edit_lines(repo, [3], text="b")
+    commit(repo, "b")
+    git(repo, "checkout", "-q", "a")
+    git(repo, "merge", "-q", "--no-ff", "b", "-m", "Merge pull request #2 (b into a)\n\n" + D("G3", "H1", "A1"))
+    merge(repo, "a", "Merge pull request #1\n\n" + D("G1", "H2", "A1"))
+    code, out = lint(repo, capsys, "--strict")
+    assert code == 1 and "declares G1, but" in out and "declares G3" in out
+
+
+def test_freeze_refuses_commits_that_arent_pushed(repo, capsys, tmp_path_factory):
+    origin = tmp_path_factory.mktemp("origin") / "o.git"
+    git(repo, "clone", "-q", "--bare", str(repo), str(origin))
+    git(repo, "remote", "add", "origin", str(origin))
+    git(repo, "fetch", "-q", "origin")
+    edit_lines(repo, [9], text="local")
+    commit(repo, "not pushed", HAND)
+    code, out = run(repo, capsys, "freeze")
+    assert code == 2 and "aren't pushed" in out
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "fetch", "-q", "origin")
+    assert run(repo, capsys, "freeze")[0] == 0

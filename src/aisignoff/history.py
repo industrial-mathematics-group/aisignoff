@@ -39,6 +39,11 @@ from .model import AXES, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key
 UNCOMMITTED = "0" * 40
 SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
 SNAPSHOT_FORMAT = 1
+# The rules levels are worked out by. A release that changes the levels some line gets raises it,
+# and a snapshot records the number it was written under: only a snapshot of the same rules is
+# checked by working it out again. One of other rules is accepted as it is on the default
+# branch, and fails as a change. 1: from 0.14.0 on.
+RULES = 1
 REVERT = re.compile(r"^This reverts commit ([0-9a-f]{7,64})", re.M)
 # GitHub's Revert button: the pull request's description, and the subject of its commits
 REVERT_PR = re.compile(r"^Reverts ([\w.-]+/[\w.-]+#\d+)", re.M)
@@ -77,15 +82,42 @@ def archive_item(history: "History", config) -> dict:
             "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]}
 
 
-def _entries(item: dict) -> list[str]:
+def git_env() -> dict[str, str]:
+    """The environment for git: English messages, since a few of them are read (ambiguous hashes)."""
+    return {**os.environ, "LC_ALL": "C", "LANGUAGE": ""}
+
+
+def full_hashes(item: dict, resolve) -> dict:
+    """An archive item with each [[commits]] entry's commit by its full hash, where it resolves
+    (0.13 archived them as written), so that items compare whatever wrote them."""
+    return {**item, "commits": [{**c, "commit": (resolve(c["commit"]) if isinstance(c.get("commit"), str) else None)
+                                 or c.get("commit")} for c in item.get("commits", [])]}
+
+
+def _entries(item: dict, resolve=None) -> list[str]:
     """The entries of an archive item (or of SIGNOFF.toml in that shape), as comparable text."""
+    if resolve:
+        item = full_hashes(item, resolve)
     return [json.dumps({"commits": c}, sort_keys=True) for c in item.get("commits", [])] + \
         [json.dumps({"attestations": a}, sort_keys=True) for a in item.get("attestations", [])]
 
 
+def _event_default_branch() -> list[str]:
+    """The repository's default branch as GitHub Actions' event names it, if it does."""
+    name = os.environ.get("GITHUB_EVENT_PATH")
+    if not name:
+        return []
+    try:
+        with open(name, encoding="utf-8") as f:
+            branch = (json.load(f).get("repository") or {}).get("default_branch")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [branch] if isinstance(branch, str) and branch else []
+
+
 def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None) -> str | None:
     try:
-        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True, input=stdin)
+        r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True, input=stdin)
     except FileNotFoundError:
         raise HistoryError("git is not installed")
     if r.returncode != 0:
@@ -97,7 +129,7 @@ def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None)
 
 def _git_error(root: Path, *args: str) -> str:
     try:
-        r = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True)
+        r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True)
     except FileNotFoundError:
         return ""
     return r.stderr.decode("utf-8", "replace") if r.returncode else ""
@@ -401,12 +433,13 @@ class Snapshot:
     except the check that a frozen review was only raised by an attestation."""
 
     def __init__(self, commit: str, declarations: list[dict], files: dict[str, dict], archive: list | None = None,
-                 version: str | None = None, reset: list[str] | None = None):
+                 version: str | None = None, reset: list[str] | None = None, rules: int | None = None):
         self.commit = commit
         self.declarations = declarations
         self.files = files
         self.archive = archive or []
         self.version = version  # of aisignoff that wrote it
+        self.rules = rules  # the RULES it was written under (None: before they were numbered)
         self.reset = reset or []  # files this freeze computed from history instead of the snapshot before it
         self.pieces = [pieces_from_values(d, d.get("source") or "snapshot", "frozen") for d in declarations]
 
@@ -450,7 +483,12 @@ class Snapshot:
         if not isinstance(reset, list) or not all(isinstance(r, str) for r in reset):
             raise ValueError('"reset" must be a list of paths')
         version = data.get("aisignoff")
-        return cls(commit, declarations, files, archive, version if isinstance(version, str) else None, reset)
+        version = version if isinstance(version, str) else None
+        rules = data.get("rules")
+        if type(rules) is not int:
+            # 0.14 wrote no number, under the rules that became 1
+            rules = 1 if rules is None and version and version.startswith("0.14.") else None
+        return cls(commit, declarations, files, archive, version, reset, rules)
 
     def line_declarations(self) -> dict[str, list[str]]:
         """path -> the declaration of each line, as comparable text."""
@@ -517,7 +555,7 @@ class Snapshot:
             lines += sum(b - a + 1 for a, b, _ in runs)
             files.append(f" {json.dumps(r.path, ensure_ascii=False)}: "
                          + json.dumps({"blob": blobs[r.path], "runs": runs}, separators=(", ", ": ")))
-        out = ["{", f' "format": {SNAPSHOT_FORMAT},', f' "aisignoff": {json.dumps(version)},',
+        out = ["{", f' "format": {SNAPSHOT_FORMAT},', f' "aisignoff": {json.dumps(version)},', f' "rules": {RULES},',
                f' "commit": "{commit}",', *([f' "reset": {json.dumps(sorted(reset), ensure_ascii=False)},'] if reset else []),
                ' "declarations": [', ",\n".join("  " + d for d in declarations), " ],",
                ' "files": {', ",\n".join(" " + f for f in files), " }" + ("," if archive else "")]
@@ -566,6 +604,8 @@ class History:
         self.prefix = (_git(self.root, "rev-parse", "--show-prefix", check=False) or "").strip()
         self.declared = declared
         self.landed = landed
+        self._declared_given, self._base_given = declared is not None, base is not None
+        self.remote_tip: str | None = None  # origin's default branch, if there is one
         self.reset = set(reset or ())
         self.archive: list[dict] = []  # of the snapshot: its entries count where it doesn't reach
         self._frozen_shas: set[str] | None = None
@@ -611,31 +651,43 @@ class History:
             names = [name]
         else:
             remote = (_git(self.root, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD", check=False) or "").strip()
-            names = ([remote.split("/", 1)[1]] if "/" in remote else []) + ["main", "master"]
+            # actions/checkout sets no origin/HEAD: GitHub's event names the default branch
+            names = ([remote.split("/", 1)[1]] if "/" in remote else []) + _event_default_branch() + ["main", "master"]
         current = (_git(self.root, "symbolic-ref", "--short", "-q", "HEAD", check=False) or "").strip()
         if current and current in names:
+            self.remote_tip = self._resolve(f"refs/remotes/origin/{current}")
             return self.head
+        # a pull request's run must know what has landed; so must --landed
+        needed = bool(name) or self.landed or self._declared_given or self._base_given
         if self.landed:
-            tip = self._branch_tip(names)
+            tip = self._branch_tip(names, report=needed)
             chain = set((_git(self.root, "rev-list", "--first-parent", self.head, check=False) or "").split())
             if tip is None or tip in chain or self.is_ancestor(self.head, tip):
                 # a merge queue's commit (on top of the default branch, as it lands), or one of its commits
                 return self.head
             self.release = True  # a branch of its own, which may have merged the default branch
             return tip
-        return self._branch_tip(names, report=bool(name))
+        return self._branch_tip(names, report=needed)
 
     def _branch_tip(self, names: list[str], report: bool = False) -> str | None:
         for n in names:
             remote, local = self._resolve(f"refs/remotes/origin/{n}"), self._resolve(f"refs/heads/{n}")
+            if remote:
+                self.remote_tip = remote
             if remote and local and self.is_ancestor(remote, local):
                 return local  # commits that aren't pushed yet
             if remote or local:
                 return remote or local
         if report:
             name = names[0]
-            self.problems.append(f"[history] default-branch: there is no branch {name} here (neither origin/{name} "
-                                 f"nor {name}), so every commit of HEAD counts as landed")
+            if self.config.history.default_branch:
+                self.problems.append(f"[history] default-branch: there is no branch {name} here (neither "
+                                     f"origin/{name} nor {name}), so every commit of HEAD counts as landed")
+            else:
+                self.problems.append("there is no default branch here (none of " + ", ".join(names) + " as origin/<name> "
+                                     "or a local branch), so every commit of HEAD counts as landed and nothing is "
+                                     "checked as the change. Set default-branch in [history] of SIGNOFF.toml, and "
+                                     "fetch it in CI (fetch-depth: 0)")
         return None
 
     def _find_base(self, base: str | None) -> str | None:
@@ -772,18 +824,26 @@ class History:
         """Problems of a SIGNOFF.snapshot.json that goes back behind the default branch's: an
         older commit, or archived entries dropped (they are recorded nowhere else). Entries put
         back into SIGNOFF.toml may leave the archive, for a snapshot taken afresh."""
-        path = self.prefix + SNAPSHOT
-        text = _git(self.root, "show", f"{self.base}:{path}", check=False) if self.base else None
-        old = Snapshot.parse(text) if text else None
-        if old is None:
+        if not self.base:
             return []
+        refs = [self.base]
+        if self.head == self.base:
+            # on the default branch itself: the commit below, or every commit of the push CI runs for
+            refs = [r for r in (self._resolve("HEAD^1"), self._pushed_from()) if r]
         try:
             now = (self.root / SNAPSHOT).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             now = None
-        if now == text:
-            return []
-        new = Snapshot.parse(now) if now is not None else None
+        for ref in dict.fromkeys(refs):
+            text = _git(self.root, "show", f"{ref}:{self.prefix}{SNAPSHOT}", check=False)
+            old = Snapshot.parse(text) if text else None
+            if old is not None and now != text:
+                problems = self._continuity(old, Snapshot.parse(now) if now is not None else None)
+                if problems:
+                    return problems
+        return []
+
+    def _continuity(self, old: "Snapshot", new: "Snapshot | None") -> list[str]:
         problems = []
         if new is not None and new.commit != old.commit and not self.is_ancestor(old.commit, new.commit):
             problems.append(f"{SNAPSHOT} is of commit {new.commit[:7]}, which is older than the default branch's "
@@ -791,11 +851,11 @@ class History:
                             "Take a new one with 'aisignoff freeze' on the default branch")
         kept = set()
         for item in (new.archive if new else []):
-            kept.update(_entries(item))
+            kept.update(_entries(item, self._resolve))
         live = {"commits": [{"commit": self._resolve(c.commit) or c.commit, **c.values} for c in self.config.commits],
                 "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in self.config.attestations]}
         kept.update(_entries(live))
-        dropped = sum(1 for item in old.archive for e in _entries(item) if e not in kept)
+        dropped = sum(1 for item in old.archive for e in _entries(item, self._resolve) if e not in kept)
         if dropped:
             what = "deleted" if new is None else "changed"
             problems.append(f"{SNAPSHOT} was {what}, and that drops {dropped} archived [[commits]] or [[attestations]] "
@@ -809,7 +869,7 @@ class History:
         if not blobs:
             return {}
         try:
-            r = subprocess.run([*GIT, "-C", str(self.root), "cat-file", "--batch"], capture_output=True,
+            r = subprocess.run([*GIT, "-C", str(self.root), "cat-file", "--batch"], env=git_env(), capture_output=True,
                                input="".join(b + "\n" for b in sorted(blobs)).encode())
         except FileNotFoundError:
             raise HistoryError("git is not installed")
@@ -951,6 +1011,7 @@ class History:
 
         Each entry is resolved first: git blame stops at an entry it can't resolve (an
         abbreviated hash, a commit of other history), which must not pass for "not committed"."""
+        self._ignored: list[tuple[str, str]] = []  # (sha, the file that lists it)
         name = self.config.history.ignore_revs_file
         if name is None:
             if not (self.root / ".git-blame-ignore-revs").is_file():
@@ -971,6 +1032,7 @@ class History:
                 self.problems.append(f"{name}: {rev} is not a commit of this repository; remove it, or give the full hash")
             else:
                 options += ["--ignore-rev", sha]
+                self._ignored.append((sha, name))
         return options
 
     def _ordinal_of_setting(self, rev: str | None) -> int | None:
@@ -993,14 +1055,15 @@ class History:
         pieces.update(self.corrections.get(sha, {}))
         return pieces
 
-    def _side(self, merge: str) -> tuple[bool, int, str | None]:
+    def _side(self, merge: str) -> tuple[bool, int, str | None, list[tuple[str, str]]]:
         """Of the commits a merge commit brought in: whether one that isn't a merge says
         AI-Generation; how many of them look like they landed lines somewhere before (merges
         that declare something and commits that declare all three axes: pull requests that
-        landed elsewhere first, as after a git pull); and what one of them reverts, if any."""
+        landed elsewhere first, as after a git pull); what one of them reverts, if any; and
+        (commit, AI-Generation) of the merges among them that say one."""
         if merge not in self._side_cache:
             parents = self.parents.get(merge, [])
-            says, declared, reverts = False, 0, None
+            says, declared, reverts, merges = False, 0, None, []
             if len(parents) > 1:
                 out = _git(self.root, "log", f"--format={self.FORMAT}", merge, f"^{parents[0]}", check=False) or ""
                 for record in _records(out):
@@ -1012,16 +1075,18 @@ class History:
                     reverts = reverts or self._reverts.get(record[0])
                     if len(self.parents[record[0]]) > 1:
                         declared += bool(pieces)
+                        if 0 in pieces and pieces[0].level:
+                            merges.append((record[0], pieces[0].level))
                     else:
                         says = says or 0 in pieces
                         declared += len(pieces) == len(AXES)
-            self._side_cache[merge] = (says, declared, reverts)
+            self._side_cache[merge] = (says, declared, reverts, merges)
         return self._side_cache[merge]
 
     def is_ancestor(self, a: str, b: str) -> bool:
         if (a, b) not in self._ancestor:
             try:
-                r = subprocess.run([*GIT, "-C", str(self.root), "merge-base", "--is-ancestor", a, b],
+                r = subprocess.run([*GIT, "-C", str(self.root), "merge-base", "--is-ancestor", a, b], env=git_env(),
                                    capture_output=True)
                 self._ancestor[(a, b)] = r.returncode == 0
             except FileNotFoundError:
@@ -1044,6 +1109,17 @@ class History:
         if sha in self._noted:
             return
         self._noted.add(sha)
+        owner = self.commit_pieces(sha) if declares else {}
+        if 0 in owner and len(self.parents.get(sha, [])) > 1:
+            # a pull request merged into this one said more AI than this one's description does
+            higher = [(m, level) for m, level in self._side(sha)[3]
+                      if _level_value(level) > _level_value(owner[0].level)]
+            if higher:
+                m, level = max(higher, key=lambda t: _level_value(t[1]))
+                self._warnings.append(f"{self.describe(sha)} declares {owner[0].level}, but {self.describe(m)} "
+                                      f"inside it declares {level}: the lines of both take {owner[0].level}. Declare "
+                                      "the highest generation of what lands in the pull request's description, or "
+                                      f'correct it with [[commits]] commit = "{sha[:12]}"')
         if declares or required:
             return
         merge = len(self.parents.get(sha, [])) > 1
@@ -1063,6 +1139,18 @@ class History:
     def warnings(self) -> list[str]:
         """What lint shows without failing (lint --strict fails on them)."""
         out = list(dict.fromkeys(self._warnings))
+        for sha, name in self._ignored:
+            # the file is for reformatting: a commit that declares levels gives its lines back to
+            # the commits before it, which is a quiet way to lower them
+            if self.snapshot and self.is_ancestor(sha, self.snapshot.commit):
+                continue  # the lines the snapshot has keep their levels anyway
+            declares = bool(self.commit_pieces(sha))
+            parents = (_git(self.root, "rev-list", "--parents", "-n", "1", sha, check=False) or "").split()[1:]
+            why = ("declares levels" if declares else "is a merge" if len(parents) > 1
+                   else "looks like a pull request" if PULL_REQUEST.search(self.subjects.get(sha, "")) else None)
+            if why:
+                out.append(f"{name} lists {self.describe(sha)}, which {why}: blame gives the lines it changed to the "
+                           "commits before it, with their levels. List only commits that reformat")
         if self._silent:
             silent = sorted(set(self._silent), key=lambda sha: -self.order.get(sha, 0))
             more = f" and {len(silent) - 2} more" if len(silent) > 2 else ""
@@ -1484,6 +1572,15 @@ class History:
         if hint is not None and not explicit and 0 in owner \
                 and _level_value(hint.level) <= _level_value(owner[0].level):
             hint = None
+        if hint is not None and not hint.names and hint.level not in (None, "G0"):
+            # a commit that says only a generation (an agent's "AI-Generation: G3"): the model is
+            # the one the owner names, if it names one
+            if 0 in owner and owner[0].names:
+                hint = replace(hint, names=owner[0].names)
+            else:
+                hint = replace(hint, problems=hint.problems + (
+                    f"{hint.source} says {hint.level} for the lines it wrote, but no Assisted-by; name the tool "
+                    "and model there, in the declaration of the pull request, or with a [[commits]] entry",))
         out: list[Piece | None] = []
         gen_from = None
         for i, (level, _) in enumerate(AXES):

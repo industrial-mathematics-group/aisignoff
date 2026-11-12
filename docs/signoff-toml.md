@@ -80,7 +80,7 @@ Line-level declarations from git, described in [Declaring lines](history.md).
 | Key | Default | Value |
 |---|---|---|
 | `enabled` | `true` once the table is there | `true` or `false` |
-| `default-branch` | `origin`'s default branch, else `main` or `master` | the branch whose commits own the lines |
+| `default-branch` | `origin`'s default branch, else the one GitHub Actions names, else `main` or `master` | the branch whose commits own the lines |
 | `merge-method` | `"merge"` | `"merge"`, `"squash"` or `"rebase"`: how pull requests land, for checks before the merge |
 | `undeclared` | `"baseline"` | `"baseline"`: lines of a commit that declares nothing take the file-level declaration. `"error"`: `lint` fails |
 | `require-trailers-since` | none | a commit of the default branch: `undeclared = "error"` for the commits after it only |

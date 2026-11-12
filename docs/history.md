@@ -94,7 +94,7 @@ AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating sessio
 - **An axis counts when its level is there.** A name on its own, such as a plain `Reviewed-by:` trailer, declares nothing. A level line left empty (`Human-Review:`) is `TODO`.
 - **Conflicting levels** for one key in one message are an error.
 
-A commit pushed to the default branch directly declares its own lines this way. A commit on a pull request's branch needs no declaration: only its `AI-Generation` is read ([rule 3](#one-owner-per-line)).
+A commit pushed to the default branch directly declares its own lines this way. A commit on a pull request's branch needs no declaration: only its `AI-Generation` is read ([rule 3](#one-owner-per-line)). A higher generation needs the model: without an `Assisted-by` of its own, the commit takes the one the pull request's declaration names, and the error names the commit when neither does.
 
 ## Pull request descriptions
 
@@ -142,7 +142,7 @@ merge-method = "merge"   # the default; or "squash", or "rebase"
 
 With `squash`, the branch commits' generation is ignored, since the squash commit won't carry them. With `rebase`, the description is ignored and each commit must declare itself.
 
-**Stacked pull requests.** When B is merged into A and A into the default branch, A's commit owns all the lines, B's included, and B's description is never read. When B is retargeted and lands on the default branch itself, it owns the lines its merge brings in.
+**Stacked pull requests.** When B is merged into A and A into the default branch, A's commit owns all the lines, B's included, and B's description is never read. `lint` warns when B's merge commit declares a higher `AI-Generation` than A's description does: declare the highest generation of everything that lands in A's description. When B is retargeted and lands on the default branch itself, it owns the lines its merge brings in.
 
 ## Commits that declare nothing
 
@@ -219,7 +219,7 @@ On a feature branch, in the merge preview that a pull request's CI run checks ou
 - **A pull request into another branch** than the default one declares nothing: the pull request that lands its lines on the default branch does. `lint --base` and `diff` recognise it and say so.
 - **`--landed`** says that `HEAD` is a commit of the default branch, or lands on it exactly as it is: a [merge queue's commit](ci.md#merge-queues) (recognised by itself on GitHub Actions) or a [release branch](ci.md#release-branches).
 
-aisignoff finds the default branch as `origin`'s default branch, else `main` or `master`. Set `default-branch = "develop"` in `[history]` if it's called otherwise. When that branch is checked out, all of `HEAD` counts as landed; otherwise `origin/<name>` is used, or the local branch if it's ahead. CI needs the whole history: check out with `fetch-depth: 0`.
+aisignoff finds the default branch as `origin`'s default branch, else the one GitHub Actions' event names, else `main` or `master`. Set `default-branch = "develop"` in `[history]` if it's called otherwise and you run CI elsewhere. When that branch is checked out, all of `HEAD` counts as landed; otherwise `origin/<name>` is used, or the local branch if it's ahead. With none found, every commit counts as landed; `lint --declare-from`, `--base` and `--landed` then fail, since there is nothing to check the change against. CI needs the whole history: check out with `fetch-depth: 0`. In a shallow clone, `lint` fails when `[history]` is enabled.
 
 ## Details
 
@@ -228,5 +228,5 @@ aisignoff finds the default branch as `origin`'s default branch, else `main` or 
 - **Binary and empty files and symlinks** are one unit, counted as one line: the commit that last changed the file declares it.
 - **Moved lines** belong to the commit that moved them: a line moved to another file is a new line there.
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.
-- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported.
+- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported. An ignored commit's lines go back to the commits before it, with their levels, so `lint` warns about an entry that declares levels, is a merge, or looks like a pull request.
 - **Without history**, outside git or in a shallow clone, aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails instead.

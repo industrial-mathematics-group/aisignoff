@@ -2,6 +2,22 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc1
+
+The first release candidate for 1.0. It fixes what the 1.0 readiness review found; 1.0.0 is meant to follow from the same code once it has run unchanged for a while.
+
+- A snapshot records the `"rules"` it was written under: a number raised only by a release that changes the levels some line gets. A snapshot of other rules, such as one written by 0.11 to 0.13, is accepted as it is on the default branch (`freeze --check` notes it, instead of failing), and fails as a change. Archives compare with full commit hashes, so 0.13's short ones pass. Land a snapshot of an older version before raising the version CI pins ([Migrating](migrating.md#from-011-or-earlier-with-history)).
+- **Breaking:** an unknown top-level or `[history]` key in `SIGNOFF.toml` is a warning instead of an error, so a setting of a later 1.x doesn't stop an older install (`lint --strict` fails on it).
+- **Breaking:** `lint` fails in a shallow clone when `[history]` is enabled, instead of falling back to the file-level declarations: a checkout without `fetch-depth: 0` would pass without the line-by-line check.
+- In CI, the default branch is also found by the name GitHub Actions' event gives. When none is found, `lint --declare-from`, `--base` and `--landed` fail instead of checking nothing.
+- A commit on a pull request's branch that says only a higher `AI-Generation` takes the model the pull request names. When nothing names one, the error names the commit.
+- On the default branch, a snapshot deleted or put back to an older one fails `lint` against the commit below (and every commit of the push on GitHub Actions).
+- `lint` warns about an entry of `.git-blame-ignore-revs` that declares levels, is a merge or looks like a pull request, and about a pull request merged into another one whose description declares a higher `AI-Generation` than the outer one.
+- `freeze` refuses a commit that isn't on `origin`'s default branch yet, and says which earlier `--reset` files a second run before committing leaves frozen.
+- `report --json | head` no longer prints a traceback. git runs with `LC_ALL=C`.
+- The keys of the `--json` outputs are [documented](report.md#json-output) and pinned by a test.
+- This repository's snapshot is written again under the current rules.
+
 ## 0.14.0
 
 - A second snapshot no longer fails `lint` when a line moved, or came back as it was, between the two. `lint` now checks a changed `SIGNOFF.snapshot.json` by [working it out again](snapshots.md) at its commit, in a temporary worktree, instead of comparing it with the snapshot before it. This catches any hand edit, including names, new lines and the archive.
