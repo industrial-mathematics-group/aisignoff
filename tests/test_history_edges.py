@@ -323,7 +323,7 @@ def test_examples_pin_the_current_version():
         assert f'AISIGNOFF_VERSION: "{__version__}"' in f.read_text(), f.name
     hook = (top / "examples/pre-commit-config.yaml").read_text()
     assert f"rev: v{__version__}" in hook and f"aisignoff=={__version__}" in hook
-    assert f"rev: v{__version__}" in (top / "docs/integration.md").read_text()
+    assert f"rev: v{__version__}" in (top / "docs/ci.md").read_text()
     assert re.search(r'^version = "' + re.escape(__version__) + '"', (top / "pyproject.toml").read_text(), re.M)
 
 

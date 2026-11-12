@@ -1,4 +1,4 @@
-# Hook for pre-commit (https://pre-commit.com), see docs/integration.md.
+# Hook for pre-commit (https://pre-commit.com), see docs/ci.md.
 - id: aisignoff-lint
   name: aisignoff lint
   description: Check that every file declares its AI generation, human review and AI review.

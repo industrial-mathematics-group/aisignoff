@@ -17,18 +17,23 @@ requirements.txt
 
 nav = [
   { "Overview" = "index.md" },
-  { "Getting started" = "getting-started.md" },
-  { "SIGNOFF.toml" = "signoff-toml.md" },
-  { "Inline tags" = "inline-tags.md" },
-  { "Line by line" = "history.md" },
-  { "Commands" = "commands.md" },
-  { "CI and badges" = "ci.md" },
-  { "Folder report" = "report.md" },
-  { "Example workflows" = "integration.md" },
-  { "Migrating" = "migrating.md" },
-  { "Compatibility" = "compatibility.md" },
-  { "Changelog" = "changelog.md" },
-  { "Development" = "development.md" },
+  { "Quick start" = "getting-started.md" },
+  { "Declaring" = [
+    { "Levels and rules" = "levels.md" },
+    { "Declaring files" = "files.md" },
+    { "Declaring lines" = "history.md" },
+    { "Snapshots" = "snapshots.md" },
+  ] },
+  { "CI and workflows" = "ci.md" },
+  { "Reports" = "report.md" },
+  { "Reference" = [
+    { "Commands" = "commands.md" },
+    { "SIGNOFF.toml" = "signoff-toml.md" },
+    { "Compatibility" = "compatibility.md" },
+    { "Upgrading" = "migrating.md" },
+    { "Changelog" = "changelog.md" },
+    { "Development" = "development.md" },
+  ] },
 ]
 
 [project.validation]
