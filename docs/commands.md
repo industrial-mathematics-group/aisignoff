@@ -51,10 +51,10 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs), or with
 ## attest
 
 ```bash
-aisignoff attest PATHS [-g G] [-H H] [-a A] [--assisted-by …] [--ai-reviewed-by …] [--reviewed-by …] [--at REV]
+aisignoff attest PATHS [-H H] [-a A] [--ai-reviewed-by …] [--reviewed-by …] [--at REV]
 ```
 
-Appends one `[[attestations]]` entry per file (directories: every declared file below), with the git blob hash of its content. Give at least one level, with the names it needs; TODO isn't allowed. Counts only with `[history]` enabled. See [Re-declaring a whole file](history.md#re-declaring-a-whole-file).
+Appends one `[[attestations]]` entry per file (directories: every declared file below), with the git blob hash of its content. Give at least one review level, with the names it needs; TODO isn't allowed, and neither is a generation level: an attestation records a review. Counts only with `[history]` enabled. See [Re-declaring a whole file](history.md#re-declaring-a-whole-file).
 
 - `--at REV` attests the files as they were at commit `REV`.
 
@@ -74,10 +74,10 @@ The levels of the lines added since `BASE` (a commit, branch or tag), the remove
 ## freeze
 
 ```bash
-aisignoff freeze [--allow-warnings]
+aisignoff freeze [--prune] [--allow-warnings]
 ```
 
-Writes `SIGNOFF.snapshot.json`: the levels of every line as of the commit that is checked out. Lines that don't change keep these levels from then on; commit the file. Needs `[history]`, a commit of the default branch with a clean working tree, and a `lint` that passes without warnings (`--allow-warnings` accepts them); otherwise it prints what `lint` reports. See [Freezing the levels](history.md#freezing-the-levels-aisignoff-freeze).
+Writes `SIGNOFF.snapshot.json`: the levels of every line as of the commit that is checked out. Lines that don't change keep these levels from then on; commit the file. Needs `[history]`, a commit of the default branch with a clean working tree, and a `lint` that passes without warnings (`--allow-warnings` accepts them); otherwise it prints what `lint` reports. `--prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into the snapshot's archive, since their levels are in the snapshot. See [Freezing the levels](history.md#freezing-the-levels-aisignoff-freeze).
 
 ## lint
 
@@ -87,7 +87,7 @@ aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [
 
 Fails if any file lacks a valid declaration, falls below the policy, or if no files were found. Problems are grouped, with up to `N` files listed each (default 10). With [`[history]`](history.md), it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere and on a snapshot that doesn't match its commit. Lines that aren't on the default branch yet fail nothing on their own.
 
-- `--strict` also fails on warnings: annotations that match no file, reverts and `git pull` merges that own lines without declaring them, and attestations of files declared as a whole.
+- `--strict` also fails on warnings: annotations that match no file, reverts, `git pull` merges and commits that look like pull requests that own lines without declaring them, and attestations of files declared as a whole.
 - `--declare-from FILE` checks a pull request before it's merged: its lines take the declaration in its description (`-` reads standard input), which must be complete. `--author NAME` is who the human review of a ticked template is by. `--base REV` is the branch the pull request goes into; if that isn't the default branch, the description declares nothing and isn't checked.
 - `--landed` checks `HEAD` as a commit of the default branch: for a [merge queue's commit](history.md#lines-that-havent-landed-yet) (recognised by itself on GitHub Actions) and for release branches.
 

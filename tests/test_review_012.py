@@ -320,3 +320,126 @@ def test_the_pull_request_diff_shows_a_todo_on_its_own_axis(repo, capsys):
     code, out = run(repo, capsys, "diff", "main", "--json", "--declare-from", str(body))
     added = json.loads(out)["total"]["levels_added"]
     assert added == {"AI-Generation": {"G3": 1}, "Human-Review": {"undeclared": 1}, "AI-Review": {"A1": 1}}
+
+
+# ------------------------------------------------------------------ freezes as baselines
+def frozen_with_entries(repo, capsys):
+    """An AI change, a correction of its commit and an attestation of the file: then frozen with --prune."""
+    edit_lines(repo, [2, 3])
+    sha = commit(repo, "AI change", G3)
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n# the model was named wrongly\n[[commits]]\ncommit = "{sha}"\nAI-Review = "A2"\n'
+                'AI-Reviewed-by = "N, fresh session"\n')
+    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-H", "H3", "--reviewed-by", "Rita")[0] == 0
+    commit(repo, "correct and attest", D("G0", "H2", "A0"))
+    before = levels(repo)
+    assert before[1] == "G3 H3 A2" and before[0] == "G0 H3 A0"
+    code, out = run(repo, capsys, "freeze", "--prune")
+    assert code == 0 and "Moved 2 [[commits]] and [[attestations]] entries" in out
+    commit(repo, "freeze", D("G0", "H2", "A0"))
+    return before
+
+
+def test_freeze_prune_moves_the_entries_into_the_snapshots_archive(repo, capsys):
+    before = frozen_with_entries(repo, capsys)
+    toml = (repo / "SIGNOFF.toml").read_text()
+    assert "[[commits]]" not in toml and "[[attestations]]" not in toml and "named wrongly" not in toml
+    assert "[[annotations]]" in toml and "[history]" in toml
+    snapshot = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
+    (item,) = snapshot["archive"]
+    assert item["commits"][0]["AI-Review"] == "A2" and item["attestations"][0]["Reviewed-by"] == ["Rita"]
+    assert item["attestations"][0]["path"] == "solver.py"
+    r, project = result(repo)
+    assert levels(repo) == before and project.history_problems == [] and project.history_warnings == []
+    assert lint(repo, capsys, "--strict")[0] == 0
+    # the next freeze keeps the archive and adds to it
+    edit_lines(repo, [9])
+    commit(repo, "another AI change", G3)
+    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark")[0] == 0
+    commit(repo, "attest", D("G0", "H2", "A0"))
+    after = levels(repo)
+    assert after[8] == "G3 H1 A3" and after[1] == "G3 H3 A3"
+    assert run(repo, capsys, "freeze", "--prune")[0] == 0
+    commit(repo, "second freeze", D("G0", "H2", "A0"))
+    snapshot = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
+    assert len(snapshot["archive"]) == 2 and snapshot["archive"][1]["commits"] == []
+    project = result(repo)[1]
+    assert levels(repo) == after and project.history_problems == []
+    assert run(repo, capsys, "freeze")[0] == 0  # without --prune (and nothing to prune): the archive stays
+    assert len(json.loads((repo / "SIGNOFF.snapshot.json").read_text())["archive"]) == 2
+
+
+def test_a_snapshot_cant_change_lines_the_one_before_it_had(repo, capsys):
+    frozen_with_entries(repo, capsys)
+    edit_lines(repo, [9])
+    commit(repo, "another AI change", G3)
+    assert run(repo, capsys, "freeze")[0] == 0
+    path = repo / "SIGNOFF.snapshot.json"
+    good = path.read_text()
+    commit(repo, "second freeze", D("G0", "H2", "A0"))
+    assert lint(repo, capsys)[0] == 0
+
+    def edited(old, new):
+        assert old in good
+        path.write_text(good.replace(old, new))
+        code, out = lint(repo, capsys)
+        return code, out
+
+    # a review raised by hand, in a file that changed since the first snapshot
+    code, out = edited('"AI-Review": "A2"', '"AI-Review": "A3"')
+    assert code == 1 and "changes the levels of lines that the snapshot before it" in out and "solver.py" in out
+    code, out = edited('"AI-Generation": "G3", "Human-Review": "H3"', '"AI-Generation": "G1", "Human-Review": "H3"')
+    assert code == 1 and "keeps its generation" in out  # generation changed
+    code, out = edited('"Human-Review": "H3"', '"Human-Review": "H1"')
+    assert code == 1  # a review lowered
+    # the line that landed after the first snapshot isn't its business
+    assert edited('"Human-Review": "H1", "AI-Review": "A1"', '"Human-Review": "H2", "AI-Review": "A1"')[0] == 0
+    path.write_text(good)
+    assert lint(repo, capsys)[0] == 0
+    # raised by an attestation: that is what a new snapshot may do
+    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark")[0] == 0
+    commit(repo, "attest", D("G0", "H2", "A0"))
+    assert run(repo, capsys, "freeze", "--prune")[0] == 0
+    commit(repo, "third freeze", D("G0", "H2", "A0"))
+    code, out = lint(repo, capsys)
+    assert code == 0, out
+    assert levels(repo)[1] == "G3 H3 A3"
+    path.write_text(path.read_text().replace('"Human-Review": "H3"', '"Human-Review": "H1"'))
+    assert lint(repo, capsys)[0] == 1  # also in a file that is the same in both snapshots
+
+
+def test_an_attestation_records_reviews_only(repo, capsys):
+    edit_lines(repo, [2])
+    commit(repo, "AI change", G3)
+    code, out = run(repo, capsys, "attest", str(repo / "solver.py"), "-g", "G0", "-H", "H3", "--reviewed-by", "Rita")
+    assert code == 2 and "[[commits]]" in out
+    assert run(repo, capsys, "attest", str(repo / "solver.py"))[0] == 2
+    blob = git(repo, "hash-object", "solver.py")
+    with open(repo / "SIGNOFF.toml", "a") as f:  # an entry of an earlier version
+        f.write(f'\n[[attestations]]\npath = "solver.py"\nblob = "{blob}"\nAI-Generation = "G0"\n'
+                'Human-Review = "H3"\nReviewed-by = "Rita"\n')
+    r, project = result(repo)
+    assert by_line(r)[2].declaration.short() == "G3 H3 A1"  # the review counts, the generation doesn't
+    assert any("AI-Generation doesn't count" in w for w in project.history_warnings)
+
+
+def test_undeclared_commits_that_look_like_pull_requests_are_reported(repo, capsys):
+    edit_lines(repo, [2])
+    commit(repo, "Add a feature (#12)")
+    git(repo, "checkout", "-q", "-b", "pr")
+    edit_lines(repo, [3])
+    commit(repo, "work")
+    merge(repo, "pr", "Merge pull request #13 from o/pr")
+    edit_lines(repo, [4])
+    commit(repo, "a quick fix, pushed directly")
+    edit_lines(repo, [5])
+    commit(repo, "Declared (#14)", G3)
+    r, project = result(repo)
+    assert shares(r) == {"G0 H2 A0": 9, "G3 H1 A1": 1}
+    (warning,) = project.history_warnings
+    assert warning.startswith("2 commit(s) that look like pull requests declare nothing")
+    assert "Merge pull request #13" in warning and "(#12)" in warning and "quick fix" not in warning
+    assert lint(repo, capsys)[0] == 0 and lint(repo, capsys, "--strict")[0] == 1
+    assert run(repo, capsys, "freeze", "--allow-warnings")[0] == 0  # accepted as they are
+    commit(repo, "freeze", D("G0", "H2", "A0"))
+    assert result(repo)[1].history_warnings == []
