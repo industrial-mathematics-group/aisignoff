@@ -1,10 +1,12 @@
 version = 3
 exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
-# Line-level declarations from git history (aisignoff >= 0.6): each line takes the declaration of the
-# commit that landed it (Key: value lines, or the ticked boxes of the PR template in its merge or
-# squash commit) and of the commits inside a merge; the annotations below are the fallback for
-# lines without one.
+# Line-level declarations from git history (aisignoff >= 0.12): each line takes the declaration of the
+# commit that landed it on main (Key: value lines, or the ticked boxes of the PR template in its
+# merge or squash commit); the annotations below are the fallback for lines without one.
+# SIGNOFF.snapshot.json holds the levels of every line as of main at 50adb1f, as aisignoff 0.11
+# reported them: lines unchanged since keep them, and the [[commits]] entries below only matter
+# for them through it.
 [history]
 enabled = true
 

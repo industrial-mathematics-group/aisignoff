@@ -2,6 +2,24 @@
 
 `aisignoff migrate` handles both the rename from aidecl and older versions of the file format. It converts `SIGNOFF.toml` and the inline tags all or nothing. Run it with `--dry-run` first to see what would change.
 
+## From 0.11 with `[history]`
+
+Only for repositories with `[history]` in `SIGNOFF.toml`. Version 0.12 decides a line's levels by simpler rules: [one owner per line](history.md#where-a-lines-levels-come-from). A review that a commit inside a pull request declared, or a pull request merged into another one, no longer counts, so some lines of existing code would report other levels after the upgrade.
+
+To keep what 0.11 reported, take a snapshot with 0.11 before upgrading. [`freeze-from-0.11.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/freeze-from-0.11.py) writes one in the format of [`aisignoff freeze`](history.md#freezing-the-levels-aisignoff-freeze):
+
+```bash
+git switch --detach origin/main     # a commit of the default branch, nothing else changed
+uv run --no-project --with aisignoff==0.11.0 python freeze-from-0.11.py
+git switch -c freeze && git add SIGNOFF.snapshot.json && git commit -m "Freeze the declarations of 0.11"
+```
+
+Then upgrade. Lines that don't change keep those levels, and the new rules apply to what lands afterwards. Without the snapshot, run `aisignoff lint` after upgrading and check `aisignoff report`:
+
+- `[[commits]]` entries that gave a review to a commit inside a pull request are reported. Move them to the merge commit, or attest the file.
+- A pull request template that was merged without a ticked generation or human review box is now a `TODO`, not the file-level declaration. Declare that commit with a `[[commits]]` entry.
+- `lint` no longer fails on a feature branch for what a commit leaves to its pull request, and the workflow that shows a pull request's lines is shorter: copy the new [`signoff-pr-diff.yml`](integration.md).
+
 ## From aidecl
 
 aidecl (up to version 0.3.0) was renamed to aisignoff. The command is now `aisignoff`, and `AIDECL.toml` is now `SIGNOFF.toml`. Keys, levels and inline tags are the same.

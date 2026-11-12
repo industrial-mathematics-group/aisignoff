@@ -20,8 +20,8 @@ def merge(repo, branch, message):
 
 
 def D(g, h, a, by="Jane", ai="M, fresh session"):
-    s = f"AI-Generation: {g}\nHuman-Review: {h}\nAI-Review: {a}\nReviewed-by: {by}\nAI-Reviewed-by: {ai}"
-    return s + ("\nAssisted-by: M" if g != "G0" else "")
+    s = f"AI-Generation: {g}\nHuman-Review: {h}\nAI-Review: {a}\nReviewed-by: {by}"
+    return s + (f"\nAI-Reviewed-by: {ai}" if a != "A0" else "") + ("\nAssisted-by: M" if g != "G0" else "")
 
 
 # ------------------------------------------------------------------ message formats
@@ -65,25 +65,27 @@ def test_trailers_and_boxes_both_count_until_a_correction_settles_it(repo):
 
 
 # ------------------------------------------------------------------ precedence
-def test_reviews_take_the_highest_and_generation_the_most_specific(repo):
+def test_the_merge_commit_owns_its_lines_and_a_branch_commit_only_says_generation(repo):
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [2, 3])
     commit(repo, "agent", D("G3", "H0", "A1", ai="M, self-check"))
     edit_lines(repo, [4], text="hand")
     commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H3\nReviewed-by: Bob")
     edit_lines(repo, [5])
-    commit(repo, "todo", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
+    commit(repo, "todo", "AI-Generation: TODO\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
     merge(repo, "feature", "Merge feature\n\n" + D("G3", "H2", "A2"))
-    lines = by_line(result(repo)[0])
-    assert lines[2].declaration.short() == "G3 H2 A2"  # the pull request's later review counts
-    assert lines[2].kinds == ("branch", "commit", "commit")
-    assert lines[4].declaration.short() == "G0 H3 A2" and lines[4].declaration.reviewed_by == ("Bob",)
-    assert lines[5].declaration.short() == "G3 H2 A2" and lines[5].errors == []  # TODO yields
+    r, project = result(repo)
+    lines = by_line(r)
+    assert lines[2].declaration.short() == "G3 H2 A2" and lines[2].kinds == ("branch", "commit", "commit")
+    # the review that a commit inside claims doesn't count, higher or lower: the pull request's does
+    assert lines[4].declaration.short() == "G0 H2 A2" and lines[4].declaration.reviewed_by == ("Jane",)
+    assert lines[5].declaration.short() == "G3 H2 A2" and lines[5].kinds[0] == "commit"  # a TODO says nothing
+    assert r.errors == [] and project.history_warnings == []
     merge_sha = git(repo, "rev-parse", "HEAD")
     with open(repo / "SIGNOFF.toml", "a") as f:  # a correction of the merge reaches all its lines
         f.write(f'\n[[commits]]\ncommit = "{merge_sha}"\nHuman-Review = "H3"\nReviewed-by = "Rita"\n')
     lines = by_line(result(repo)[0])
-    assert {lines[n].declaration.short() for n in (2, 3, 5)} == {"G3 H3 A2"}
+    assert {lines[n].declaration.short() for n in (2, 3, 5)} == {"G3 H3 A2"} and lines[4].declaration.short() == "G0 H3 A2"
 
 
 def test_a_partial_declaration_doesnt_take_the_rest_from_the_file(repo):
@@ -96,22 +98,60 @@ def test_a_partial_declaration_doesnt_take_the_rest_from_the_file(repo):
     assert shares(r)["G0 H2 A0"] == 9  # lines of commits that declare nothing keep the file's levels
 
 
-def test_nested_merges_declare_their_lines(repo):
+def test_a_pull_request_merged_into_another_declares_nothing(repo):
+    """Stacked pull requests: B is merged into A, A into main. Only A's merge lands lines on main."""
     git(repo, "checkout", "-q", "-b", "a")
     edit_lines(repo, [2])
     commit(repo, "AI part of A")
     git(repo, "checkout", "-q", "-b", "b")
     edit_lines(repo, [3], text="hand")
     commit(repo, "by hand")
+    edit_lines(repo, [4], text="hand")
+    commit(repo, "by hand, and saying so", "AI-Generation: G0")
     git(repo, "checkout", "-q", "a")
     git(repo, "merge", "-q", "--no-ff", "b", "-m", "Merge B into A\n\n" + D("G0", "H3", "A0", by="Bob"))
     merge(repo, "a", "Merge A\n\n" + D("G3", "H2", "A2"))
-    lines = by_line(result(repo)[0])
+    r, project = result(repo)
+    lines = by_line(r)
     assert lines[2].declaration.short() == "G3 H2 A2"
-    assert lines[3].declaration.short() == "G0 H3 A2"  # hand-written (B), Bob's review, A's AI review
+    assert lines[3].declaration.short() == "G3 H2 A2"  # B's description doesn't count
+    assert lines[4].declaration.short() == "G0 H2 A2"  # the commit that wrote it says G0
+    assert r.errors == [] and project.history_warnings == []
 
 
-def test_git_pull_merge_on_main_keeps_the_pull_requests(repo):
+def test_stacked_pull_requests_land_the_same_whatever_the_method_and_order(repo):
+    """The lines a commit lands on the default branch are the diff its pull request showed."""
+    def stack():
+        git(repo, "checkout", "-q", "-b", "a", "main")
+        edit_lines(repo, [2])
+        commit(repo, "A's agent", "AI-Generation: G3\nAssisted-by: M\nAI-Review: A1\nAI-Reviewed-by: M")
+        git(repo, "checkout", "-q", "-b", "b")
+        edit_lines(repo, [3], text="hand")
+        commit(repo, "B, by hand", D("G0", "H3", "A0", by="Bob"))
+
+    stack()  # B is merged into A, then A is squashed into main: one commit, A's description
+    git(repo, "checkout", "-q", "a")
+    git(repo, "merge", "-q", "--no-ff", "b", "-m", "Merge B into A\n\n" + D("G0", "H3", "A0", by="Bob"))
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--squash", "a")
+    commit(repo, "A (#1)", D("G3", "H1", "A1"))
+    lines = by_line(result(repo)[0])
+    assert lines[2].declaration.short() == lines[3].declaration.short() == "G3 H1 A1"
+
+    git(repo, "reset", "-q", "--hard", "HEAD~1")
+    git(repo, "branch", "-q", "-D", "a", "b")
+    stack()  # B lands first (it contains A's commit), then A, whose merge brings nothing new
+    merge(repo, "b", "Merge B\n\n" + D("G3", "H2", "A2"))
+    merge(repo, "a", "Merge A\n\n" + D("G3", "H1", "A1"))
+    r, project = result(repo)
+    lines = by_line(r)
+    assert lines[2].declaration.short() == "G3 H2 A2"  # landed by B's merge, as B's diff into main showed it
+    assert lines[3].declaration.short() == "G0 H2 A2"
+    assert r.errors == []
+
+
+def test_a_git_pull_merge_on_main_owns_what_it_brought_in(repo, capsys):
+    from aisignoff.cli import main
     origin = repo.parent / "origin"
     git(repo.parent, "clone", "-q", str(repo), str(origin))
     git(origin, "config", "user.email", "o@x")
@@ -124,8 +164,18 @@ def test_git_pull_merge_on_main_keeps_the_pull_requests(repo):
     edit_lines(repo, [9], text="direct")
     commit(repo, "direct", D("G0", "H3", "A0"))
     git(repo, "pull", "-q", "--no-rebase", "--no-edit", str(origin), "main")
-    lines = by_line(result(repo)[0])
-    assert lines[2].declaration.short() == "G3 H2 A2" and lines[9].declaration.short() == "G0 H3 A0"
+    r, project = result(repo)
+    lines = by_line(r)
+    # the pull's merge commit landed the pull request's line on this main, and declares nothing
+    assert lines[2].declaration.short() == "G0 H2 A0" and lines[9].declaration.short() == "G0 H3 A0"
+    assert len(project.history_warnings) == 1 and "declared merge(s) inside it" in project.history_warnings[0]
+    capsys.readouterr()
+    assert main(["--root", str(repo), "lint"]) == 0 and main(["--root", str(repo), "lint", "--strict"]) == 1
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{git(repo, "rev-parse", "HEAD")}"\nAI-Generation = "G3"\n'
+                'Assisted-by = "M"\nHuman-Review = "H2"\nReviewed-by = "Jane"\nAI-Review = "A2"\nAI-Reviewed-by = "M"\n')
+    r, project = result(repo)
+    assert by_line(r)[2].declaration.short() == "G3 H2 A2" and project.history_warnings == []
 
 
 def test_attestation_from_a_pull_request_survives_a_change_on_main(repo):
@@ -149,7 +199,9 @@ def test_attestation_from_a_pull_request_survives_a_change_on_main(repo):
 
 
 # ------------------------------------------------------------------ the merge preview
-def preview(repo, method):
+def preview(repo, method, declare=True):
+    """The merge preview that a pull request's CI run checks out: a merge of the pull request
+    into the default branch that isn't on it."""
     text = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", f'enabled = true\nmerge-method = "{method}"')
     (repo / "SIGNOFF.toml").write_text(text)
     commit(repo, "config", D("G0", "H2", "A0"))
@@ -157,26 +209,40 @@ def preview(repo, method):
     git(repo, "checkout", "-q", "-b", "pr")
     edit_lines(repo, [2])
     commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
-    merge(repo, "pr", f"Merge {'a' * 40} into {'b' * 40}")
+    edit_lines(repo, [3], text="hand")
+    commit(repo, "by hand", "AI-Generation: G0")
+    git(repo, "checkout", "-q", "--detach", "main")
+    git(repo, "merge", "-q", "--no-ff", "pr", "-m", "Merge the pull request into main")
     project = Project(repo)
     from aisignoff.model import Declaration
     declared = Declaration.from_mapping({"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H2",
                                          "Reviewed-by": ["Jane"], "AI-Review": "A2",
-                                         "AI-Reviewed-by": ["M, fresh"]}, "x")
-    r = next(r for r in project.results(declared=declared, declared_after=base) if r.path == "solver.py")
-    return by_line(r)[2].declaration.short()
+                                         "AI-Reviewed-by": ["M, fresh"]}, "x") if declare else None
+    r = next(r for r in project.results(declared=declared, base=base) if r.path == "solver.py")
+    return [by_line(r)[n].declaration.short() for n in (2, 3)], r
 
 
 def test_preview_of_a_merge(repo):
-    assert preview(repo, "merge") == "G3 H2 A2"
+    assert preview(repo, "merge")[0] == ["G3 H2 A2", "G0 H2 A2"]
 
 
 def test_preview_of_a_squash_ignores_the_branch_commits(repo):
-    assert preview(repo, "squash") == "G3 H2 A2"
+    assert preview(repo, "squash")[0] == ["G3 H2 A2", "G3 H2 A2"]
 
 
 def test_preview_of_a_rebase_ignores_the_description(repo):
-    assert preview(repo, "rebase") == "G3 TODO A1"
+    levels, r = preview(repo, "rebase")
+    assert levels == ["G3 TODO A1", "G0 -- --"] and len(r.errors) > 1  # each commit lands as it is
+
+
+def test_preview_without_the_description_fails_nothing(repo, capsys):
+    from aisignoff.cli import main
+    levels, r = preview(repo, "merge", declare=False)
+    assert levels == ["G3 TODO A1", "G0 -- --"]  # what the commits say, shown
+    assert r.errors == [] and all(p.advisory for n, p in by_line(r).items() if n in (2, 3))
+    capsys.readouterr()
+    assert main(["--root", str(repo), "lint", "--strict"]) == 0
+    assert "2 line(s) that aren't on the default branch yet" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------ settings and warnings
@@ -214,27 +280,28 @@ def test_a_hand_written_commit_inside_a_self_checked_pull_request(repo):
     commit(repo, "agent")
     merge(repo, "feature", "Merge feature\n\n" + D("G3", "H1", "A1", ai="M, self-check"))
     lines = by_line(result(repo)[0])
-    assert lines[2].declaration.short() == "G0 H2 A0" and lines[2].errors == []
+    assert lines[2].declaration.short() == "G0 H1 A0" and lines[2].errors == []
     assert lines[3].declaration.short() == "G3 H1 A1" and lines[3].errors == []
 
 
-def test_a_review_raised_from_inside_a_pull_request_is_reported(repo, capsys):
+def test_a_review_claimed_inside_a_pull_request_doesnt_count(repo, capsys):
     from aisignoff.cli import main
     git(repo, "checkout", "-q", "-b", "contrib")
     edit_lines(repo, [2])
     sha = commit(repo, "contribution", D("G3", "H3", "A1", by="Jane Doe"))
     merge(repo, "contrib", "Merge contrib\n\n" + D("G3", "H0", "A1", by="Maintainer"))
     r, project = result(repo)
-    assert by_line(r)[2].declaration.short() == "G3 H3 A1"  # the higher level counts
-    assert len(project.history_warnings) == 1 and sha[:7] in project.history_warnings[0]
-    assert "Human-Review H3" in project.history_warnings[0]
+    assert by_line(r)[2].declaration.short() == "G3 H0 A1" and project.history_warnings == []
     capsys.readouterr()
-    assert main(["--root", str(repo), "lint"]) == 0
-    assert main(["--root", str(repo), "lint", "--strict"]) == 1
-    with open(repo / "SIGNOFF.toml", "a") as f:  # settled: the warning's own suggestion
-        f.write(f'\n[[commits]]\ncommit = "{sha[:7]}"\nHuman-Review = "H0"\nReviewed-by = "Maintainer"\n')
+    assert main(["--root", str(repo), "lint", "--strict"]) == 0
+    with open(repo / "SIGNOFF.toml", "a") as f:  # a correction of the commit inside: only generation would count
+        f.write(f'\n[[commits]]\ncommit = "{sha[:7]}"\nHuman-Review = "H3"\nReviewed-by = "Jane Doe"\n')
     r, project = result(repo)
-    assert project.history_warnings == [] and by_line(r)[2].declaration.short() == "G3 H0 A1"
+    assert by_line(r)[2].declaration.short() == "G3 H0 A1"
+    assert len(project.history_warnings) == 1 and "inside a pull request" in project.history_warnings[0]
+    git(repo, "reset", "-q", "--hard", "HEAD~1")  # a pull request that leaves an axis to its commits: missing
+    merge(repo, "contrib", "Merge contrib\n\nAI-Generation: G3\nAssisted-by: M\nAI-Review: A1\nAI-Reviewed-by: M")
+    assert any("declares levels, but no Human-Review" in e for e in by_line(result(repo)[0])[2].errors)
 
 
 def test_the_pull_requests_todo_wins(repo):
@@ -291,7 +358,9 @@ def test_a_rebase_preview_is_not_exempt(repo):
     git(repo, "checkout", "-q", "-b", "pr")
     edit_lines(repo, [3])
     commit(repo, "forgot the declaration")
-    merge(repo, "pr", f"Merge {'a' * 40} into {'b' * 40}")
+    assert by_line(result(repo)[0])[3].errors == []  # on the branch itself, nothing is about to land
+    git(repo, "checkout", "-q", "--detach", "main")
+    git(repo, "merge", "-q", "--no-ff", "pr", "-m", "preview")
     line = by_line(result(repo)[0])[3]
     assert any("forgot the declaration" in e and "require-trailers-since" in e for e in line.errors)
 
@@ -309,7 +378,7 @@ def test_attestation_of_a_path_renamed_away_and_recreated(repo):
     assert any("was renamed to moved.py" in p for p in project.history_problems)
 
 
-def test_on_a_push_event_nothing_is_a_preview(repo, monkeypatch):
+def test_what_is_landed_follows_the_default_branch_not_the_subject_or_the_environment(repo, monkeypatch):
     first = git(repo, "rev-parse", "HEAD")
     text = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", f'enabled = true\nrequire-trailers-since = "{first}"')
     (repo / "SIGNOFF.toml").write_text(text)
@@ -317,10 +386,17 @@ def test_on_a_push_event_nothing_is_a_preview(repo, monkeypatch):
     git(repo, "checkout", "-q", "-b", "pr")
     edit_lines(repo, [3])
     commit(repo, "undeclared")
-    merge(repo, "pr", f"Merge {'a' * 40} into {'b' * 40}")
-    assert by_line(result(repo)[0])[3].errors == []  # the preview: exempt
+    git(repo, "checkout", "-q", "--detach", "main")
+    git(repo, "merge", "-q", "--no-ff", "pr", "-m", "any subject")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    assert by_line(result(repo)[0])[3].errors == []  # not on main: the pull request isn't merged yet
+    git(repo, "checkout", "-q", "-B", "main")  # the same commit, now main's
     assert any("require-trailers-since" in e for e in by_line(result(repo)[0])[3].errors)
+    toml = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", 'enabled = true\ndefault-branch = "trunk"')
+    (repo / "SIGNOFF.toml").write_text(toml)
+    project = Project(repo)
+    project.results(quiet=True)
+    assert any("default-branch: there is no branch trunk" in p for p in project.history_problems)
 
 
 # ------------------------------------------------------------------ 0.10.1 review
@@ -372,10 +448,3 @@ def test_a_commit_declaring_g0_with_a1_itself_is_an_error(repo):
     assert line.declaration.short() == "G0 H1 A1" and any("G0 has no generating AI session" in e for e in line.errors)
 
 
-def test_a_review_only_a_branch_commit_declares_is_reported(repo):
-    git(repo, "checkout", "-q", "-b", "contrib")
-    edit_lines(repo, [2])
-    commit(repo, "contribution", D("G3", "H3", "A1", by="Jane Doe"))
-    merge(repo, "contrib", "Merge contrib\n\nAI-Generation: G3\nAssisted-by: M\nAI-Review: A1\nAI-Reviewed-by: M")
-    r, project = result(repo)
-    assert any("doesn't declare" in w and "Human-Review H3" in w for w in project.history_warnings)

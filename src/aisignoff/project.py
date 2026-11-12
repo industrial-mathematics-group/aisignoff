@@ -12,7 +12,7 @@ from . import inline
 from .config import FILENAME, LEGACY_FILENAME, Config, load
 from .model import AXES, Declaration, validate
 
-ALWAYS_SKIPPED = {FILENAME, LEGACY_FILENAME}
+ALWAYS_SKIPPED = {FILENAME, LEGACY_FILENAME, "SIGNOFF.snapshot.json"}
 
 
 class ProjectError(Exception):
@@ -92,6 +92,8 @@ def _history_result(path: str, parts: list) -> FileResult:
     main = max(parts, key=lambda p: p.lines)
     errors = []
     for p in parts:
+        if p.advisory:  # not on the default branch yet, and nothing declares the change: shown, never an error
+            continue
         prefix = "" if len(parts) == 1 else format_runs(p.runs) + ": "
         errors += [prefix + e for e in p.errors]
     index = [0] * sum(p.lines for p in parts)
@@ -147,6 +149,8 @@ class Project:
         self.config = load(self.root)
         self.history_problems: list[str] = []
         self.history_warnings: list[str] = []  # lint shows them; --strict fails on them
+        self.history_notes: list[str] = []  # for the reader: never a failure
+        self.history = None  # the History of the last results(), when it was used
         self.history_used = False
 
     def history_wanted(self) -> bool:
@@ -156,14 +160,14 @@ class Project:
         return [f for f in list_files(self.root)
                 if f not in ALWAYS_SKIPPED and not self.config.is_excluded(f)]
 
-    def results(self, declared: Declaration | None = None, declared_after: str | None = None,
-                quiet: bool = False) -> list[FileResult]:
+    def results(self, declared=None, base: str | None = None, quiet: bool = False,
+                use_snapshot: bool = True) -> list[FileResult]:
         """Every file's declaration. With [history] enabled (and full git history at hand), line
-        by line; 'declared' then declares the changes after 'declared_after' that carry no
-        declaration of their own (aisignoff diff --declare)."""
+        by line; 'declared' (a Declaration, or one history.Piece per axis) then declares the
+        change that isn't on the default branch yet, which starts at 'base' if given."""
         files = self.files()
         fallback = {f: resolve(self.root, self.config, f) for f in files}
-        history = self._history(declared, declared_after, quiet)
+        history = self._history(declared, base, quiet, use_snapshot)
         if history is None:
             return [FileResult(f, d, validate(d, self.config.policy)) for f, d in fallback.items()]
 
@@ -179,29 +183,38 @@ class Project:
         self.history_warnings = history.warnings()
         return out
 
-    def _history(self, declared, declared_after, quiet):
+    def _history(self, declared, base, quiet, use_snapshot=True):
         self.history_used = False
         self.history_problems = []
         self.history_warnings = []
+        self.history_notes = []
+        self.history = None
         if not self.history_wanted():
             return None
-        from .history import History, HistoryError, unavailable_reason
+        from .history import History, HistoryError, pieces_from_values, unavailable_reason
         reason = unavailable_reason(self.root)
         if reason:
             if not quiet:
                 print(f"warning: [history] is enabled, but this is a {reason}; using the file-level declarations",
                       file=sys.stderr)
-            if self.config.history.require_trailers_since is not None:
+            settings = self.config.history
+            required = ("require-trailers-since" if settings.require_trailers_since is not None
+                        else 'undeclared = "error"' if settings.undeclared == "error" else None)
+            if required:
                 # the check that lint exists for can't run: fail instead of passing unnoticed
-                self.history_problems = [f"[history] require-trailers-since is set, but this is a {reason}, "
+                self.history_problems = [f"[history] {required} is set, but this is a {reason}, "
                                          "so the commits can't be checked"]
             return None
+        if isinstance(declared, Declaration):
+            declared = pieces_from_values(declared.as_dict(), "declared for this change", "declared")
         try:
-            history = History(self.root, self.config, declared, declared_after)
+            history = History(self.root, self.config, declared, base, use_snapshot)
         except HistoryError as e:
             raise ProjectError(str(e))
         self.history_used = True
+        self.history = history
         self.history_problems = history.problems
+        self.history_notes = history.notes
         return history
 
     def unused_annotations(self, files: list[str]) -> list[int]:

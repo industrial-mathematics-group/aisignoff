@@ -27,7 +27,7 @@ jobs:
       - run: aisignoff lint
 ```
 
-Then require the check in the branch protection of `main`, so no file goes undeclared. With [line-by-line declarations](history.md), check out the whole history: `actions/checkout` with `fetch-depth: 0`.
+Then require the check in the branch protection of `main`, so no file goes undeclared. With [line-by-line declarations](history.md), check out the whole history: `actions/checkout` with `fetch-depth: 0`. That also fetches the default branch, which aisignoff needs to tell which lines have landed. In a pull request, the lines it adds fail nothing on their own, since its description declares them when it lands; `aisignoff lint --declare-from` checks the description before the merge ([Lines that haven't landed yet](history.md#lines-that-havent-landed-yet)).
 
 More complete versions, with badges, a summary of the files a pull request changes, release reports and a pre-commit hook, are in [Example workflows](integration.md).
 

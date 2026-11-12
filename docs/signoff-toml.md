@@ -70,7 +70,7 @@ Three more tables declare lines instead of files, from git history. They're desc
 ```toml
 [history]
 enabled = true
-require-trailers-since = "a1b2c3d"   # optional
+undeclared = "error"                 # optional
 
 [[commits]]                          # corrects the declaration of a commit
 commit = "6686c01"
@@ -84,15 +84,16 @@ Human-Review = "H2"
 Reviewed-by = "Jane Doe"
 ```
 
-- **`[history]`:** `enabled` (default `true` once the table is there), `require-trailers-since` (a commit), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists), `merge-method` (`"merge"`, the default, `"squash"` or `"rebase"`: how pull requests land, for their CI run's preview), `ignore-whitespace` (default `true`: `git blame -w`).
+- **`[history]`:** `enabled` (default `true` once the table is there), `default-branch` (default: `origin`'s default branch, else `main` or `master`), `undeclared` (`"baseline"`, the default: lines of a commit that declares nothing take the file-level declaration; `"error"`: `lint` fails), `require-trailers-since` (a commit: `undeclared = "error"` for the commits after it), `ignore-revs-file` (default: `.git-blame-ignore-revs` if it exists), `merge-method` (`"merge"`, the default, `"squash"` or `"rebase"`: how pull requests land, for the lines of one that isn't merged yet), `ignore-whitespace` (default `true`: `git blame -w`).
 - **`[[commits]]` and `[[attestations]]`** take the declaration keys like an annotation, but only whole axes: at least one level, and a name list only next to its level.
 - With history, the annotations and inline tags become the fallback for lines that git doesn't declare.
+- **`SIGNOFF.snapshot.json`**, next to `SIGNOFF.toml`, is written by [`aisignoff freeze`](history.md#freezing-the-levels-aisignoff-freeze): the levels of every line as of one commit. Don't edit it by hand.
 
 ## Which files are checked
 
 - **In a git repository:** all tracked files plus untracked files that aren't ignored, so `.gitignore` is respected. If git can't be run there, aisignoff stops with an error rather than ignoring `.gitignore`.
 - **Outside git:** every file below the root.
-- **Always skipped:** `SIGNOFF.toml` itself (and `AIDECL.toml`, its [old name](migrating.md#from-aidecl)) and anything under `exclude`.
+- **Always skipped:** `SIGNOFF.toml` itself (and `AIDECL.toml`, its [old name](migrating.md#from-aidecl)), `SIGNOFF.snapshot.json` and anything under `exclude`.
 
 !!! tip
     Exclude the folder of committed AI reviews (`reviews/` by convention), since the reviews themselves need no declaration.
