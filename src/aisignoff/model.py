@@ -35,23 +35,10 @@ LEVELS = {GEN: GENERATION, HUM: HUMAN, AIR: AI}
 # The three axes: each level key together with the list key that names who/what did it.
 AXES = ((GEN, ASSISTED), (HUM, REVIEWED), (AIR, AI_REVIEWED))
 
-# Keys of the first version of the scheme (V0-V3), recognised for migration only.
-LEGACY_KEYS = ("AI-Verification", "Verified-by", "Tested-by")
-
-# Version 2 used A-, A0-A3 for the AI review. The new scale shifts by one:
-#   A- (none) -> A0, A0 (self-check) -> A1, A1 (new session, same model) -> A2,
-#   A2 (different model) -> A2 (A3 now also requires an extensive review or benchmark),
-#   A3 (different model with benchmark) -> A3.
-LEGACY_AI_NONE = "A-"
-# Where the old value turns up, SIGNOFF.toml is already version 3 (or absent), so 'aisignoff migrate'
-# may refuse; say what to write instead.
-LEGACY_AI_HINT = (" (A- is now A0; without SIGNOFF.toml, 'aisignoff migrate --from 2'"
-                  " converts all old tags, otherwise convert them by hand: A- -> A0, A0 -> A1, A1 -> A2)")
-
 ORDER = {k: i for i, k in enumerate([*HUMAN, *AI])}  # H0<H1<..., A0<A1<...
 
-# Placeholder for a level or name that a person still has to fill in. 'aisignoff migrate' writes it
-# where the old levels carry no information, and 'aisignoff annotate' accepts it (e.g. -H TODO).
+# Placeholder for a level or name that a person still has to fill in. 'aisignoff annotate' accepts it
+# (e.g. -H TODO).
 # It blocks the per-axis fallback to SIGNOFF.toml and fails lint until a person fills it in.
 TODO = "TODO"
 
@@ -108,8 +95,7 @@ def parse_policy(data, where: str = "policy") -> Policy:
         if "human" in req and (not isinstance(req["human"], str) or req["human"] not in HUMAN):
             raise ValueError(f"{where}.{gen}.human must be one of {', '.join(HUMAN)}")
         if "ai" in req and (not isinstance(req["ai"], str) or req["ai"] not in AI):
-            hint = " (A- is now A0)" if req["ai"] == LEGACY_AI_NONE else ""
-            raise ValueError(f"{where}.{gen}.ai must be one of {', '.join(AI)}{hint}")
+            raise ValueError(f"{where}.{gen}.ai must be one of {', '.join(AI)}")
         rules[gen] = dict(req)
     return Policy(rules)
 
@@ -182,8 +168,7 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
         if v is None:
             errors.append(f"missing {key}")
         elif v not in LEVELS[key]:
-            hint = LEGACY_AI_HINT if key == AIR and v == LEGACY_AI_NONE else ""
-            errors.append(f"invalid {key} '{v}' (use {', '.join(LEVELS[key])}){hint}")
+            errors.append(f"invalid {key} '{v}' (use {', '.join(LEVELS[key])})")
 
     # Checks below involve specific axes; a TODO axis is skipped (it is not in the level
     # sets), while the axes that are filled in are still checked.

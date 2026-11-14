@@ -17,7 +17,7 @@ permissions:
   contents: write   # to upload the release assets
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc1"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "1.0.0rc2"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   report:

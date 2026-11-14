@@ -2,6 +2,15 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc2
+
+Removes what was kept for repositories from before version 3 of the format, so 1.0 reads only the current one. Allowed in a release candidate by the [compatibility](compatibility.md) promise, which starts with 1.0.0.
+
+- **Breaking:** `aisignoff migrate` is gone. Convert old repositories once with `uvx aisignoff==1.0.0rc1 migrate` before upgrading ([Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2)).
+- **Breaking:** `AIDECL.toml` is no longer read in place of `SIGNOFF.toml`. While one exists, every command stops with an error that says how to convert it.
+- **Breaking:** inline tags of format version 1 (`AI-Verification`, `Tested-by`, `Verified-by`) are no longer recognised, so a file tagged only with them has no inline declaration.
+- `SIGNOFF.toml` of versions 1 and 2 and the old level `A-` get the plain errors for an unsupported version and an invalid level, pointing to 1.0.0rc1 instead of `migrate`.
+
 ## 1.0.0rc1
 
 The first release candidate for 1.0. It fixes what the 1.0 readiness review found; 1.0.0 is meant to follow from the same code once it has run unchanged for a while.

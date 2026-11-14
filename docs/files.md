@@ -78,7 +78,7 @@ With `precedence = "override"` on the annotation, the annotation alone counts. W
 
 - **In a git repository:** tracked files plus untracked files that aren't ignored, so `.gitignore` is respected. If git can't be run there, aisignoff stops rather than ignoring `.gitignore`.
 - **Outside git:** every file below the root.
-- **Never:** `SIGNOFF.toml` itself (and `AIDECL.toml`, its [old name](migrating.md#from-aidecl)), `SIGNOFF.snapshot.json`, and anything that matches `exclude`.
+- **Never:** `SIGNOFF.toml` itself, `SIGNOFF.snapshot.json`, and anything that matches `exclude`.
 
 !!! tip
     Exclude the folder of committed AI reviews (`reviews/` by convention): the reviews need no declaration themselves.

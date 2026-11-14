@@ -43,7 +43,7 @@ Reviewed-by = "Jane Doe"
 
 | Key | Value |
 |---|---|
-| `version` | `3`, required. Versions 1 and 2 are converted by [`aisignoff migrate`](migrating.md) |
+| `version` | `3`, required. Versions 1 and 2 are no longer read; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2) |
 | `exclude` | a glob or list of globs: files that need no declaration |
 
 ## Declaration keys

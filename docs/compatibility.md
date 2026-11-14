@@ -1,6 +1,6 @@
 # Compatibility
 
-aisignoff is at its first release candidate for 1.0 (1.0.0rc1). From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers, so you know what to rely on when you pin a version in a workflow or a pre-commit hook. A release candidate may still change these formats before 1.0.0, with a note in the [changelog](changelog.md).
+aisignoff is at its second release candidate for 1.0 (1.0.0rc2). From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers, so you know what to rely on when you pin a version in a workflow or a pre-commit hook. A release candidate may still change these formats before 1.0.0, with a note in the [changelog](changelog.md).
 
 ## What 1.x will keep stable
 
@@ -26,4 +26,4 @@ From 1.0, a minor or patch release (1.1, 1.0.1, …) won't break any of these; b
 
 ## Older versions
 
-Versions before 0.12 changed formats freely. [`aisignoff migrate`](migrating.md) converts declarations from versions 1 and 2 of the level scale, and the [changelog](changelog.md) lists what changed in each release.
+Versions before 0.12 changed formats freely. Declarations from versions 1 and 2 of the level scale, and `AIDECL.toml`, are no longer read; convert them once with 1.0.0rc1 ([Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2)). The [changelog](changelog.md) lists what changed in each release.

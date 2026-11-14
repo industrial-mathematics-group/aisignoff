@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .model import GEN, KEYS, LEGACY_KEYS, LEVELS, LIST_KEYS, Declaration, canonical_key
+from .model import GEN, KEYS, LEVELS, LIST_KEYS, Declaration, canonical_key
 
 HEADER_LINES = 30
 BOM = "﻿"
@@ -64,8 +64,7 @@ _NAME_STYLES = {
 _FRONT_MATTER = {".md", ".markdown", ".qmd", ".rmd"}
 _FENCED = _FRONT_MATTER
 
-_ALL_KEYS = KEYS + LEGACY_KEYS
-_KEY_RE = "|".join(re.escape(k) for k in sorted(_ALL_KEYS, key=len, reverse=True))
+_KEY_RE = "|".join(re.escape(k) for k in sorted(KEYS, key=len, reverse=True))
 _CLOSERS = r"(?:-->|\*/|=#|\*\))"
 _LINE_BREAK = re.compile(r"\r\n|\n|\r")
 
@@ -111,15 +110,8 @@ def read_head(path: Path) -> list[str] | None:
     return split_lines(text)[:HEADER_LINES]
 
 
-_LEGACY_LEVELS = {"V0", "V1", "V2", "V3"}
-
-
 def _is_anchor(key: str, value: str) -> bool:
-    if key in LEVELS:
-        if key == "AI-Review" and value == "A-":
-            return True  # version 2 scale, for migration (and a clear lint error)
-        return value in LEVELS[key] or value == "TODO"  # TODO: placeholder for a person to fill in
-    return key == "AI-Verification" and value in _LEGACY_LEVELS  # old scheme, for migration
+    return key in LEVELS and (value in LEVELS[key] or value == "TODO")  # TODO: placeholder for a person
 
 
 def find_blocks(path: Path, lines: list[str]) -> list[list[tuple[int, str, str]]]:
@@ -144,7 +136,7 @@ def find_blocks(path: Path, lines: list[str]) -> list[list[tuple[int, str, str]]
         in_fence = fence is not None
         m = None if in_fence else regex.match(line)
         if m:
-            current.append((i, canonical_key(m.group(1), _ALL_KEYS), m.group(2).strip()))
+            current.append((i, canonical_key(m.group(1)), m.group(2).strip()))
             continue
         if current:
             blocks.append(current)
@@ -155,7 +147,7 @@ def find_blocks(path: Path, lines: list[str]) -> list[list[tuple[int, str, str]]
 
 
 def parse_values(path: Path) -> tuple[dict, list[str]] | None:
-    """Raw values of the inline block (legacy keys included), or None if there is none."""
+    """Raw values of the inline block, or None if there is none."""
     lines = read_head(path)
     if not lines:
         return None
@@ -167,7 +159,7 @@ def parse_values(path: Path) -> tuple[dict, list[str]] | None:
     if len(blocks) > 1:
         problems.append("more than one inline declaration block")
     for _, key, value in blocks[0]:
-        if key in LIST_KEYS or key in ("Verified-by", "Tested-by"):
+        if key in LIST_KEYS:
             if value:
                 values.setdefault(key, []).append(value)
         elif key in values:
@@ -183,8 +175,6 @@ def parse(path: Path) -> Declaration | None:
     if found is None:
         return None
     values, problems = found
-    if any(k in values for k in LEGACY_KEYS):
-        problems.append("inline tags use the old V levels (AI-Verification); run 'aisignoff migrate'")
     d = Declaration.from_mapping(values, source="inline")
     d.problems.extend(problems)
     return d

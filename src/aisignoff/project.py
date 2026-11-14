@@ -9,10 +9,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import inline
-from .config import FILENAME, LEGACY_FILENAME, Config, load
+from .config import FILENAME, Config, load
 from .model import AXES, Declaration, validate
 
-ALWAYS_SKIPPED = {FILENAME, LEGACY_FILENAME, "SIGNOFF.snapshot.json"}
+ALWAYS_SKIPPED = {FILENAME, "SIGNOFF.snapshot.json"}
 
 
 class ProjectError(Exception):

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from aisignoff import inline
-from aisignoff.cli import badge_json, main, migrate_values, percentages
-from aisignoff.config import ConfigError, LegacyConfig, load
+from aisignoff.cli import badge_json, main, percentages
+from aisignoff.config import ConfigError, load
 from aisignoff.globbing import matches
 from aisignoff.model import Declaration, Policy, parse_policy, validate
 from aisignoff.project import Project
@@ -107,21 +107,13 @@ def test_g0_has_no_self_check():
     assert validate(d(g="G0", h="H1", a="A0", rev="J"), p) == ["G0 requires at least A2 (by policy; declared A0)"]
 
 
-def test_old_none_level_has_a_hint(tmp_path):
-    assert any("A- is now A0" in e for e in validate(d(g="G0", h="H1", a="A-", rev="J")))
-    with pytest.raises(ValueError, match="A- is now A0"):
+def test_old_none_level_is_invalid(tmp_path):
+    # A- (format version 2) is no longer read: it is an invalid level like any other
+    assert any("invalid AI-Review 'A-'" in e for e in validate(d(g="G0", h="H1", a="A-", rev="J")))
+    with pytest.raises(ValueError, match="must be one of"):
         parse_policy({"*": {"ai": "A-"}})
-
-
-def test_old_none_level_hints_dont_loop(tmp_path):
-    # with a version-3 SIGNOFF.toml, migrate refuses, so the hint must not send people there alone
-    errors = validate(d(g="G0", h="H1", a="A-", rev="J"))
-    assert any("convert them by hand" in e for e in errors)
-    with pytest.raises(ValueError) as e:
-        parse_policy({"*": {"ai": "A-"}})
-    assert "migrate" not in str(e.value)
     write(tmp_path, "SIGNOFF.toml", HEAD + '[[annotations]]\npath = "**"\n' + TOML_G0.replace('"A0"', '"A-"'))
-    with pytest.raises(ConfigError, match="A- is now A0"):
+    with pytest.raises(ConfigError, match="invalid AI-Review 'A-'"):
         load(tmp_path)
 
 
@@ -156,7 +148,8 @@ def test_config_errors(tmp_path):
         'version = 3\n[[annotations]]\npath = []\n': "must not be empty",
         'version = 3\n[[annotations]]\npath = "**"\nHuman-Review = "H0"\nhuman-review = "H1"\n': "more than once",
         'version = 3\n[policy]\nG7 = { human = "H1" }\n': "unknown key 'G7'",
-        'version = 2\n': "aisignoff migrate",
+        'version = 2\n': "aisignoff==1.0.0rc1 migrate",
+        'version = 1\n': "aisignoff==1.0.0rc1 migrate",
     }
     for text, message in bad.items():
         (tmp_path / "SIGNOFF.toml").write_text(text)
@@ -169,12 +162,6 @@ def test_unknown_settings_are_warnings(tmp_path):
     (tmp_path / "SIGNOFF.toml").write_text('version = 3\nfoo = 1\n[history]\nbar = 2\n')
     config = load(tmp_path)
     assert len(config.warnings) == 2 and "foo" in config.warnings[0] and "bar" in config.warnings[1]
-
-
-def test_version_1_points_to_migrate(tmp_path):
-    (tmp_path / "SIGNOFF.toml").write_text('version = 1\n')
-    with pytest.raises(LegacyConfig, match="aisignoff migrate"):
-        load(tmp_path)
 
 
 def test_last_annotation_wins(tmp_path):
@@ -287,9 +274,10 @@ def test_inline_duplicate(tmp_path):
     assert "more than once" in inline.parse(p).problems[0]
 
 
-def test_inline_legacy_keys_flagged(tmp_path):
-    p = write(tmp_path, "f.jl", "# AI-Generation: G0\n# AI-Verification: V0\n# Tested-by: J\n")
-    assert any("aisignoff migrate" in x for x in inline.parse(p).problems)
+def test_inline_old_v_levels_are_not_a_declaration(tmp_path):
+    # AI-Verification (format version 1) is no longer read: the file has no inline declaration
+    p = write(tmp_path, "f.jl", "# AI-Verification: V0\n# Tested-by: J\n")
+    assert inline.parse(p) is None
 
 
 def test_inline_write_roundtrip(tmp_path):
@@ -567,86 +555,7 @@ def test_badge_small_share_shown():
     assert badge_json("x", Counter(G0=1, G1=998), ["G0", "G1"], "000")["message"] == "G0 <1% · G1 100%"
 
 
-# ------------------------------------------------------------------ migration
-@pytest.mark.parametrize("old,new,todo", [
-    ({"AI-Generation": "G0", "AI-Verification": "V0", "Tested-by": ["J"]},
-     {"AI-Generation": "G0", "Human-Review": "H2", "Reviewed-by": ["J"], "AI-Review": "A0"}, []),
-    ({"AI-Generation": "G2", "AI-Verification": "V0", "Assisted-by": ["M"], "Tested-by": ["J"]},
-     {"AI-Generation": "G2", "Assisted-by": ["M"], "Human-Review": "H2", "Reviewed-by": ["J"]}, ["AI-Review"]),
-    ({"AI-Generation": "G3", "AI-Verification": "V2", "Assisted-by": ["M"], "Verified-by": ["N"]},
-     {"AI-Generation": "G3", "Assisted-by": ["M"], "AI-Review": "A2", "AI-Reviewed-by": ["N"]},
-     ["Human-Review", "Reviewed-by"]),
-    ({"AI-Generation": "G2", "AI-Verification": "V3", "Assisted-by": ["M"], "Verified-by": ["N"], "Tested-by": ["J"]},
-     {"AI-Generation": "G2", "Assisted-by": ["M"], "Human-Review": "H2", "Reviewed-by": ["J"],
-      "AI-Review": "A2", "AI-Reviewed-by": ["N"]}, []),
-])
-def test_migrate_values(old, new, todo):
-    values, missing = migrate_values(old)
-    assert values == new and missing == todo
-
-
-def test_migrate_command(tmp_path, capsys):
-    write(tmp_path, "SIGNOFF.toml", 'version = 1\nexclude = ["build/**"]\n[[annotations]]\npath = "**"\n'
-                                   'AI-Generation = "G0"\nAI-Verification = "V0"\nTested-by = "Jane"\n'
-                                   '[[annotations]]\npath = "results/**"\nAI-Generation = "G2"\n'
-                                   'AI-Verification = "V1"\nAssisted-by = "M"\nVerified-by = "M, fresh"\n')
-    write(tmp_path, "results/r.csv")
-    write(tmp_path, "src/a.jl", "# AI-Generation: G0\n# AI-Verification: V0\n# Tested-by: Bob\n\nf() = 1\n")
-    assert main(["--root", str(tmp_path), "migrate", "--dry-run"]) == 0
-    assert "version = 1" in (tmp_path / "SIGNOFF.toml").read_text()            # dry run changes nothing
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    cfg = load(tmp_path)
-    assert cfg.exclude == ("build/**",)
-    assert cfg.annotations[0].values["Human-Review"] == "H2"
-    assert cfg.annotations[1].values["AI-Review"] == "A2"
-    assert "TODO after migration: add Human-Review, Reviewed-by" in (tmp_path / "SIGNOFF.toml").read_text()
-    a = inline.parse(tmp_path / "src/a.jl")
-    assert a.short() == "G0 H2 A0" and a.reviewed_by == ("Bob",) and a.problems == []
-    assert (tmp_path / "src/a.jl").read_text().endswith("\nf() = 1\n")
-    res = {r.path: r.errors for r in Project(tmp_path).results()}
-    assert res["src/a.jl"] == []
-    assert "missing Human-Review" in res["results/r.csv"]                    # the TODO shows up in lint
-    capsys.readouterr()
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert "Nothing to migrate" in capsys.readouterr().out
-
-
 # ------------------------------------------------------------------ regressions from the G/H/A review
-def test_migrate_inline_does_not_inherit_reviews(tmp_path):
-    write(tmp_path, "SIGNOFF.toml", 'version = 1\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\n'
-                                   'AI-Verification = "V3"\nTested-by = "Jane"\nVerified-by = "Claude"\n')
-    write(tmp_path, "a.py", "# AI-Generation: G2\n# AI-Verification: V1\n# Assisted-by: M\n# Verified-by: M2\n")
-    write(tmp_path, "b.py", "# AI-Generation: G2\n# AI-Verification: V0\n# Assisted-by: M\n# Tested-by: Bob\n")
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    res = {r.path: r for r in Project(tmp_path).results()}
-    assert res["a.py"].declaration.human == "TODO"
-    assert any("Human-Review is still TODO" in e for e in res["a.py"].errors)
-    assert any("Reviewed-by is still TODO" in e for e in res["a.py"].errors)
-    assert res["b.py"].declaration.ai == "TODO" and res["b.py"].errors
-    assert main(["--root", str(tmp_path), "lint"]) == 1
-    # filling in the TODOs makes it pass
-    p = tmp_path / "a.py"
-    p.write_text(p.read_text().replace("Human-Review: TODO", "Human-Review: H1").replace("Reviewed-by: TODO", "Reviewed-by: Jane"))
-    q = tmp_path / "b.py"
-    q.write_text(q.read_text().replace("# AI-Review: TODO", "# AI-Review: A1\n# AI-Reviewed-by: M"))
-    assert main(["--root", str(tmp_path), "lint"]) == 0
-
-
-def test_migrate_robustness(tmp_path, capsys):
-    write(tmp_path, "a.txt")
-    (tmp_path / "SIGNOFF.toml").write_text('version = 1\n[[annotations]]\nAI-Generation = "G0"\n')
-    assert main(["--root", str(tmp_path), "migrate"]) == 2                     # no path: clear error
-    old = 'version = 1\n[[annotations]]\npath = "**"\nAI-Generation = "G7"\nAI-Verification = "V0"\nTested-by = "J"\n'
-    (tmp_path / "SIGNOFF.toml").write_text(old)
-    assert main(["--root", str(tmp_path), "migrate"]) == 2                     # would be invalid
-    assert (tmp_path / "SIGNOFF.toml").read_text() == old                       # left unchanged
-    (tmp_path / "SIGNOFF.toml").write_text('version = 1\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\n'
-                                          'AI-Verification = "V0"\nTested-by = "J"\nNote = "x"\n')
-    capsys.readouterr()
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert "key 'Note' is not part of the scheme and was dropped" in capsys.readouterr().out
-
-
 def test_policy_array_is_a_clean_error(tmp_path):
     (tmp_path / "SIGNOFF.toml").write_text('version = 3\n[policy]\n"*" = { human = ["H1"] }\n')
     with pytest.raises(ConfigError, match="human must be one of"):
@@ -692,7 +601,7 @@ def test_annotate_todo_placeholder(tmp_path, capsys):
     a = load(tmp_path).annotations[0]
     assert a.values["Human-Review"] == "TODO" and a.values["Reviewed-by"] == ("TODO",)
     capsys.readouterr()
-    # lint fails until a person fills in the human review, and doesn't blame migrate
+    # lint fails until a person fills in the human review
     assert main(["--root", str(tmp_path), "lint"]) == 1
     out = capsys.readouterr().out
     assert "Human-Review is still TODO (to be filled in by a person)" in out
@@ -737,141 +646,6 @@ def test_annotate_todo_inline(tmp_path, capsys):
     p.write_text(text.replace("Human-Review: TODO", "Human-Review: H1").replace("Reviewed-by: TODO", "Reviewed-by: J"))
     assert main(["--root", str(tmp_path), "lint"]) == 0
 
-V2_TOML = """# our declarations
-version = 2  # scheme version
-
-[policy]
-"*" = { human = "H1", ai = "A0" }
-G3 = { ai = "A2" }   # different model
-
-[[annotations]]
-path = "**"
-AI-Generation = "G0"
-Human-Review = "H2"
-AI-Review = "A-"     # nobody asked an AI
-Reviewed-by = "Jane"
-
-[[annotations]]
-path = "src/**"
-AI-Generation = "G2"
-Human-Review = "H1"
-AI-Review = "A0"
-Assisted-by = "M"
-AI-Reviewed-by = "M, same session"
-Reviewed-by = "Jane"
-
-[[annotations]]
-path = "paper/**"
-AI-Generation = "G0"
-Human-Review = "H1"
-AI-Review = "A0"
-AI-Reviewed-by = "M"
-Reviewed-by = "Jane"
-
-[[annotations]]
-path = "bench/**"
-AI-Generation = "G3"
-Human-Review = "H1"
-AI-Review = "A2"
-Assisted-by = "M"
-AI-Reviewed-by = "N"
-Reviewed-by = "Jane"
-"""
-
-
-def test_migrate_v2(tmp_path, capsys):
-    import tomllib
-    write(tmp_path, "SIGNOFF.toml", V2_TOML)
-    write(tmp_path, "src/a.py", "# AI-Generation: G1\n# Human-Review: H1\n# AI-Review: A1\n# Assisted-by: M\n"
-                                "# AI-Reviewed-by: M, fresh\n# Reviewed-by: J\nx = 1\n")
-    write(tmp_path, "paper/p.tex", "x\n")
-    write(tmp_path, "bench/b.jl", "x\n")
-    write(tmp_path, "README.md", "x\n")
-    root = str(tmp_path)
-    assert main(["--root", root, "migrate", "--dry-run"]) == 0
-    assert "version = 2" in (tmp_path / "SIGNOFF.toml").read_text()
-    assert main(["--root", root, "migrate"]) == 0
-    out = capsys.readouterr().out
-    text = (tmp_path / "SIGNOFF.toml").read_text()
-    assert "# our declarations" in text and "# nobody asked an AI" in text and "# different model" in text
-    data = tomllib.loads(text)
-    assert data["version"] == 3
-    assert data["policy"] == {"*": {"human": "H1", "ai": "A1"}, "G3": {"ai": "A2"}}
-    assert [a["AI-Review"] for a in data["annotations"]] == ["A0", "A1", "TODO", "A2"]
-    assert "raise it to A3" in out and "use A3 to keep requiring a different model" in out
-    assert "# AI-Review: A2" in (tmp_path / "src/a.py").read_text()
-    # only the TODO (G0 with the old self-check) is left for a person
-    assert main(["--root", root, "lint"]) == 1
-    lint = capsys.readouterr().out
-    assert "AI-Review is still TODO" in lint and "paper/p.tex" in lint and "src/a.py" not in lint
-    assert main(["--root", root, "migrate"]) == 0
-    assert "Nothing to migrate" in capsys.readouterr().out
-
-
-def test_migrate_v2_inline_only(tmp_path, capsys):
-    write(tmp_path, "a.py", "# AI-Generation: G0\n# Human-Review: H2\n# AI-Review: A-\n# Reviewed-by: J\n")
-    root = str(tmp_path)
-    assert main(["--root", root, "lint"]) == 1
-    assert "A- is now A0" in capsys.readouterr().out
-    assert main(["--root", root, "migrate"]) == 0
-    assert "--from 2" in capsys.readouterr().out
-    assert main(["--root", root, "migrate", "--from", "2"]) == 0
-    assert "# AI-Review: A0" in (tmp_path / "a.py").read_text()
-    assert main(["--root", root, "lint"]) == 0
-
-
-def test_migrate_v2_unusual_layout_is_refused(tmp_path):
-    text = 'version = 2\nannotations = [{ path = "**", AI-Generation = "G0", Human-Review = "H1", ' \
-           'AI-Review = "A-", Reviewed-by = "J" }]\n'
-    write(tmp_path, "SIGNOFF.toml", text)
-    assert main(["--root", str(tmp_path), "migrate"]) == 2
-    assert (tmp_path / "SIGNOFF.toml").read_text() == text
-
-
-def test_migrate_from_2_runs_only_once(tmp_path, capsys):
-    write(tmp_path, "a.py", "# AI-Generation: G1\n# Human-Review: H1\n# AI-Review: A0\n# Assisted-by: M\n"
-                            "# AI-Reviewed-by: M, same session\n# Reviewed-by: J\n")
-    root = str(tmp_path)
-    assert main(["--root", root, "migrate", "--from", "2"]) == 0
-    assert "version = 3" in (tmp_path / "SIGNOFF.toml").read_text()
-    assert main(["--root", root, "migrate", "--from", "2"]) == 2       # refused: already version 3
-    assert main(["--root", root, "migrate"]) == 0
-    assert "# AI-Review: A1" in (tmp_path / "a.py").read_text()          # shifted exactly once
-    assert main(["--root", root, "lint"]) == 0
-
-
-def test_migrate_v2_inline_uses_toml_generation(tmp_path, capsys):
-    write(tmp_path, "SIGNOFF.toml", 'version = 2\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\n'
-                                  'Human-Review = "H2"\nAI-Review = "A-"\nReviewed-by = "J"\n')
-    write(tmp_path, "a.py", "# AI-Review: A0\n# AI-Reviewed-by: M, same session\n")
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert "# AI-Review: TODO" in (tmp_path / "a.py").read_text()
-
-
-def test_migrate_refuses_several_blocks(tmp_path, capsys):
-    toml = 'version = 2\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A-"\nReviewed-by = "J"\n'
-    write(tmp_path, "SIGNOFF.toml", toml)
-    src = "# AI-Generation: G1\n# AI-Review: A0\n# Assisted-by: M\n# AI-Reviewed-by: M\n\n# Example:\n# AI-Review: A-\n"
-    write(tmp_path, "a.py", src)
-    assert main(["--root", str(tmp_path), "migrate"]) == 2
-    assert (tmp_path / "SIGNOFF.toml").read_text() == toml and (tmp_path / "a.py").read_text() == src
-
-
-def test_migrate_v2_keeps_comments_crlf_and_skips_itself(tmp_path, capsys):
-    text = ('# Inline headers look like:\r\n# AI-Review: A0\r\nversion = 2\r\n[policy]\r\n'
-            '"*" = { "ai" = "A0" }  # we used to require ai = "A0"\r\n[[annotations]]\r\npath = "**"\r\n'
-            'AI-Generation = "G2"\r\nHuman-Review = "H1"\r\nAI-Review = "A2"\r\nAssisted-by = "M"\r\n'
-            'AI-Reviewed-by = "N"\r\nReviewed-by = "J"\r\n')
-    (tmp_path / "SIGNOFF.toml").write_bytes(text.encode())
-    write(tmp_path, "a.jl", "x\n")
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    new = (tmp_path / "SIGNOFF.toml").read_bytes().decode()
-    assert "# AI-Review: A0\r\n" in new and '# we used to require ai = "A0"' in new
-    assert '"*" = { "ai" = "A1" }' in new and 'AI-Review = "A2"' in new
-    assert "\n" not in new.replace("\r\n", "")                        # no bare LF
-    assert "SIGNOFF.toml: inline tags" not in capsys.readouterr().out
-
-
 def test_annotate_todo_human_adds_reviewed_by_todo(tmp_path):
     write(tmp_path, "a.py")
     assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"),
@@ -903,74 +677,21 @@ def test_init_suggests_excluding_reviews(tmp_path):
 
 
 # ------------------------------------------------------------------ AIDECL.toml (name before aisignoff)
-def test_legacy_filename_is_read_with_a_warning(tmp_path, capsys):
+def test_old_filename_is_refused(tmp_path, capsys):
     write(tmp_path, "AIDECL.toml", HEAD + '[[annotations]]\npath = "**"\n' + TOML_G0)
     write(tmp_path, "a.py")
-    assert main(["--root", str(tmp_path), "lint"]) == 0
-    out = capsys.readouterr()
-    assert "1 of 1 files" in out.out                      # AIDECL.toml itself is not checked
-    assert "aisignoff migrate" in out.err
-    assert Project(tmp_path).results()[0].declaration.source == "AIDECL.toml [1]"
-
-
-def test_both_filenames_are_an_error(tmp_path):
-    write(tmp_path, "AIDECL.toml", HEAD)
-    write(tmp_path, "SIGNOFF.toml", HEAD)
-    with pytest.raises(ConfigError, match="both"):
+    with pytest.raises(ConfigError, match="no longer read.*aisignoff==1.0.0rc1 migrate"):
         load(tmp_path)
-    assert main(["--root", str(tmp_path), "migrate"]) == 2
-
-
-def test_init_refuses_next_to_legacy_file(tmp_path, capsys):
-    write(tmp_path, "AIDECL.toml", HEAD)
+    assert main(["--root", str(tmp_path), "lint"]) == 2
+    assert "AIDECL.toml" in capsys.readouterr().err
     assert main(["--root", str(tmp_path), "init"]) == 2
-    assert "migrate" in capsys.readouterr().err
+    assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), *ARGS_G0]) == 2
     assert not (tmp_path / "SIGNOFF.toml").exists()
 
 
-def test_annotate_appends_to_legacy_file(tmp_path):
-    write(tmp_path, "AIDECL.toml", HEAD)
-    write(tmp_path, "a.py")
-    assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), *ARGS_G0]) == 0
-    assert "[[annotations]]" in (tmp_path / "AIDECL.toml").read_text()
-    assert not (tmp_path / "SIGNOFF.toml").exists()
-
-
-def test_migrate_renames_legacy_file(tmp_path, capsys):
-    text = "# keep this comment\n" + HEAD + '[[annotations]]\npath = "**"\n' + TOML_G0
-    write(tmp_path, "AIDECL.toml", text)
-    write(tmp_path, "a.py")
-    assert main(["--root", str(tmp_path), "migrate", "--dry-run"]) == 0
-    assert "AIDECL.toml -> SIGNOFF.toml" in capsys.readouterr().out
-    assert (tmp_path / "AIDECL.toml").exists()
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert not (tmp_path / "AIDECL.toml").exists()
-    assert (tmp_path / "SIGNOFF.toml").read_text() == text   # content unchanged
-    capsys.readouterr()
-    assert main(["--root", str(tmp_path), "lint"]) == 0
-    assert "AIDECL" not in capsys.readouterr().err
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert "Nothing to migrate" in capsys.readouterr().out
-
-
-def test_migrate_converts_and_renames_version_2(tmp_path):
-    write(tmp_path, "AIDECL.toml", 'version = 2\n[[annotations]]\npath = "**"\n'
-          'AI-Generation = "G2"\nHuman-Review = "H1"\nAI-Review = "A1"\nAssisted-by = ["M"]\n'
-          'AI-Reviewed-by = "M, fresh session"\nReviewed-by = "Jane"\n')
-    write(tmp_path, "a.py")
-    assert main(["--root", str(tmp_path), "migrate"]) == 0
-    assert not (tmp_path / "AIDECL.toml").exists()
-    new = (tmp_path / "SIGNOFF.toml").read_text()
-    assert "version = 3" in new and 'AI-Review = "A2"' in new
-
-
-def test_failed_migrate_keeps_legacy_file(tmp_path):
-    text = "version = 7\n"
-    write(tmp_path, "AIDECL.toml", text)
-    write(tmp_path, "a.py")
-    assert main(["--root", str(tmp_path), "migrate"]) == 2
-    assert (tmp_path / "AIDECL.toml").read_text() == text
-    assert not (tmp_path / "SIGNOFF.toml").exists()
+def test_migrate_is_gone(tmp_path):
+    with pytest.raises(SystemExit):
+        main(["--root", str(tmp_path), "migrate"])
 
 
 # ------------------------------------------------------------------ version
