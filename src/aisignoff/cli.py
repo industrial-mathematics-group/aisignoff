@@ -1,4 +1,4 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge | migrate."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge."""
 from __future__ import annotations
 
 import argparse
@@ -11,11 +11,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import __version__, inline
-from .config import FILENAME, LEGACY_FILENAME, VERSION, ConfigError, LegacyConfig, config_path, load, read_toml
+from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
-from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, KEYS, LIST_KEYS, REVIEWED,
-                    TODO, Declaration, Policy, canonical_key, counted_level, counted_short, printable, validate)
-from .project import Project, ProjectError, list_files, weighted_parts
+from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, REVIEWED, TODO, Declaration,
+                    Policy, counted_level, counted_short, printable, validate)
+from .project import Project, ProjectError, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
             "CONTRIBUTING.md#ai-assisted-contributions")
@@ -91,9 +91,10 @@ def cmd_init(args) -> int:
     target = root / FILENAME
     if target.exists():
         raise UsageError(f"{target} already exists")
-    if (root / LEGACY_FILENAME).exists():
-        raise UsageError(f"{root / LEGACY_FILENAME} already exists (the old name of {FILENAME}); "
-                         "run 'aisignoff migrate' to rename it")
+    try:
+        config_path(root)  # refuses next to an AIDECL.toml that was never converted
+    except ConfigError as e:
+        raise UsageError(str(e))
     lines = [
         "# AI declarations for this repository: generation (G0-G3), human review (H0-H3)",
         "# and AI review (A0-A3).",
@@ -401,7 +402,7 @@ def _append_annotation(root: Path, patterns: list[str], values: dict, precedence
 def _append_toml(root: Path, block: list[str]) -> Path:
     """Append lines to SIGNOFF.toml; restore it if the result is no longer valid."""
     try:
-        target = config_path(root)  # AIDECL.toml in a repository that isn't migrated yet
+        target = config_path(root)
     except ConfigError as e:
         raise UsageError(str(e))
     old = target.read_text(encoding="utf-8") if target.exists() else None
@@ -755,354 +756,6 @@ def cmd_badge(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------- migrate
-def migrate_values(old: dict) -> tuple[dict, list[str]]:
-    """Map a version-1 declaration (V0-V3) to G/H/A. Returns (values, keys a human must add).
-
-    V0 (human ran the tests and reviewed line by line) -> H2, AI review unknown (A0 for G0)
-    V1 / V2 (independent agent, same / different model)  -> A2, human review unknown
-    V3 (human + independent agent)                       -> H2 + A2
-    A3 needs an extensive review or benchmark, which V2 doesn't record, so V2 becomes A2 too.
-    """
-    get = {canonical_key(k, (GEN, ASSISTED, "AI-Verification", "Verified-by", "Tested-by")): v
-           for k, v in old.items()}
-    values: dict = {}
-    if get.get(GEN):
-        values[GEN] = get[GEN]
-    if get.get(ASSISTED):
-        values[ASSISTED] = get[ASSISTED]
-    v = get.get("AI-Verification")
-    tested, verified = get.get("Tested-by"), get.get("Verified-by")
-    if v in ("V0", "V3"):
-        values[HUM] = "H2"
-        if tested:
-            values[REVIEWED] = tested
-    if v in ("V1", "V2", "V3"):
-        values[AIR] = "A2"
-    elif v == "V0" and values.get(GEN) == "G0":
-        values[AIR] = "A0"
-    if values.get(AIR) not in (None, "A0") and verified:
-        values[AI_REVIEWED] = verified
-    todo = [k for k in (GEN, HUM, REVIEWED, AIR) if k not in values]
-    if values.get(AIR) not in (None, "A0") and AI_REVIEWED not in values:
-        todo.append(AI_REVIEWED)
-    return values, todo
-
-
-# version 2 -> 3: the AI review scale moved up by one (see model.py)
-_AI_V2 = {"A-": "A0", "A0": "A1", "A1": "A2", "A2": "A2", "A3": "A3"}
-_NOTE_A2 = ("was A2 (different model). A3 now also requires an extensive review or benchmark: "
-            "raise it to A3 if that applies")
-
-
-def map_ai_v2(level, generation) -> tuple[str | None, str | None]:
-    """New AI-Review for a version-2 value: (value, note). Value TODO if it can't be mapped."""
-    if not isinstance(level, str):
-        return level, None
-    if level == "A0" and generation == "G0":
-        return TODO, ("was A0 (self-check) on human-written content, which the new scale doesn't have: "
-                      "A0 if there was no AI review, A2 or A3 if there was one")
-    if level not in _AI_V2:
-        return level, None  # TODO or invalid: left for lint
-    return _AI_V2[level], (_NOTE_A2 if level == "A2" else None)
-
-
-def _toml_key(name: str) -> str:
-    return name.strip().strip('"').strip("'")
-
-
-def _split_comment(line: str) -> tuple[str, str]:
-    """Split a TOML line into code and trailing comment (a '#' outside strings)."""
-    quote = None
-    i = 0
-    while i < len(line):
-        c = line[i]
-        if quote:
-            if c == "\\" and quote == '"':
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-        elif c in "\"'":
-            quote = c
-        elif c == "#":
-            return line[:i], line[i:]
-        i += 1
-    return line, ""
-
-
-def migrate_toml_v2(text: str, data: dict, name: str = FILENAME) -> tuple[str, list[str], int]:
-    """Rewrite a version-2 SIGNOFF.toml line by line, keeping comments and layout.
-    Returns (new text, notes, number of TODOs). Raises UsageError if the layout is too unusual
-    to convert safely (checked by comparing the parsed result with the expected one)."""
-    import copy
-    import re
-    import tomllib
-
-    annotations = data.get("annotations", [])
-    expected = copy.deepcopy(data)
-    expected["version"] = VERSION
-    notes, todos = [], 0
-    plan = {}  # annotation index -> (new value, note)
-    for i, table in enumerate(annotations if isinstance(annotations, list) else []):
-        if not isinstance(table, dict):
-            continue
-        get = {canonical_key(k): k for k in table}
-        if AIR not in get:
-            continue
-        g = table.get(get[GEN]) if GEN in get else None
-        new, note = map_ai_v2(table[get[AIR]], g)
-        plan[i] = (new, note)
-        expected["annotations"][i][get[AIR]] = new
-        if new == TODO:
-            todos += 1
-        if note:
-            notes.append(f"{FILENAME} annotation [{i + 1}]: {note}")
-    policy = expected.get("policy")
-    if isinstance(policy, dict):
-        for gen, req in policy.items():
-            if isinstance(req, dict) and isinstance(req.get("ai"), str) and req["ai"] in _AI_V2:
-                if req["ai"] == "A2":
-                    notes.append(f"{FILENAME} [policy] {gen}: ai = \"A2\" (different model) is now A2 "
-                                 "(new session); use A3 to keep requiring a different model")
-                req["ai"] = _AI_V2[req["ai"]]
-
-    header = re.compile(r"^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*(#.*)?$")
-    level_line = re.compile(r"""^(\s*)(["']?[A-Za-z-]+["']?)(\s*=\s*)(["'])([^"']*)(\4)(.*)$""", re.S)
-    out, section, index = [], None, -1
-    for line in text.splitlines(keepends=True):
-        m = header.match(line)
-        if m:
-            section = m.group(2).strip()
-            if m.group(1) == "[[" and section == "annotations":
-                index += 1
-            out.append(line)
-            continue
-        eol = "\r\n" if line.endswith("\r\n") else "\n"
-        if section is None:
-            line = re.sub(r"^(\s*version\s*=\s*)2(\s*(#.*)?)$", rf"\g<1>{VERSION}\g<2>", line, flags=re.S)
-        elif section == "annotations" and index in plan:
-            m = level_line.match(line)
-            if m and canonical_key(_toml_key(m.group(2))) == AIR:
-                new, note = plan[index]
-                if new == TODO:
-                    out.append(f"{m.group(1)}# TODO after migration: {note}{eol}")
-                elif note:
-                    out.append(f"{m.group(1)}# Note from migration: {note}{eol}")
-                line = f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{new}{m.group(6)}{m.group(7)}"
-        elif section == "policy" or section.startswith("policy.") or section.startswith('"policy".'):
-            code, comment = _split_comment(line)
-            code = re.sub(r"""((?:\bai|"ai"|'ai')\s*=\s*)(["'])(A-|A[0-3])(\2)""",
-                          lambda m: f"{m.group(1)}{m.group(2)}{_AI_V2[m.group(3)]}{m.group(4)}", code)
-            line = code + comment
-        out.append(line)
-    new_text = "".join(out)
-    try:
-        ok = tomllib.loads(new_text) == expected
-    except tomllib.TOMLDecodeError:
-        ok = False
-    if not ok:
-        raise UsageError(
-            f"{name} is laid out in a way 'migrate' can't convert safely. Nothing was changed. "
-            "Rewrite the unusual parts as plain lines (one [[annotations]] table per annotation, "
-            "AI-Review = \"...\" and ai = \"...\" on their own lines), keep version = 2 and the old levels, "
-            "then run 'aisignoff migrate' again. It converts SIGNOFF.toml and the inline tags together")
-    return new_text, notes, todos
-
-
-def _toml_generation(data: dict | None, path: str):
-    """AI-Generation of the last version-2 annotation matching path (None if none)."""
-    from .globbing import matches
-    g = None
-    for table in (data or {}).get("annotations", []) or []:
-        if not isinstance(table, dict):
-            continue
-        pats = table.get("path")
-        pats = [pats] if isinstance(pats, str) else (pats if isinstance(pats, list) else [])
-        if any(isinstance(pt, str) and matches(pt, path) for pt in pats):
-            keys = {canonical_key(k): k for k in table}
-            g = table.get(keys[GEN]) if GEN in keys else g
-    return g
-
-
-def cmd_migrate(args) -> int:
-    root = Path(args.root)
-    if not root.is_dir():
-        raise UsageError(f"project root {root} is not a directory")
-    changes = []
-    todos = 0
-
-    # SIGNOFF.toml, or AIDECL.toml from before the rename (converted and renamed to SIGNOFF.toml)
-    data = None
-    try:
-        source = config_path(root)
-        data = read_toml(root)
-    except ConfigError as e:
-        raise UsageError(str(e))
-    legacy = source.name == LEGACY_FILENAME
-    new_text = None
-    warnings, notes = [], []
-    version = data.get("version") if data is not None else None
-    if version == 1:
-        lines = [
-            "# AI declarations (migrated from version 1 by 'aisignoff migrate').",
-            f"# Scheme: {SPEC_URL}",
-            f"version = {VERSION}",
-        ]
-        if data.get("exclude"):
-            lines += ["", f"exclude = {_toml_value(list(data['exclude']))}"]
-        if "policy" in data:
-            warnings.append(f"{source.name}: version 1 had no [policy]; the table was dropped, add it again by hand")
-        old_keys = (GEN, ASSISTED, "AI-Verification", "Verified-by", "Tested-by")
-        for i, table in enumerate(data.get("annotations", []), start=1):
-            if not isinstance(table, dict) or "path" not in table:
-                raise UsageError(f"{source.name} annotation [{i}] has no 'path'; fix it, then run migrate again")
-            rest = {k: v for k, v in table.items() if k not in ("path", "precedence")}
-            for k in rest:
-                if canonical_key(k, old_keys) is None:
-                    warnings.append(f"{source.name} annotation [{i}]: key '{k}' is not part of the scheme and was dropped")
-            values, todo = migrate_values(rest)
-            todos += bool(todo)
-            lines.append("")
-            if todo:
-                lines.append(f"# TODO after migration: add {', '.join(todo)}")
-            lines.append("[[annotations]]")
-            lines.append(f"path = {_toml_value(table['path'])}")
-            if table.get("precedence"):
-                lines.append(f"precedence = {_toml_value(table['precedence'])}")
-            lines += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
-        new_text = "\n".join(lines) + "\n"
-        changes.append(f"{FILENAME}: version 1 -> {VERSION}")
-    elif version == 2:
-        new_text, toml_notes, n = migrate_toml_v2(source.read_bytes().decode("utf-8"), data, source.name)
-        notes += toml_notes
-        todos += n
-        changes.append(f"{FILENAME}: version 2 -> {VERSION}")
-    if legacy:
-        if new_text is None:
-            new_text = source.read_bytes().decode("utf-8")  # already version 3: only the name changes
-        changes.insert(0, f"{LEGACY_FILENAME} -> {FILENAME}")
-
-    # Inline tags. Blocks with the V0-V3 keys are always converted. Blocks with G/H/A keys use the
-    # old AI review scale when SIGNOFF.toml is version 2; without SIGNOFF.toml, '--from 2' says so.
-    # Afterwards SIGNOFF.toml is version 3 (created if needed), which records that inline tags
-    # are on the new scale, so running migrate again never shifts them twice.
-    if args.from_version == 2 and data is not None and version != 2:
-        raise UsageError(f"{source.name} is version {version}, so inline tags are already read on its scale "
-                         "(running --from 2 here could shift tags a second time). --from 2 is only for repositories "
-                         "without SIGNOFF.toml. Convert remaining old tags by hand: A- -> A0, A0 -> A1, A1 -> A2")
-    from_v2 = version == 2 or args.from_version == 2
-    create_toml = args.from_version == 2 and data is None
-    inline_updates = []
-    seen_legacy_none = []
-    several = []
-    try:
-        files = list_files(root.resolve())
-    except ProjectError as e:
-        raise UsageError(str(e))
-    for f in files:
-        if f in (FILENAME, LEGACY_FILENAME):
-            continue
-        found = inline.parse_values(root / f)
-        if found is None:
-            continue
-        raw, problems = found
-        is_v1 = any(k in raw for k in ("AI-Verification", "Verified-by", "Tested-by"))
-        if not is_v1 and not (AIR in raw and from_v2):
-            if raw.get(AIR) == "A-":
-                seen_legacy_none.append(f)
-            continue
-        if any("more than one" in pr for pr in problems):
-            several.append(f)
-            continue
-        if is_v1:
-            values, todo = migrate_values(raw)
-            # explicit TODO markers: an inline axis without its level line would otherwise be
-            # filled in from SIGNOFF.toml, which would claim a review that never happened
-            for key in todo:
-                values[key] = [TODO] if key in LIST_KEYS else TODO
-        else:
-            values = dict(raw)
-            g = raw.get(GEN) or _toml_generation(data if version == 2 else None, f)
-            new, note = map_ai_v2(raw[AIR], g)
-            if new == raw[AIR] and not note:
-                continue
-            values[AIR] = new
-            todo = [AIR] if new == TODO else []
-            if note:
-                notes.append(f"{f}: {note}")
-        todos += bool(todo)
-        values = {k: values[k] for k in KEYS if k in values}
-        inline_updates.append((f, values, todo))
-        changes.append(f"{f}: inline tags" + (f" (TODO: {', '.join(todo)})" if todo else ""))
-    if several:
-        # converting the rest would leave these on the old scale, read as the new one
-        raise UsageError(f"{', '.join(several)}: more than one inline declaration block (an example of the "
-                         "format counts too). Leave one block per file, then run migrate again. Nothing was changed")
-    if create_toml and inline_updates:
-        new_text = f"# Created by 'aisignoff migrate --from 2': inline tags use the AI review scale of version {VERSION}.\nversion = {VERSION}\n"
-        changes.insert(0, f"{FILENAME}: created (version {VERSION})")
-
-    for w in warnings:
-        print(f"warning: {w}")
-    if not changes:
-        print("Nothing to migrate.")
-        if seen_legacy_none:
-            print(f"{len(seen_legacy_none)} file(s) use 'AI-Review: A-' from version 2, e.g. {seen_legacy_none[0]}.")
-            if data is None:
-                print("If all inline tags still use the old scale, run 'aisignoff migrate --from 2'.")
-            else:
-                print(f"{source.name} is already version {version}: convert the old tags in these files by hand "
-                      "(A- -> A0, A0 -> A1, A1 -> A2).")
-        return 0
-    if args.dry_run:
-        for c in changes:
-            print("would migrate " + c)
-        for n in notes:
-            print(f"note: {n}")
-        return 0
-    # All or nothing: inline tags first (restored if any fails), SIGNOFF.toml last, so a
-    # partly migrated repository can't be migrated a second time.
-    backups = {}
-    try:
-        for f, values, _ in inline_updates:
-            path = root / f
-            backups[path] = path.read_bytes()
-            inline.write(path, values)
-    except (ValueError, OSError, UnicodeDecodeError) as e:
-        for path, content in backups.items():
-            path.write_bytes(content)
-        raise UsageError(f"{e}. Nothing was changed")
-    if new_text is not None:
-        target = root / FILENAME
-        old_bytes = target.read_bytes() if target.exists() else None
-        legacy_bytes = source.read_bytes() if legacy else None
-        if legacy:
-            source.unlink()
-        target.write_bytes(new_text.encode("utf-8"))
-        try:
-            load(root)
-        except ConfigError as e:
-            if old_bytes is None:
-                target.unlink()
-            else:
-                target.write_bytes(old_bytes)
-            if legacy_bytes is not None:
-                source.write_bytes(legacy_bytes)
-            for path, content in backups.items():
-                path.write_bytes(content)
-            raise UsageError(f"the converted {FILENAME} would be invalid ({e}); fix the old file first. "
-                             "Nothing was changed")
-    for c in changes:
-        print("migrated " + c)
-    for n in notes:
-        print(f"note: {n}")
-    if todos:
-        print("\nSome declarations need information the old levels don't contain (marked TODO).")
-        print("'aisignoff lint' fails until they are filled in.")
-    return 0
-
-
 # ---------------------------------------------------------------- main
 def _add_values(p: argparse.ArgumentParser, required: bool) -> None:
     # TODO is a placeholder for a value a person fills in later (e.g. -H TODO --reviewed-by TODO
@@ -1218,13 +871,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--weight", choices=["files", "lines"], default="files")
     _add_landed(p)
     p.set_defaults(func=cmd_badge)
-
-    p = sub.add_parser("migrate", help="convert declarations of versions 1 (V0-V3) and 2 (A-, A0-A3)")
-    p.add_argument("--dry-run", action="store_true", help="only show what would change")
-    p.add_argument("--from", dest="from_version", type=int, choices=[2],
-                   help="without SIGNOFF.toml: treat inline G/H/A tags as version 2 and create a version-3 SIGNOFF.toml "
-                        "that records the conversion")
-    p.set_defaults(func=cmd_migrate)
 
     args = parser.parse_args(argv)
     try:

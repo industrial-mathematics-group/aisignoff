@@ -1,4 +1,4 @@
-"""Reading SIGNOFF.toml (or, from before the rename to aisignoff, AIDECL.toml).
+"""Reading SIGNOFF.toml.
 
 Format::
 
@@ -37,16 +37,19 @@ Format::
 """
 from __future__ import annotations
 
-import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .globbing import compile_glob, matches
-from .model import AIR, AXES, KEYS, LEGACY_AI_NONE, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key, parse_policy
+from .model import AXES, KEYS, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key, parse_policy
 
 FILENAME = "SIGNOFF.toml"
-LEGACY_FILENAME = "AIDECL.toml"  # the name before aidecl became aisignoff; read until migrated
+# Converted by 'aisignoff migrate' up to 1.0.0rc1, and no longer read: say so instead of treating
+# the repository as one without a SIGNOFF.toml.
+OLD_FILENAME = "AIDECL.toml"
+OLD_RELEASE = "1.0.0rc1"  # the last release that converts old formats
+CONVERT = f"convert it once with 'uvx aisignoff=={OLD_RELEASE} migrate' (or pipx run)"
 VERSION = 3
 PRECEDENCES = ("closest", "override")
 HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace",
@@ -58,10 +61,6 @@ _HEX = set("0123456789abcdef")
 
 class ConfigError(Exception):
     pass
-
-
-class LegacyConfig(ConfigError):
-    """The config file still uses version 1 (V0-V3 levels) or 2 (A-, A0-A3)."""
 
 
 @dataclass
@@ -145,24 +144,10 @@ def _str_list(value, what: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-_warned: set[Path] = set()
-
-
 def config_path(root: Path) -> Path:
-    """SIGNOFF.toml, or AIDECL.toml if only that one exists (a repository not migrated yet)."""
-    new, old = root / FILENAME, root / LEGACY_FILENAME
-    if old.exists():
-        if new.exists():
-            raise ConfigError(f"both {FILENAME} and {LEGACY_FILENAME} exist; keep only {FILENAME}")
-        return old
-    return new
-
-
-def _warn_legacy(path: Path) -> None:
-    if path.name == LEGACY_FILENAME and path not in _warned:
-        _warned.add(path)
-        print(f"warning: {LEGACY_FILENAME} is the old name of {FILENAME}; run 'aisignoff migrate' to rename it",
-              file=sys.stderr)
+    if (root / OLD_FILENAME).exists():
+        raise ConfigError(f"{OLD_FILENAME} is the old name of {FILENAME} and is no longer read; {CONVERT}")
+    return root / FILENAME
 
 
 def read_toml(root: Path) -> dict | None:
@@ -181,13 +166,11 @@ def load(root: Path) -> Config:
         return Config(path=None)
     path = config_path(root)
     name = path.name
-    _warn_legacy(path)
 
     version = data.get("version")
     if type(version) is int and version in (1, 2):
         old = "V0-V3 levels" if version == 1 else "the AI review scale A-, A0-A3"
-        raise LegacyConfig(f"{name} uses version {version} ({old}). Run 'aisignoff migrate' to convert "
-                           f"it to version {VERSION}.")
+        raise ConfigError(f"{name} uses version {version} ({old}), which is no longer read; {CONVERT}")
     if type(version) is not int or version != VERSION:
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
     warnings = []
@@ -274,8 +257,7 @@ def _parse_values(table: dict, skip: tuple, where: str) -> dict:
             if not isinstance(v, str):
                 raise ConfigError(f"{where}: '{k}' must be a string")
             if v not in LEVELS[key] and v != TODO:  # TODO: placeholder, reported by lint
-                hint = " (A- is now A0)" if key == AIR and v == LEGACY_AI_NONE else ""
-                raise ConfigError(f"{where}: invalid {key} '{v}' (use {', '.join(LEVELS[key])}){hint}")
+                raise ConfigError(f"{where}: invalid {key} '{v}' (use {', '.join(LEVELS[key])})")
             values[key] = v
     return values
 

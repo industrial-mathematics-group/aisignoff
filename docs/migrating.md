@@ -1,6 +1,6 @@
 # Upgrading
 
-Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade. `aisignoff migrate` converts the older formats below, all or nothing; run it with `--dry-run` first.
+Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade.
 
 ## From 0.11 or earlier, with `[history]`
 
@@ -16,44 +16,18 @@ Land this snapshot while your CI still runs 0.11, and raise the version your wor
 
 Without it, run `aisignoff lint` after upgrading and settle what it reports: move `[[commits]]` review entries for commits inside pull requests to the merge commit (or attest the file), and declare merged templates without a ticked generation or human review box with a `[[commits]]` entry.
 
-## From aidecl
+## From aidecl, or format version 1 or 2
 
-aidecl (up to 0.3.0) was renamed to aisignoff. Keys, levels and inline tags are the same.
+aisignoff reads only `SIGNOFF.toml` with `version = 3` and the inline tags of that version. `AIDECL.toml` (the name up to aidecl 0.3.0), format version 1 (one verification axis, `AI-Verification: V0`–`V3`, `Tested-by`, `Verified-by`) and format version 2 (the AI review scale `A-`, `A0`–`A3`, which moved up by one) are no longer read since 1.0.0rc2: `lint` stops with an error for `AIDECL.toml` and old versions of `SIGNOFF.toml`, and old inline tags aren't recognised as a declaration.
 
-1. Reinstall: `pipx uninstall aidecl && pipx install aisignoff`.
-2. Run `aisignoff migrate`: it renames `AIDECL.toml` to `SIGNOFF.toml` (converting format 1 or 2 in the same step). Commit both sides of the rename: `git add -A SIGNOFF.toml AIDECL.toml`.
-3. Update the badge URLs: the files are now `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json`.
+Convert such a repository once with 1.0.0rc1, the last release with `aisignoff migrate`, then raise the version you pin:
 
-Until then, aisignoff reads `AIDECL.toml` with a warning. Having both files is an error.
+```bash
+uvx aisignoff==1.0.0rc1 migrate --dry-run   # or: pipx run aisignoff==1.0.0rc1 migrate --dry-run
+uvx aisignoff==1.0.0rc1 migrate
+git add -A SIGNOFF.toml AIDECL.toml         # both sides of the rename, if there was one
+```
 
-## From format version 2
+It renames `AIDECL.toml` to `SIGNOFF.toml` and converts versions 1 and 2, keeping comments and layout for version 2. A repository with only inline tags on the version-2 scale needs `migrate --from 2`. What the old levels don't say, such as the human review of a V1 file, is marked `TODO`, which `lint` reports until a person fills it in. The [documentation of 1.0.0rc1](https://github.com/industrial-mathematics-group/aisignoff/blob/v1.0.0rc1/docs/migrating.md) has the full conversion tables.
 
-Version 2 had the AI review scale A-, A0–A3, which moved up by one. Only `AI-Review` (and `ai` in `[policy]`) changes; comments and layout of `SIGNOFF.toml` are kept.
-
-| Old | New |
-|---|---|
-| A- (none) | A0 |
-| A0 (self-check) | A1; for G0 `TODO`, since human-written content has no self-check |
-| A1 (independent session) | A2 |
-| A2 (different model) | A2, with a note to raise it to A3 if the review was extensive or benchmarked |
-| A3 (different model with benchmark) | A3 |
-
-A repository with inline tags and no `SIGNOFF.toml` doesn't say which scale its tags use: run `aisignoff migrate --from 2`. It converts the tags and creates a version-3 `SIGNOFF.toml`, which records the conversion so the tags are never shifted twice.
-
-## From format version 1
-
-Version 1 had one verification axis, V0–V3:
-
-| Old | New |
-|---|---|
-| V0 (human, line by line) | H2, and A0 for G0 |
-| V1 / V2 (independent agent, same / different model) | A2 |
-| V3 (human + independent agent) | H2 + A2 |
-| `Tested-by` | `Reviewed-by` |
-| `Verified-by` | `AI-Reviewed-by` |
-
-Comments in `SIGNOFF.toml` aren't carried over from version 1.
-
-## TODOs after migrating
-
-What the old levels don't say, such as the human review of a V1 file, has to be added by a person. `migrate` marks it with a `TODO` comment in `SIGNOFF.toml` or a `TODO` value in inline tags, and `lint` reports it until it's filled in.
+Projects renamed from aidecl also switch the badge URLs to `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json`.

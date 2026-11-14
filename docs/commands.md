@@ -14,7 +14,6 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | [`attest`](#attest) | raise the reviews of whole files (`[history]`) |
 | [`freeze`](#freeze) | record the levels of every line in a snapshot (`[history]`) |
 | [`badge`](#badge) | write shields.io badge files |
-| [`migrate`](#migrate) | convert declarations of earlier versions |
 
 **Global options** go before the command: `--root DIR` runs on another directory (default `.`), `--version` prints the version.
 
@@ -52,7 +51,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-reviewed-by …]]
 ```
 
-Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. Refuses if `SIGNOFF.toml` or `AIDECL.toml` exists.
+Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
 
 ## annotate
 
@@ -136,10 +135,4 @@ aisignoff badge [--out DIR] [--weight files|lines] [--landed]
 
 Writes `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json` into `DIR` (default `badges`). See [Badges](report.md#badges).
 
-## migrate
-
-```bash
-aisignoff migrate [--dry-run] [--from 2]
-```
-
-Renames `AIDECL.toml` to `SIGNOFF.toml` and converts declarations of format versions 1 and 2, all or nothing. `--dry-run` only shows what would change; `--from 2` treats inline tags as version 2 in a repository without `SIGNOFF.toml`. See [Upgrading](migrating.md).
+`migrate`, which converted `AIDECL.toml` and the format versions 1 and 2, was removed in 1.0.0rc2; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2).

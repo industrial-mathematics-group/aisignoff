@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc1"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "1.0.0rc2"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   changed-files:
@@ -67,7 +67,7 @@ jobs:
               status = "✗ " + "; ".join(r["errors"]) if r["errors"] else "✓"
               rows.append(f"| `{cell(path)}` | {levels} | {cell(r.get('source') or '')} | {cell(status)} |")
 
-          config_changed = any(os.path.basename(p) in ("SIGNOFF.toml", "AIDECL.toml") for p in changed)
+          config_changed = any(os.path.basename(p) == "SIGNOFF.toml" for p in changed)
           out = ["### AI signoff of the changed files", ""]
           if rows:
               out += ["| File | Levels | Declared in | Valid |", "|---|---|---|---|", *rows, ""]
