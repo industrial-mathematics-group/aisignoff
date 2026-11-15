@@ -105,8 +105,18 @@ def test_declare_files_opens_a_pull_request_from_the_template(checkout):
     # after the comment of the AI declaration section, where the PR-signoff check reads it
     assert pr.index("Responsible person: @jane") > pr.index("below this comment. -->")
     assert "/actions/workflows/signoff-lint.yml/dispatches" in r.stdout
-    # the description as it will land: G0 ticked, the review left to the requester
+    # the description as it will land: G0 ticked, the review left to the requester, whom the check names
     assert subprocess.run(["aisignoff", "lint"], cwd=work, capture_output=True).returncode == 0
+    body = pr.split("\n", 2)[2]
+    desc = checkout / "description.md"
+    check = ["aisignoff", "lint", "--declare-from", str(desc), "--author", "github-actions[bot]",
+             "--base", "origin/main"]
+    desc.write_text(body)
+    r = subprocess.run(check, cwd=work, capture_output=True, text=True)
+    assert r.returncode == 1 and "Human-Review is still TODO" in r.stdout
+    desc.write_text(body.replace("- [ ] **H0**", "- [x] **H0**"))
+    r = subprocess.run(check, cwd=work, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout
 
 
 def test_attest_and_correct_a_commit(checkout):

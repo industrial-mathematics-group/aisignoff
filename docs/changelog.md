@@ -2,8 +2,15 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
-## Unreleased
+## 1.0.0rc3
 
+`lint --declare-from` becomes the whole check of a pull request before its merge, so a separate check of the description isn't needed ([Checking the pull request description](ci.md#checking-the-pull-request-description)). How landed commits are read is unchanged.
+
+- **Breaking:** with `--declare-from`, the description must be complete on its own (levels, names, built-in rules, policy), also for a pull request that changes no declared line, such as one that changes only `SIGNOFF.toml`.
+- **Breaking:** with `--base`, the base branch's `[policy]` applies, and a change to `[policy]`, `exclude` or `[history]`, or removing `SIGNOFF.toml`, fails unless `--allow-policy-change` is given.
+- A pull request opened by a bot (`--author` ending in `[bot]`) must name a human with `Responsible person: @login`, who is then the reviewer.
+- In a repository without `SIGNOFF.toml`, `lint --declare-from` checks the description alone.
+- `report --json --declare-from` adds `pull_request`: what the description declares and what is wrong with it.
 - New example: an issue form and workflow that turn a request into a pull request that changes `SIGNOFF.toml`, written with `annotate` or `attest` or as a `[[commits]]` entry, for the requester to review and merge, without AI, as `github-actions[bot]` or your own GitHub App ([Signoff requests from issues](ci.md#signoff-requests-from-issues)).
 
 ## 1.0.0rc2

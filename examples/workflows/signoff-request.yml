@@ -10,9 +10,8 @@
 #     "Responsible person: @<requester>", for the requester to review, tick and merge
 #   - runs again when the issue is edited and updates the pull request
 #
-# SIGNOFF.toml declares itself nothing (aisignoff never checks it as a file), so "aisignoff lint
-# --declare-from" requires nothing of such a pull request's description: the human signoff is the review
-# and the merge.
+# The description declares the change to SIGNOFF.toml: "aisignoff lint --declare-from" (aisignoff >=
+# 1.0.0rc3) fails until the requester has ticked their review, which is the human signoff.
 #
 # It runs as github-actions[bot]. Pull requests opened with GITHUB_TOKEN start no workflows, so
 # DISPATCH_WORKFLOWS starts your lint workflow on the branch (it needs "workflow_dispatch:"), so its check
@@ -36,7 +35,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc2"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "1.0.0rc3"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   request:
@@ -311,15 +310,16 @@ jobs:
           if lint_after.returncode:
               summary += ["`aisignoff lint` reports problems that were there before this change:", "",
                           fence((lint_after.stdout + lint_after.stderr)[-3000:]), ""]
-          summary += [f"**@{REQUESTER}: check the diff above, then tick your review below** (at least H0, and "
-                      "\"I take responsibility\"). The AI declaration of this pull request describes this change to "
-                      "`SIGNOFF.toml`, not the files it declares. The PR-signoff check passes only once you have ticked.", ""]
+          summary += [f"**@{REQUESTER}: check the diff above, then tick your human review below** (at least H0; a "
+                      "\"take responsibility\" box too, if the template has one). The AI declaration of this pull request "
+                      "describes this change to `SIGNOFF.toml`, not the files it declares. The signoff check passes only once "
+                      "you have ticked.", ""]
           summary = "\n".join(summary)
 
           tpl = template()
           if tpl is None:
               pr_body = (summary + f"\nCloses #{NUMBER}\n\nAI-Generation: G0\nHuman-Review: \nAI-Review: A0\n"
-                         f"Reviewed-by: {responsible or REQUESTER}\n")
+                         f"Reviewed-by: {responsible or REQUESTER}\n\nResponsible person: @{REQUESTER}\n")
           else:
               tpl = tpl.replace("\r\n", "\n")
               m = re.search(r"^#+ *What does this (PR|pull request) change\?.*$", tpl, re.M | re.I)

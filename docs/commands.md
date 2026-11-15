@@ -44,6 +44,9 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | `--author NAME` | with `--declare-from`: who the human review of a ticked template is by |
 | `--base REV` | with `--declare-from`: the branch the pull request goes into. If that isn't the default branch, the description declares nothing |
 | `--landed` | check `HEAD` as a commit of the default branch: for a merge queue's commit (recognised by itself on GitHub Actions) and release branches. Not with `--declare-from` |
+| `--allow-policy-change` | `lint` only, with `--base`: let the change alter `[policy]`, `exclude` or `[history]` of `SIGNOFF.toml`, or remove it |
+
+`lint --declare-from` also checks the description on its own, the base branch's policy applies with `--base`, and a change to its rules fails: see [Checking the pull request description](ci.md#checking-the-pull-request-description).
 
 ## init
 
@@ -64,7 +67,7 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs). The lev
 ## lint
 
 ```bash
-aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV] | --landed]
+aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV [--allow-policy-change]] | --landed]
 ```
 
 Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.

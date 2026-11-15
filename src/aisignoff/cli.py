@@ -152,8 +152,14 @@ def _declared(args):
         text = sys.stdin.read() if args.declare_from == "-" else Path(args.declare_from).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         raise UsageError(f"cannot read {args.declare_from}: {e}")
-    pieces, both = parse_message(text.replace("\r\n", "\n"), args.author or "", "the pull request description")
-    return {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ())) for i, p in pieces.items()}
+    from .pullrequest import reviewer
+    text = text.replace("\r\n", "\n")
+    name, problems, notes = reviewer(text, args.author or "")
+    pieces, both = parse_message(text, name, "the pull request description")
+    pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
+              for i, p in pieces.items()}
+    args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
+    return pieces
 
 
 def _history_results(project: Project, args):
@@ -171,6 +177,16 @@ def _history_results(project: Project, args):
             base = merge_base(project.root, args.base)
         except DiffError as e:
             raise UsageError(str(e))
+        # the rules of the branch the change goes into apply to it: it can't lower them itself
+        from .pullrequest import base_rules
+        try:
+            args.pr_rules = base_rules(project.root, args.base, project.config)
+        except ConfigError as e:
+            raise UsageError(str(e))
+        if args.pr_rules.config is not None and not getattr(args, "allow_policy_change", False):
+            project.config.policy = args.pr_rules.config.policy
+    elif getattr(args, "allow_policy_change", False):
+        raise UsageError("--allow-policy-change needs --base")
     project.landed = args.landed
     try:
         return project.results(declared=declared, base=base)
@@ -200,15 +216,77 @@ def _waiting(results) -> str | None:
             "that lands them declares them (--declare-from reads its description)")
 
 
+def _pull_request(project: Project, args) -> dict | None:
+    """With --declare-from: the pull request's declaration as its description gives it, and what is
+    wrong with it. The description must be complete on its own, also when the change has no lines to
+    declare (such as one that changes only SIGNOFF.toml) and in a repository without SIGNOFF.toml,
+    and the change can't alter the rules of the branch it goes into."""
+    if args.declare_from is None:
+        return None
+    from .history import combine
+    from .pullrequest import description_problems
+    if not hasattr(args, "pr_pieces"):
+        _declared(args)
+    rules = getattr(args, "pr_rules", None)
+    declaration = combine([args.pr_pieces.get(i) for i in range(3)])
+    out = {"applies": True, "declaration": declaration, "problems": [], "notes": list(args.pr_notes)}
+    if project.history is not None and project.history.declared is None:
+        out["applies"] = False  # it doesn't go into the default branch: the pull request that lands it there declares it
+        return out
+    problems = [f"the pull request description: {p}" for p in args.pr_problems]
+    if not (project.history_used and project.config.history.merge_method == "rebase"):
+        problems += [f"the pull request description: {p}"
+                     for p in description_problems(args.pr_pieces, project.config.policy) if p not in problems]
+    if rules is not None and rules.config is not None and not getattr(args, "allow_policy_change", False):
+        if project.config.path is None:
+            problems.append(f"the change removes {FILENAME}, which only the branch it goes into can do: commit it "
+                            "there directly, or let the check pass it with --allow-policy-change")
+        elif rules.changed:
+            problems.append(f"the change alters {', '.join(rules.changed)} in {FILENAME}, which only the branch it "
+                            "goes into sets: commit it there directly, or let the check pass it with "
+                            "--allow-policy-change")
+    out["problems"] = problems
+    return out
+
+
+def _description_only(project: Project, args) -> int:
+    """lint --declare-from in a repository without SIGNOFF.toml: only the description is checked."""
+    if args.base:
+        from .pullrequest import base_rules
+        try:
+            args.pr_rules = base_rules(project.root, args.base, project.config)
+        except ConfigError as e:
+            raise UsageError(str(e))
+        if args.pr_rules.config is not None:
+            project.config.policy = args.pr_rules.config.policy
+    pr = _pull_request(project, args)
+    for problem in pr["problems"]:
+        print(f"✗ {printable(problem)}")
+    for note in pr["notes"]:
+        print(f"! {printable(note)}")
+    print()
+    if pr["problems"]:
+        print(f"See {SPEC_URL}")
+        return 1
+    print(f"The pull request's declaration is complete (no {FILENAME}: files aren't checked). ✓")
+    return 0
+
+
 def cmd_lint(args) -> int:
     project = _open(args.root)
+    if args.declare_from is not None and project.config.path is None:
+        return _description_only(project, args)
     results = _history_results(project, args)
     if not results:
         print(f"✗ no files found below {project.root}")
         return 1
+    pr = _pull_request(project, args)
+    pr_problems, pr_notes = (pr["problems"], pr["notes"]) if pr else ([], [])
     files = [r.path for r in results]
     unused = project.unused_annotations(files)
 
+    for problem in pr_problems:
+        print(f"✗ {printable(problem)}")
     for problem in project.history_problems:
         print(f"✗ {printable(problem)}")
     _print_errors(results, args.max_files)
@@ -217,7 +295,7 @@ def cmd_lint(args) -> int:
     for warning in project.config.warnings + project.history_warnings:
         print(f"{'✗' if args.strict else '!'} {printable(warning)}")
 
-    for note in project.history_notes:
+    for note in project.history_notes + pr_notes:
         print(f"! {printable(note)}")
     waiting = _waiting(results)
     if waiting:
@@ -230,7 +308,7 @@ def cmd_lint(args) -> int:
         lines = sum(p.lines for r in results for p in r.parts or ())
         bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors and not p.advisory)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
-    failed = bad > 0 or bool(project.history_problems) or (args.strict and (unused or project.history_warnings
+    failed = bad > 0 or bool(project.history_problems) or bool(pr_problems) or (args.strict and (unused or project.history_warnings
                                                                                     or project.config.warnings))
     if failed:
         print(f"See {SPEC_URL}")
@@ -289,8 +367,12 @@ def cmd_report(args) -> int:
                 print(f"\nnote: {_waiting(results)}")
         return 0
     if args.json:
-        print(json.dumps({**_json_header(), "files": [_result_json(r) for r in results]},
-                         indent=2, ensure_ascii=False))
+        out = {**_json_header(), "files": [_result_json(r) for r in results]}
+        pr = _pull_request(project, args)
+        if pr is not None:
+            # the levels for labels and the like: what the description declares, and whether it applies
+            out["pull_request"] = {"applies": pr["applies"], **pr["declaration"].as_dict(), "errors": pr["problems"]}
+        print(json.dumps(out, indent=2, ensure_ascii=False))
         return 0
     if args.files:
         width = max((len(r.path) for r in results), default=4)
@@ -807,6 +889,8 @@ def main(argv: list[str] | None = None) -> int:
                    "reverts and merges that own lines without declaring them")
     p.add_argument("--max-files", type=int, default=10, help="files listed per problem (default 10)")
     _add_history_options(p)
+    p.add_argument("--allow-policy-change", action="store_true", help="with --base: let the change alter [policy], "
+                   "exclude or [history] of SIGNOFF.toml (for example for maintainers)")
     p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("report", help="summary of the declarations")
