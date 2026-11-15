@@ -177,13 +177,14 @@ def _history_results(project: Project, args):
             base = merge_base(project.root, args.base)
         except DiffError as e:
             raise UsageError(str(e))
-        # the rules of the branch the change goes into apply to it: it can't lower them itself
+        # the rules of the branch the change goes into apply to it: it can't lower them itself, not even
+        # with --allow-policy-change, which lets it change them for the pull requests after it
         from .pullrequest import base_rules
         try:
             args.pr_rules = base_rules(project.root, args.base, project.config)
         except ConfigError as e:
             raise UsageError(str(e))
-        if args.pr_rules.config is not None and not getattr(args, "allow_policy_change", False):
+        if args.pr_rules.config is not None:
             project.config.policy = args.pr_rules.config.policy
     elif getattr(args, "allow_policy_change", False):
         raise UsageError("--allow-policy-change needs --base")
@@ -237,14 +238,17 @@ def _pull_request(project: Project, args) -> dict | None:
     if not (project.history_used and project.config.history.merge_method == "rebase"):
         problems += [f"the pull request description: {p}"
                      for p in description_problems(args.pr_pieces, project.config.policy) if p not in problems]
-    if rules is not None and rules.config is not None and not getattr(args, "allow_policy_change", False):
-        if project.config.path is None:
-            problems.append(f"the change removes {FILENAME}, which only the branch it goes into can do: commit it "
-                            "there directly, or let the check pass it with --allow-policy-change")
-        elif rules.changed:
-            problems.append(f"the change alters {', '.join(rules.changed)} in {FILENAME}, which only the branch it "
-                            "goes into sets: commit it there directly, or let the check pass it with "
-                            "--allow-policy-change")
+    if rules is not None and rules.config is not None:
+        what = (f"removes {FILENAME}" if project.config.path is None
+                else f"alters {', '.join(rules.changed)} in {FILENAME}" if rules.changed else None)
+        if what and getattr(args, "allow_policy_change", False):
+            # allowed, but said out loud, and it doesn't lower the bar for this pull request itself
+            out["notes"].append(f"the change {what} (allowed by --allow-policy-change); this pull request is "
+                                f"still checked under the base branch's [policy] ({args.base}); the new rules apply once it has landed")
+        elif what:
+            problems.append(f"the change {what}, which only the branch it goes into "
+                            f"{'can do' if project.config.path is None else 'sets'}: commit it there directly, "
+                            "or let the check pass it with --allow-policy-change")
     out["problems"] = problems
     return out
 
@@ -890,7 +894,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-files", type=int, default=10, help="files listed per problem (default 10)")
     _add_history_options(p)
     p.add_argument("--allow-policy-change", action="store_true", help="with --base: let the change alter [policy], "
-                   "exclude or [history] of SIGNOFF.toml (for example for maintainers)")
+                   "exclude or [history] of SIGNOFF.toml (for example for maintainers); the change itself is "
+                   "still checked under the base branch's [policy]")
     p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("report", help="summary of the declarations")

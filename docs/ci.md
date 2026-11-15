@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc3"
+      - run: pip install "aisignoff==1.0.0rc4"
       - run: aisignoff lint
 ```
 
@@ -64,7 +64,7 @@ With `--declare-from`, `lint` checks the pull request as a whole, before it is m
 
 - **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
 - **The base branch sets the rules.** With `--base`, the `[policy]` of the base branch's `SIGNOFF.toml` applies to the merged result, not the pull request's own.
-- **A pull request can't change them.** A change to `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, or its removal, fails. Maintainers commit such changes to the default branch directly, or the workflow passes `--allow-policy-change` for pull requests it trusts (for example by their author's permission); the pull request's own policy then applies. A repository's first `SIGNOFF.toml` is not a change.
+- **A pull request can't change them.** A change to `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, or its removal, fails. Maintainers commit such changes to the default branch directly, or the workflow passes `--allow-policy-change` for pull requests it trusts (for example by their author's permission). Even then the pull request itself is checked under the base branch's `[policy]`, and `lint` says that it changes the rules: a change can't lower the bar for itself, and the new rules apply to the pull requests after it. (`exclude` and `[history]` are read from the pull request either way.) A repository's first `SIGNOFF.toml` is not a change.
 - **Without `SIGNOFF.toml`,** only the description is checked, so the same workflow can check pull requests in repositories that declare no files.
 
 `report --json` with the same options adds `pull_request`: the levels and names the description declares, whether it `applies` (not for a pull request into another branch) and its `errors`, for labels and the like.
@@ -155,7 +155,7 @@ The workflow then gets a token with [`actions/create-github-app-token`](https://
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0rc3   # the same version as in your workflows
+    rev: v1.0.0rc4   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

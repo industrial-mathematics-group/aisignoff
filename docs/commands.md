@@ -44,7 +44,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | `--author NAME` | with `--declare-from`: who the human review of a ticked template is by |
 | `--base REV` | with `--declare-from`: the branch the pull request goes into. If that isn't the default branch, the description declares nothing |
 | `--landed` | check `HEAD` as a commit of the default branch: for a merge queue's commit (recognised by itself on GitHub Actions) and release branches. Not with `--declare-from` |
-| `--allow-policy-change` | `lint` only, with `--base`: let the change alter `[policy]`, `exclude` or `[history]` of `SIGNOFF.toml`, or remove it |
+| `--allow-policy-change` | `lint` only, with `--base`: let the change alter `[policy]`, `exclude` or `[history]` of `SIGNOFF.toml`, or remove it. The change itself is still checked under the base branch's `[policy]` |
 
 `lint --declare-from` also checks the description on its own, the base branch's policy applies with `--base`, and a change to its rules fails: see [Checking the pull request description](ci.md#checking-the-pull-request-description).
 

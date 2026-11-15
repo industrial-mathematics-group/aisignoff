@@ -2,6 +2,11 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc4
+
+- **Breaking:** with `--allow-policy-change`, the pull request is still checked under the base branch's `[policy]`, not its own, so a pull request can't lower the bar for itself; the new policy applies to the pull requests after it. In 1.0.0rc3 a maintainer's pull request that lowered the policy was checked under the lowered one and passed.
+- With `--allow-policy-change`, `lint` says that the change alters `[policy]`, `exclude` or `[history]`, or removes `SIGNOFF.toml`, instead of saying nothing.
+
 ## 1.0.0rc3
 
 `lint --declare-from` becomes the whole check of a pull request before its merge, so a separate check of the description isn't needed ([Checking the pull request description](ci.md#checking-the-pull-request-description)). How landed commits are read is unchanged.
