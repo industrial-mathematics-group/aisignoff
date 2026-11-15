@@ -12,9 +12,14 @@
 #
 # SIGNOFF.toml declares itself nothing (aisignoff never checks it as a file), so "aisignoff lint
 # --declare-from" requires nothing of such a pull request's description: the human signoff is the review
-# and the merge. Pull requests opened with GITHUB_TOKEN start no workflows; DISPATCH_WORKFLOWS starts your
-# lint workflow on the branch (it needs "workflow_dispatch:"), so its check shows on the pull request.
-# Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
+# and the merge.
+#
+# It runs as github-actions[bot]. Pull requests opened with GITHUB_TOKEN start no workflows, so
+# DISPATCH_WORKFLOWS starts your lint workflow on the branch (it needs "workflow_dispatch:"), so its check
+# shows on the pull request; and it needs Settings -> Actions -> General -> "Allow GitHub Actions to create
+# and approve pull requests". To act as your own GitHub App instead (its name on the pull requests, which
+# then start your checks as usual), set the variable SIGNOFF_APP_ID and the secret SIGNOFF_APP_PRIVATE_KEY
+# (docs/ci.md). The app needs Contents, Pull requests and Issues: read and write.
 #
 # Only people with write access get a branch. The form's text never reaches a shell: it is read from the
 # event file and passed to aisignoff as separate arguments. No code of the repository runs.
@@ -28,7 +33,7 @@ permissions:
   contents: write        # push the branch
   pull-requests: write   # open the pull request
   issues: write          # comment on the issue
-  actions: write         # start the lint workflow on the branch
+  actions: write         # without an app: start the lint workflow on the branch
 
 env:
   AISIGNOFF_VERSION: "1.0.0rc2"   # pin a release, so a new version can't break your CI unannounced
@@ -44,9 +49,18 @@ jobs:
       group: signoff-request-${{ github.event.issue.number }}
       cancel-in-progress: true
     steps:
+      # Optional: act as your own GitHub App instead of github-actions[bot]
+      - name: Token of the bot app
+        id: app
+        if: vars.SIGNOFF_APP_ID != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SIGNOFF_APP_ID }}
+          private-key: ${{ secrets.SIGNOFF_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the whole history: aisignoff lint with [history], and commit corrections
+          token: ${{ steps.app.outputs.token || github.token }}   # pushes the branch as the app
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -56,11 +70,12 @@ jobs:
         run: pip install "aisignoff==${VERSION}"
       - name: Turn the issue into a pull request
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
           DISPATCH_WORKFLOWS: signoff-lint.yml   # or signoff-badges.yml; "" for none
         run: |
           python3 - <<'PY'
-          import base64, json, os, re, subprocess, sys, urllib.error, urllib.request
+          import base64, json, os, re, subprocess, sys, urllib.error, urllib.parse, urllib.request
           from pathlib import Path
 
           # ---------------------------------------------------------------- settings and helpers
@@ -69,6 +84,7 @@ jobs:
           API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
           SERVER = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
           TOKEN = os.environ.get("GITHUB_TOKEN", "")
+          APP_SLUG = os.environ.get("APP_SLUG", "")   # set when the token is a GitHub App's, not GITHUB_TOKEN
           DRY_RUN = os.environ.get("SIGNOFF_DRY_RUN") == "1"   # for testing outside Actions: print the API calls
           ISSUE = EVENT["issue"]
           NUMBER = ISSUE["number"]
@@ -255,8 +271,12 @@ jobs:
           title = (what if len(what) <= 60 else what[:57] + "…") + f" (signoff request #{NUMBER})"
           email = f"{ISSUE['user']['id']}+{REQUESTER}@users.noreply.github.com"
           run("git", "add", "-A")
-          run("git", "-c", "user.name=github-actions[bot]",
-              "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+          if APP_SLUG:   # commit as the app's bot account, so the commit shows its name and avatar
+              bot = f"{APP_SLUG}[bot]"
+              bot_id = (api("GET", f"/users/{urllib.parse.quote(bot)}") or {}).get("id", 0) if not DRY_RUN else 0
+          else:
+              bot, bot_id = "github-actions[bot]", 41898282
+          run("git", "-c", f"user.name={bot}", "-c", f"user.email={bot_id}+{bot}@users.noreply.github.com",
               "commit", "-q", "-m", title, "-m", f"Requested in #{NUMBER}.", "-m", f"Co-authored-by: {REQUESTER} <{email}>")
           # An edit that asks for the same change leaves the branch, and the ticks in the pull request, alone.
           unchanged = (run("git", "rev-parse", "--verify", "-q", f"origin/{BRANCH}", check=False).returncode == 0
@@ -338,7 +358,8 @@ jobs:
 
           # Pull requests opened with GITHUB_TOKEN start no workflows, so start the file check by hand
           # (workflow_dispatch is the exception); its check then shows on the pull request's commit.
-          for wf in ([] if unchanged and existing else os.environ.get("DISPATCH_WORKFLOWS", "").split()):
+          # A GitHub App's token starts them as for any pull request.
+          for wf in ([] if APP_SLUG or (unchanged and existing) else os.environ.get("DISPATCH_WORKFLOWS", "").split()):
               try:
                   api("POST", f"/repos/{REPO}/actions/workflows/{wf}/dispatches", {"ref": BRANCH})
               except SystemExit as e:

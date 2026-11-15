@@ -72,7 +72,7 @@ def form(**answers):
     return "\n".join(parts)
 
 
-def request(base, body):
+def request(base, body, **env_more):
     event = base / "event.json"
     event.write_text(json.dumps({"issue": {"number": 7, "title": "Signoff: ", "body": body,
                                            "user": {"login": "jane", "id": 1}},
@@ -80,7 +80,8 @@ def request(base, body):
     out = base / "api.md"
     out.unlink(missing_ok=True)
     env = {**os.environ, "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "org/repo",
-           "SIGNOFF_DRY_RUN": "1", "SIGNOFF_DRY_RUN_OUT": str(out), "DISPATCH_WORKFLOWS": "signoff-lint.yml"}
+           "SIGNOFF_DRY_RUN": "1", "SIGNOFF_DRY_RUN_OUT": str(out), "DISPATCH_WORKFLOWS": "signoff-lint.yml",
+           **env_more}
     r = subprocess.run([sys.executable, "-I", "-"], input=script(), cwd=base / "work", env=env,
                        capture_output=True, text=True)
     return r, (out.read_text() if out.exists() else "")
@@ -150,3 +151,13 @@ def test_refused_requests_say_why(checkout, answers, message):
     assert r.returncode == 1
     assert "/issues/7/comments" in api and message in api, api
     assert "POST /repos/org/repo/pulls" not in r.stdout
+
+
+def test_as_a_github_app(checkout):
+    """With an app's token, the commit is the app's and no workflow is started by hand: the app's pull
+    request starts them itself."""
+    r, _ = request(checkout, form(kind="Declare files", paths="results/", gen="G0: x", human="H1: x",
+                                  ai="A0: x", responsible="Jane Doe"), APP_SLUG="signoff-bot")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert git(checkout / "work", "log", "-1", "--format=%an").strip() == "signoff-bot[bot]"
+    assert "/dispatches" not in r.stdout

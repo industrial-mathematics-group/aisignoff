@@ -110,7 +110,7 @@ Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to e
 For people who'd rather not edit TOML or use git, an issue form and a workflow turn plain answers into a pull request, without AI:
 
 1. Copy [`examples/ISSUE_TEMPLATE/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/ISSUE_TEMPLATE/signoff-request.yml) to `.github/ISSUE_TEMPLATE/` and [`examples/workflows/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-request.yml) to `.github/workflows/`.
-2. Allow it to open pull requests: *Settings → Actions → General → Workflow permissions* → **Allow GitHub Actions to create and approve pull requests**.
+2. Allow it to open pull requests: *Settings → Actions → General → Workflow permissions* → **Allow GitHub Actions to create and approve pull requests** (or let it act as [your own app](#your-own-bot-account)).
 3. Set `DISPATCH_WORKFLOWS` in the workflow to the file name of your lint workflow (`signoff-lint.yml` by default). It needs `workflow_dispatch:` among its triggers, which the examples have.
 
 Someone with write access opens an issue with the form **Signoff: declare or attest files** and picks one of three things to record:
@@ -128,7 +128,16 @@ The pull request description comes from the repository's PR template (else the o
 !!! note "Pull requests that change only SIGNOFF.toml"
     aisignoff never declares `SIGNOFF.toml` itself, so such a pull request has no lines to declare: `lint` checks only that the declarations it adds are valid, and `lint --declare-from` requires nothing of its description. A check that reads only the description, such as the Industrial Mathematics Group's *PR-signoff*, still requires it, which is the human signoff the workflow leaves to the requester.
 
-Pull requests opened with the workflow's `GITHUB_TOKEN` start no other workflows (GitHub's rule against loops), apart from `workflow_dispatch`. That's why the workflow starts your lint workflow on the branch, so its check shows on the pull request; a check that runs on `pull_request_target` with `edited` runs once the requester edits the description. The form's text never reaches a shell: the workflow reads it from the event file and passes it to aisignoff as separate arguments, and runs no code of the repository.
+Pull requests opened with the workflow's `GITHUB_TOKEN` start no other workflows (GitHub's rule against loops), apart from `workflow_dispatch`. That's why the workflow starts your lint workflow on the branch, so its check shows on the pull request; a check that runs on `pull_request_target` with `edited` runs once the requester edits the description.
+
+### Your own bot account
+
+By default the branch, commit and pull request come from `github-actions[bot]`. To use a GitHub App of your own instead, with its name and avatar:
+
+1. Create a GitHub App (*Settings → Developer settings → GitHub Apps*, for an organisation under its settings) with no webhook and the repository permissions **Contents**, **Pull requests** and **Issues**: read and write. Install it on the repositories.
+2. Store its App ID as the Actions variable `SIGNOFF_APP_ID` and a private key it generates as the secret `SIGNOFF_APP_PRIVATE_KEY` (on the repository, or once for the organisation).
+
+The workflow then gets a token with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and acts as `<app>[bot]`. Its pull requests start your checks like anyone's, so nothing is dispatched by hand, and the repository setting for `GITHUB_TOKEN` to open pull requests isn't needed. Without the variable, it falls back to `GITHUB_TOKEN`. The form's text never reaches a shell: the workflow reads it from the event file and passes it to aisignoff as separate arguments, and runs no code of the repository.
 
 ## pre-commit
 
