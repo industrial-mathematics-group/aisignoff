@@ -96,6 +96,8 @@ Declares or corrects the declaration of one commit, axis by axis. See [Correctin
 | `commit` | a commit hash, at least 4 hex digits, required |
 | declaration keys | at least one level; a name only next to its level |
 
+`lint` checks each entry as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't fall below the policy by themselves.)
+
 ## `[[attestations]]`
 
 Raises the reviews of one file, as of the content that was checked. Written by [`aisignoff attest`](commands.md#attest); see [Raising a review](history.md#raising-a-review-attestations).

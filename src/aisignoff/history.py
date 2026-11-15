@@ -638,6 +638,7 @@ class History:
         self.snapshot = self._load_snapshot() if use_snapshot else None
         self.frozen = self.order[self.snapshot.commit] if self.snapshot else 0
         self.corrections = self._load_corrections()
+        self._check_entries()
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         self.attestations = self._load_attestations()
@@ -986,6 +987,20 @@ class History:
                               "and change no frozen line. Raise the review of frozen lines with 'aisignoff attest', "
                               "or apply the entries to a file's frozen lines with 'aisignoff freeze --reset FILE'")
         return out
+
+    def _check_entries(self) -> None:
+        """Each [[commits]] entry of SIGNOFF.toml must be a valid declaration of its commit (the
+        commit's message, corrected by the entry), under the built-in rules and the policy, also when
+        the commit owns no line that is checked: a correction that breaks the rules isn't recorded
+        quietly. An entry that leaves an axis undeclared is checked on the axes it has."""
+        for entry in self.config.commits:
+            sha = self._resolve(entry.commit)
+            if sha is None or sha not in self.corrections:
+                continue  # reported by _load_corrections
+            d = combine([self.commit_pieces(sha).get(i) for i in range(3)])
+            errors = [e for e in validate(d, self.policy) if not e.startswith("missing ")]
+            for error in errors:
+                self.problems.append(f"{entry.filename} [[commits]] entry {entry.index} ({entry.commit}): {error}")
 
     def _frozen_entries(self) -> set[str]:
         """The commits of the [[commits]] entries in SIGNOFF.toml at the snapshot's commit, whose
