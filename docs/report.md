@@ -17,8 +17,8 @@ Human review
   H2         Reviewed line by line                     34  100.0%
 
 AI review
-  A0         No AI review                              23   67.6%
-  A1         Self-check by the generating session      11   32.4%
+  A0         No independent AI review                  23   67.6%
+  A1         Context-free check                        11   32.4%
 ```
 
 The shares count files, or lines with `[history]`. Each axis is counted on its own, with an *undeclared* share for what is missing, `TODO`, invalid or has an error about that axis ([how axes are counted](levels.md#how-reports-count-an-axis)).

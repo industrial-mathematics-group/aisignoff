@@ -57,7 +57,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc5"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "1.0.0rc6"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   request:
@@ -353,14 +353,13 @@ jobs:
           summary += [f"**@{REQUESTER}: check the diff above, then tick your human review below** (at least H0; a "
                       "\"take responsibility\" box too, if the template has one). The AI declaration of this pull request "
                       "describes this change to `SIGNOFF.toml`, not the files it declares"
-                      + (f": G1 and A1, since {ASSISTANT} turned your words into the answers and aisignoff checked its "
-                         "result" if ASSISTANT else "") + ". The signoff check passes only once you have ticked.", ""]
+                      + (f": G1 and A0, since {ASSISTANT} turned your words into the answers and no other AI session "
+                         "reviewed them" if ASSISTANT else "") + ". The signoff check passes only once you have ticked.", ""]
           summary = "\n".join(summary)
 
           tpl = template()
           if tpl is None:
-              declared = (f"AI-Generation: G1\nAssisted-by: {ASSISTANT}\nHuman-Review: \nAI-Review: A1\n"
-                          f"AI-Reviewed-by: {ASSISTANT}, checked by aisignoff\n" if ASSISTANT else
+              declared = (f"AI-Generation: G1\nAssisted-by: {ASSISTANT}\nHuman-Review: \nAI-Review: A0\n" if ASSISTANT else
                           "AI-Generation: G0\nHuman-Review: \nAI-Review: A0\n")
               pr_body = (summary + f"\nCloses #{NUMBER}\n\n{declared}"
                          f"Reviewed-by: {responsible or REQUESTER}\n\nResponsible person: @{REQUESTER}\n")
@@ -372,12 +371,11 @@ jobs:
                                         count=1, flags=re.M | re.I)
               if not closes:
                   pr_body = pr_body.replace(summary, summary + f"\nCloses #{NUMBER}\n", 1)
-              if not ASSISTANT:
-                  pr_body = re.sub(r"^([-*]) \[ \] \*\*G0\*\*", r"\1 [x] **G0**", pr_body, count=1, flags=re.M)
-              else:   # an AI turned the requester's words into the answers: G1, its model, A1
-                  for level in ("G1", "A1"):
-                      pr_body = re.sub(rf"^([-*]) \[ \] \*\*{level}\*\*", rf"\1 [x] **{level}**", pr_body,
-                                       count=1, flags=re.M)
+              # no AI session reviewed the change: A0, where the template has a box for it
+              for level in ("G1" if ASSISTANT else "G0", "A0"):
+                  pr_body = re.sub(rf"^([-*]) \[ \] \*\*{level}\*\*", rf"\1 [x] **{level}**", pr_body,
+                                   count=1, flags=re.M)
+              if ASSISTANT:   # an AI turned the requester's words into the answers: G1 and its model
                   words = set(re.findall(r"\w+", ASSISTANT.lower()))
                   family = next((m for m in re.finditer(r"^([-*]) \[ \] \*\*([^*]+)\*\*", pr_body, re.M)
                                  if not re.fullmatch(r"[GHA][0-3]|Other:?", m.group(2).strip())

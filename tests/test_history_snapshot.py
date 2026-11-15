@@ -181,7 +181,7 @@ def test_without_a_default_branch_everything_has_landed(tmp_path, capsys):
     git(tmp_path, "init", "-q", "-b", "trunk")
     git(tmp_path, "config", "user.email", "t@example.com")
     git(tmp_path, "config", "user.name", "T")
-    write(tmp_path, "SIGNOFF.toml", 'version = 3\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
+    write(tmp_path, "SIGNOFF.toml", 'version = 4\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
           'AI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\nReviewed-by = "J"\n')
     write(tmp_path, "a.py", "1\n")
     assert lint(tmp_path, capsys)[0] == 0  # no commit yet

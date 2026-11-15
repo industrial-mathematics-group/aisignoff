@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc5"
+      - run: pip install "aisignoff==1.0.0rc6"
       - run: aisignoff lint
 ```
 
@@ -62,7 +62,7 @@ on:
 
 With `--declare-from`, `lint` checks the pull request as a whole, before it is merged (aisignoff >= 1.0.0rc3):
 
-- **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
+- **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. In a ticked template, the human review boxes must be ticked up to the level that was done ([Pull request descriptions](history.md#pull-request-descriptions)). This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
 - **The base branch sets the rules.** With `--base`, the `[policy]` of the base branch's `SIGNOFF.toml` applies to the merged result, not the pull request's own.
 - **A pull request can't change them.** A change to `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, or its removal, fails. Maintainers commit such changes to the default branch directly, or the workflow passes `--allow-policy-change` for pull requests it trusts (for example by their author's permission). Even then the pull request itself is checked under the base branch's `[policy]`, and `lint` says that it changes the rules: a change can't lower the bar for itself, and the new rules apply to the pull requests after it. (`exclude` and `[history]` are read from the pull request either way.) A repository's first `SIGNOFF.toml` is not a change.
 - **Without `SIGNOFF.toml`,** only the description is checked, so the same workflow can check pull requests in repositories that declare no files.
@@ -172,7 +172,7 @@ Setup, in addition to the [form's](#signoff-requests-from-issues):
 2. Create an API key in the [Claude Console](https://platform.claude.com) (best in a workspace with a spend limit) and store it as the Actions secret `ANTHROPIC_API_KEY`, on the repository or for the organisation. Without it, `@signoff` gets a comment that points to the form, and nothing else changes.
 3. Optional: change `MODEL` (default `claude-sonnet-5-5`) and `MODEL_NAME`, the name the pull request declares, together; `EFFORT` sets how hard the model thinks. A request costs a few cents with the default model, mostly for the file list it reads.
 
-Because an AI turned the requester's words into the answers, the pull request ticks **G1**, the model and **A1** instead of **G0** (the result is checked by aisignoff before the pull request opens), and says that the answers come from the assistant. The requester checks the diff and ticks their review as for the form; they can correct the ticks.
+Because an AI turned the requester's words into the answers, the pull request ticks **G1** and the model instead of **G0**, with **A0** since no other AI session reviewed the answers (aisignoff checks them before the pull request opens), and says that the answers come from the assistant. The requester checks the diff and ticks their review as for the form; they can correct the ticks.
 
 !!! warning "Prompt injection"
     Issue text is input from people, and the model reads it. The assistant therefore answers only people with write access and leaves out the text of anyone else; the model has no tools and can only fill in a fixed JSON schema ([structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)), whose values are checked and passed to aisignoff as separate arguments, never to a shell; its comments can't mention other people or carry the workflow's hidden markers; and the API key is only in the step that calls the model. The human review of the pull request remains the signoff.
@@ -182,7 +182,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0rc5   # the same version as in your workflows
+    rev: v1.0.0rc6   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

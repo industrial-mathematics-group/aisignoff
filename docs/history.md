@@ -3,7 +3,7 @@
 File-level declarations describe a file as a whole. With `[history]`, aisignoff declares **each line** from git instead: the commit that landed a line on the default branch declares it. For code developed through pull requests, that means each pull request declares exactly the lines it changed, with its description.
 
 ```toml
-version = 3
+version = 4
 
 [history]
 enabled = true
@@ -50,20 +50,20 @@ gitGraph
     branch feature
     checkout feature
     commit id: "by hand: G0 H2"
-    commit id: "agent: G3 H0 A1"
+    commit id: "agent: G3 H0 A0"
     commit id: "no declaration"
     checkout main
-    commit id: "direct: G3 H1 A1"
-    merge feature id: "PR: G2 H1 A2"
+    commit id: "direct: G3 H1 A0"
+    merge feature id: "PR: G2 H1 A1"
 ```
 
 | Lines from | Get | Because |
 |---|---|---|
 | `before` | the file-level declaration | their owner declares nothing |
-| `by hand: G0 H2` | G2 H1 A2 | the pull request's: a commit message can't lower the generation (a `[[commits]]` entry can) |
-| `agent: G3 H0 A1` | G3 H1 A2 | the higher generation of the commit that wrote them; the reviews are the pull request's |
-| `no declaration` | G2 H1 A2 | the pull request's |
-| `direct: G3 H1 A1` | G3 H1 A1 | its own: it landed on `main` itself |
+| `by hand: G0 H2` | G2 H1 A1 | the pull request's: a commit message can't lower the generation (a `[[commits]]` entry can) |
+| `agent: G3 H0 A0` | G3 H1 A1 | the higher generation of the commit that wrote them; the reviews are the pull request's |
+| `no declaration` | G2 H1 A1 | the pull request's |
+| `direct: G3 H1 A0` | G3 H1 A0 | its own: it landed on `main` itself |
 
 Generation follows the line and changes only when the line changes. Reviews can be raised for a whole file later. For a 200-line `solver.py`:
 
@@ -86,7 +86,7 @@ Human-Review: H1
 AI-Review: A1
 Assisted-by: Claude Opus 5.5 (Anthropic)
 Reviewed-by: Jane Doe
-AI-Reviewed-by: Claude Opus 5.5 (Anthropic), self-check by the generating session
+AI-Reviewed-by: Claude Opus 5.5 (Anthropic), new session without the generating conversation
 ```
 
 - **Anywhere in the body**, at the start of a line, not only in git's trailer block: a `Co-authored-by:` paragraph after them doesn't hide them. The subject line doesn't count.
@@ -108,17 +108,24 @@ The description can use "Key: value" lines as above, or the checkboxes of a pull
 - [ ] **Other:**
 - [x] **H0** I checked the result as a whole
 - [x] **H1** I ran the tests or reproduced the key results myself
-- [x] **A1** The AI that wrote the change checked its own work
-- [ ] **A2** A new AI session ... reviewed the final change. Model, if not one of the above:
+- [ ] **A0** No independent AI review
+- [x] **A1** A new AI session, without the generating conversation, checked the final change
+- [ ] **A2** A different, capable model did that check and committed a review report. Model and report:
+- [ ] **A3** A different, capable model validated it with new evidence, committed with the report. Model and report:
 ```
 
 | Axis | Level | Names |
 |---|---|---|
 | Generation | the ticked `**G…**` box; more than one is an error | the ticked models (`**Name** (Vendor)`) between the generation and the human review boxes, and the text after `**Other:**` |
 | Human review | the highest ticked `**H…**` box | the commit's author (before the merge, `lint --author`, or the `Responsible person: @login` line of a pull request opened by a bot). On GitHub, that is the pull request's author for a squash commit, but whoever clicked *Merge* for a merge commit: correct it with `[[commits]]` if that wasn't the reviewer |
-| AI review | the highest ticked `**A…**` box, or **A0** when the AI review boxes are there and none is ticked | the text after `Model:` in that box, else the models that wrote the change |
+| AI review | the highest ticked `**A…**` box, or **A0** when the AI review boxes are there and none is ticked | the text after `Model:` (or `Model and report:`) in that box. A2 and A3 need it; A1 without one names the models that wrote the change, as a new session without the generating conversation |
 
 Boxes in code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are an unfilled template: `TODO`, which `lint` reports.
+
+Two more checks keep a template to the [definitions](levels.md):
+
+- **The human review levels build on each other.** In the [check before the merge](ci.md#checking-the-pull-request-description), a ticked `**H…**` box above an unticked one is an error: tick every level up to the one that was done. Landed commits are read as before, by their highest ticked box.
+- **A self-check is no AI review.** A ticked A1 box whose text says "its own work" or "self-check" is the template from before `SIGNOFF.toml` version 4, where A1 was the self-check of the generating session. It is an error, so change the template's AI review boxes when you [change over to version 4](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6).
 
 Use one form per message. A message with both "Key: value" lines and ticked level boxes is an error until a `[[commits]]` entry for that commit settles it; meanwhile both count, the lines winning where they overlap.
 
@@ -190,7 +197,7 @@ After reviewing whole files, attest them:
 
 ```bash
 aisignoff attest src/solver.py -H H2 --reviewed-by "Jane Doe"
-aisignoff attest src/ -a A2 --ai-reviewed-by "GPT-5 (OpenAI), fresh session"   # every declared file below src/
+aisignoff attest src/ -a A2 --ai-reviewed-by "GPT Sol (OpenAI), new session"   # every declared file below src/
 ```
 
 This appends one `[[attestations]]` entry per file, with the git blob hash of the content you checked:
@@ -204,7 +211,7 @@ Reviewed-by = "Jane Doe"
 ```
 
 - **Reviews only.** An attestation gives `Human-Review`, `AI-Review` or both, never generation (correct generation with `[[commits]]`). `TODO` isn't allowed: it records a check that was done.
-- **It covers the lines that content had.** Lines changed afterwards fall back to their own commit, so an attestation never covers code written after the review and can stay in the file. A review is the higher of the attestation's and the owner's.
+- **It covers the lines that content had.** Lines changed afterwards fall back to their own commit, so an attestation never covers code written after the review and can stay in the file. A review is the highest of the attestation's, the owner's and, for lines whose owner declares nothing, the file-level declaration's: an attestation never lowers a review.
 - **It follows the content.** The blob survives a squash merge and a rename (`git mv`). The same content in another file, such as a copy, isn't covered.
 - **It checks itself.** An attestation whose content never landed on the branch, or whose path was renamed away and created again, is reported by `lint`.
 - **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. That also works for content from before a snapshot.
@@ -224,7 +231,7 @@ aisignoff finds the default branch as `origin`'s default branch, else the one Gi
 ## Details
 
 - **`TODO` is below every level.** A `TODO` review of an owner stays until a `[[commits]]` entry or an attestation fills it in.
-- **A1 doesn't reach hand-written lines.** A1 means the generating session checked its own work. A line that a `[[commits]]` entry declares G0, in a pull request that ticks A1, takes A0, or the A2/A3 of an attestation. A declaration that says G0 and A1 itself is invalid.
+- **An AI review covers every line of its change,** hand-written ones too: a line that a `[[commits]]` entry declares G0, in a pull request that declares A1, is G0 with A1.
 - **Binary and empty files and symlinks** are one unit, counted as one line: the commit that last changed the file declares it.
 - **Moved lines** belong to the commit that moved them: a line moved to another file is a new line there.
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.

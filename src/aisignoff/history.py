@@ -13,8 +13,9 @@ Each line has one owner, and the owner declares it:
    commit that wrote a line can say a higher AI-Generation for it (an agent's commit in a pull
    request declared G1). A lower one (a hand-written commit in an AI-written pull request)
    takes a [[commits]] entry for that commit.
-4. A review is the higher of the owner's level and an [[attestations]] entry of the file whose
-   content (a git blob) already contained the line.
+4. A review is the higher of the owner's level (or the file level's, where that declares the
+   line) and an [[attestations]] entry of the file whose content (a git blob) already contained
+   the line.
 5. An owner that declares nothing leaves its lines to the file-level declaration (SIGNOFF.toml
    annotations and inline tags), or fails lint with undeclared = "error". One that declares some
    axes but not all, or leaves the template unfilled, is an error.
@@ -34,7 +35,7 @@ import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .model import AXES, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key, validate
+from .model import AI_REVIEWED, AIR, AXES, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key, from_version_3, validate
 
 UNCOMMITTED = "0" * 40
 SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
@@ -42,8 +43,10 @@ SNAPSHOT_FORMAT = 1
 # The rules levels are worked out by. A release that changes the levels some line gets raises it,
 # and a snapshot records the number it was written under: only a snapshot of the same rules is
 # checked by working it out again. One of other rules is accepted as it is on the default
-# branch, and fails as a change. 1: from 0.14.0 on.
-RULES = 1
+# branch, and fails as a change. 1: from 0.14.0 on. 2: the AI review scale of SIGNOFF.toml version 4
+# (a snapshot of rules 1 has the scale before it, and is read on today's: Snapshot.read), and a
+# review of the file level that an attestation doesn't reach stays.
+RULES = 2
 REVERT = re.compile(r"^This reverts commit ([0-9a-f]{7,64})", re.M)
 # GitHub's Revert button: the pull request's description, and the subject of its commits
 REVERT_PR = re.compile(r"^Reverts ([\w.-]+/[\w.-]+#\d+)", re.M)
@@ -287,7 +290,10 @@ def _boxes(text: str) -> list[tuple[bool, str]]:
     return [(t, x) for t, x in items]
 
 
-def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
+_OLD_A1_BOX = re.compile(r"its own work|self[- ]?check", re.I)
+
+
+def parse_checkboxes(text: str, author: str, source: str, version_3: bool = False, gaps: bool = False) -> dict[int, Piece]:
     """Axis pieces from the ticked checkboxes of a pull request template in a commit message
     (a squash commit with the default message "Pull request title and description"):
 
@@ -297,8 +303,12 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
         - [x] **H1** I ran the tests ...          the highest ticked human review level
         - [x] **A2** A new AI session ... Model: X  the highest ticked AI review level
 
-    The human review is the commit author's; the AI review names the model after "Model:", or
-    the models that wrote the change. As in the template, no ticked AI review box means A0.
+    The human review is the commit author's; the AI review names the model after "Model:", and
+    for A1 otherwise the models that wrote the change (a new session of them). As in the template,
+    no ticked AI review box means A0. version_3: the boxes are of the template before SIGNOFF.toml
+    version 4 (parse_message takes its AI review over to today's scale); without it, a ticked A1
+    box that says self-check is that old template, and a problem. gaps: a ticked human review box
+    above an unticked one is a problem (the levels build on each other; the check before the merge).
     Models count only between the generation and the human review boxes, and boxes in code
     blocks not at all. Generation or human review boxes that are there with none ticked are a
     template that wasn't filled in: TODO. Nothing is returned without any level box."""
@@ -306,6 +316,8 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
     seen: set[str] = set()
     models: list[str] = []
     reviewer: dict[str, str] = {}
+    unticked: set[str] = set()
+    old_box = False
     for ticked, item in _boxes(text):
         level = _BOX_LEVEL.match(item)
         if level:
@@ -313,6 +325,9 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
             seen.add(code[0])
             if ticked:
                 levels[code[0]].append(code)
+                old_box = old_box or (code == "A1" and bool(_OLD_A1_BOX.search(item)))
+            else:
+                unticked.add(code)
             if ticked and code[0] == "A" and "Model" in item:
                 name = re.split(r"Model[^:]*:", item, maxsplit=1)[-1].strip()
                 if name:
@@ -333,6 +348,15 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
     problems = []
     if len(levels["G"]) > 1:
         problems.append(f"{source} ticks more than one generation level ({', '.join(levels['G'])})")
+    if old_box and not version_3:
+        problems.append(f"{source} ticks an A1 box of the template before version 4 (the self-check of the "
+                        "generating session, which is no AI-Review now: A0). Use the current template; for a "
+                        "commit that has landed, say what was meant with a [[commits]] entry")
+    if gaps and levels["H"]:
+        below = sorted(c for c in unticked if c[0] == "H" and c < max(levels["H"]))
+        if below:
+            problems.append(f"{source} ticks {max(levels['H'])} but not {', '.join(below)}: the Human-Review levels "
+                            "build on each other, so tick every level up to the one that was done")
     out = {}
     names = {"G": tuple(models), "H": (author,) if author else ()}
     if "A" in seen and not levels["A"]:
@@ -350,11 +374,11 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
         if letter == "A":
             if top in reviewer:
                 found = (reviewer[top],)
-            elif top == "A1":
+            elif version_3 and top == "A1":
                 found = tuple(f"{m}, self-check by the generating session" for m in models)
-            elif top == "A2":
+            elif top == ("A2" if version_3 else "A1"):
                 found = tuple(f"{m}, new session without the generating conversation" for m in models)
-            else:  # A0, or A3 without a model
+            else:  # A0, or a review by a different model without its name
                 found = ()
         else:
             found = names[letter]
@@ -362,17 +386,24 @@ def parse_checkboxes(text: str, author: str, source: str) -> dict[int, Piece]:
     return out
 
 
-def parse_message(body: str, author: str, source: str) -> tuple[dict[int, Piece], str | None]:
+def parse_message(body: str, author: str, source: str, version_3: bool = False,
+                  gaps: bool = False) -> tuple[dict[int, Piece], str | None]:
     """The declaration in a commit message body or a pull request description: its "Key: value"
     lines, or the ticked checkboxes of a pull request template. One or the other: with both, both
-    count (the lines where they overlap) and the second value is the problem to report."""
+    count (the lines where they overlap) and the second value is the problem to report.
+    version_3: the repository's SIGNOFF.toml says version 3, so the AI review is of the scale
+    before version 4 and is taken over to today's. gaps: see parse_checkboxes."""
     from_trailers = parse_trailers(body, source)
-    from_boxes = parse_checkboxes(body, author.strip(), source)
+    from_boxes = parse_checkboxes(body, author.strip(), source, version_3, gaps)
     both = None
     if from_trailers and from_boxes:
         both = (f"{source} declares levels both as trailers and as ticked checkboxes; "
                 "use one of them, or settle it with a [[commits]] entry")
-    return {**from_boxes, **from_trailers}, both
+    pieces = {**from_boxes, **from_trailers}
+    if version_3 and 2 in pieces:
+        level, names = from_version_3(pieces[2].level, pieces[2].names)
+        pieces[2] = replace(pieces[2], level=level, names=names)
+    return pieces, both
 
 
 _SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
@@ -488,7 +519,22 @@ class Snapshot:
         if type(rules) is not int:
             # 0.14 wrote no number, under the rules that became 1
             rules = 1 if rules is None and version and version.startswith("0.14.") else None
+        if rules is None or rules < 2:
+            # written on the AI review scale before version 4: read on today's
+            declarations = [cls._from_version_3(d) for d in declarations]
+            archive = [{**a, **{k: [cls._from_version_3(e) for e in a.get(k, [])] for k in ("commits", "attestations")
+                               if k in a}} for a in archive]
         return cls(commit, declarations, files, archive, version, reset, rules)
+
+    @staticmethod
+    def _from_version_3(d: dict) -> dict:
+        if not isinstance(d.get(AIR), str):
+            return d
+        level, names = from_version_3(d[AIR], d.get(AI_REVIEWED) or ())
+        out = {**d, AIR: level}
+        if AI_REVIEWED in d or names:
+            out[AI_REVIEWED] = list(names)
+        return out
 
     def line_declarations(self) -> dict[str, list[str]]:
         """path -> the declaration of each line, as comparable text."""
@@ -910,7 +956,7 @@ class History:
         self.subjects[sha] = subject.strip()
         self.parents[sha] = parents.split()
         body = message.split("\n", 1)[1] if "\n" in message else ""
-        self._trailers[sha], both = parse_message(body, author, self.describe(sha))
+        self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3)
         if both:
             self._both[sha] = both
         revert, pr = REVERT.search(body), REVERT_PR.search(body)
@@ -1578,9 +1624,8 @@ class History:
         declares something, and only a higher level than the owner's unless a [[commits]] entry
         says it: a commit message inside a pull request can't take the AI out of its lines), else
         the owner's. Reviews: the
-        highest of the owner's and the attestations', the later one on a tie; TODO is below every
-        level. A1 (the generating session checked itself) doesn't reach a line whose G0 comes from
-        somewhere else. An axis that nothing gives is missing when the owner declares another one,
+        highest of the owner's (or, when the file level declares the line, the file level's) and the
+        attestations', the later one on a tie; TODO is below every level. An axis that nothing gives is missing when the owner declares another one,
         an error when a declaration is required, and the file-level declaration's otherwise."""
         problems = tuple(dict.fromkeys(x for p in owner.values() for x in p.problems))
         hint, explicit = hinted
@@ -1597,23 +1642,19 @@ class History:
                     f"{hint.source} says {hint.level} for the lines it wrote, but no Assisted-by; name the tool "
                     "and model there, in the declaration of the pull request, or with a [[commits]] entry",))
         out: list[Piece | None] = []
-        gen_from = None
         for i, (level, _) in enumerate(AXES):
             best = None
             given = [(n, pieces[i]) for n, pieces in enumerate(attested) if i in pieces]
             if i == 0:
                 if hint is not None and owner:
-                    gen_from, best = "hint", hint
+                    best = hint
                 elif i in owner:
-                    gen_from, best = "owner", owner[i]
+                    best = owner[i]
             else:
                 found = ([("owner", owner[i])] if i in owner else []) + given
-                if i == 2 and out[0] is not None and out[0].level == "G0":
-                    # from the declaration that says G0 itself, G0 with A1 is invalid, and validate says so
-                    self_checks = [t for t in found if t[1].level == "A1" and t[0] != gen_from]
-                    found = [t for t in found if t[1].level != "A1" or t[0] == gen_from]
-                    if not found and self_checks:
-                        found = [(None, replace(self_checks[-1][1], level="A0", names=()))]
+                if given and not owner and not required and i in fb:
+                    # the file level declares the line: an attestation raises its review, never lowers it
+                    found = [("file", fb[i])] + found
                 if found:
                     best = max(enumerate(found), key=lambda t: (_level_value(t[1][1].level), t[0]))[1][1]
             if best is not None:

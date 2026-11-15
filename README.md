@@ -29,7 +29,7 @@ aisignoff init -g G0 -H H2 -a A0 --reviewed-by "Jane Doe"
 # what is different, by file, folder or glob (the last matching annotation wins)
 aisignoff annotate results/ -g G2 -H H1 -a A1 \
     --assisted-by "Claude Opus 5.5 (Anthropic)" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), self-check by the generating session" \
+    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), new session without the generating conversation" \
     --reviewed-by "Jane Doe"
 
 # every file declared correctly?

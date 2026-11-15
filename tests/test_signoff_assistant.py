@@ -32,7 +32,8 @@ Closes #
 - [ ] **Claude Sonnet** (Anthropic)
 - [ ] **Other:**
 - [ ] **H0** I checked the result as a whole
-- [ ] **A1** The AI that wrote the change checked its own work
+- [ ] **A0** No independent AI review
+- [ ] **A1** A new AI session, without the generating conversation, checked the change
 """
 
 
@@ -73,7 +74,7 @@ class FakeClaude:
 
 def answer(status="ready", message="You wrote results/ with Claude Opus 5.5 and reran it.", kind="annotate",
            paths=("results/",), commit="", generation="G2", models=("Claude Opus 5.5 (Anthropic)",), human="H1",
-           responsible="Jane Doe", ai_review="A1", ai_reviewers=("Claude Opus 5.5 (Anthropic), self-check",),
+           responsible="Jane Doe", ai_review="A1", ai_reviewers=("Claude Sonnet 5.5 (Anthropic), new session",),
            notes=""):
     return dict(status=status, message=message, kind=kind, paths=list(paths), commit=commit, generation=generation,
                 models=list(models), human=human, responsible=responsible, ai_review=ai_review,
@@ -150,7 +151,7 @@ def test_ready_request_goes_to_the_signoff_request_workflow(repo):
     assert "| Files, folders or globs | results/ |" in posted and "now checks this" in posted
     assert not (repo / "work/SIGNOFF.toml").read_text().count("results/")   # the aisignoff dry run is undone
 
-    # the signoff request workflow takes it from there, with G1, the model and A1 ticked
+    # the signoff request workflow takes it from there, with G1, the model and A0 ticked
     r, api = form_request(repo, "ignored issue text", SIGNOFF_REQUEST=out["request"], SIGNOFF_REQUESTER="jane",
                           SIGNOFF_REQUESTER_ID="1", SIGNOFF_ASSISTANT=out["model-name"])
     assert r.returncode == 0, r.stdout + r.stderr
@@ -159,7 +160,7 @@ def test_ready_request_goes_to_the_signoff_request_workflow(repo):
     assert 'path = "results/**"' in toml and 'AI-Generation = "G2"' in toml and 'Reviewed-by = "Jane Doe"' in toml
     pr = api.split("----- POST /repos/org/repo/pulls\n", 1)[1].split("\n----- ", 1)[0]
     assert "The @signoff assistant (Claude Sonnet 5.5 (Anthropic))" in pr and "> Reran the study." in pr
-    assert "- [ ] **G0**" in pr and "- [x] **G1**" in pr and "- [x] **A1**" in pr
+    assert "- [ ] **G0**" in pr and "- [x] **G1**" in pr and "- [x] **A0**" in pr and "- [ ] **A1**" in pr
     assert "- [x] **Claude Sonnet**" in pr and "- [ ] **Claude Opus**" in pr and "- [ ] **Other:**" in pr
     body = pr.split("\n", 2)[2]
     desc = repo / "description.md"

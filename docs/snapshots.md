@@ -55,6 +55,8 @@ The snapshot is generated, never edited by hand. When `SIGNOFF.snapshot.json` di
 
 The snapshot records the `"rules"` it was written under, a number that a release raises only when it changes the levels some line gets. A snapshot of the running version's rules is checked whatever version wrote it. One written under other rules can't be compared: as a change it fails ("written under other rules"), and as the default branch's snapshot it is accepted as it is (`freeze --check` notes it). So write a new snapshot with the version your CI uses, and land a snapshot of an older version before you raise the version CI pins (see [Migrating](migrating.md#from-011-or-earlier-with-history)). git runs with the settings that change its results pinned, so a personal git config (an ignore-revs file of your own, another diff algorithm) doesn't change the levels.
 
+Rules 2 (1.0.0rc6) are the rules of [today's AI review scale](levels.md#ai-review-a0-to-a3). A snapshot of earlier rules holds AI review levels of the scale before it, and is read as taken over to today's: the self-check of the generating session (A1 there) is A0 without a reviewer, a new session's review (A2 there) is A1, and A3 stays. The next `freeze` writes them that way.
+
 A snapshot only moves forward. `lint` also fails when the changed snapshot is of an older commit than the default branch's, or drops archived entries of the default branch's snapshot, which are recorded nowhere else: by putting back an older snapshot, deleting it, or taking one afresh. In a pull request, the snapshot is compared with the default branch's. On the default branch itself it is compared with the commit below `HEAD`, and on GitHub Actions with every commit of the push; pushed without CI, such a change is only caught by the next pull request's run, against a branch that has it already. Protect the default branch so that changes land through pull requests. To take one afresh, put the archived entries back into `SIGNOFF.toml` first. `freeze --prune` writes each archived commit with its full hash, so it can't become ambiguous later.
 
 `lint` also fails when a file's blob or number of lines doesn't match the snapshot's commit. Such a file is resolved from history until the snapshot is restored or written again.
@@ -66,12 +68,12 @@ The snapshot has one line per distinct declaration and one per file, so a new sn
 ```json
 {
  "format": 1,
- "aisignoff": "1.0.0rc1",
- "rules": 1,
+ "aisignoff": "1.0.0rc6",
+ "rules": 2,
  "commit": "f4d6052e6d7ff657fac433bfec90d22689c7130f",
  "declarations": [
   {"AI-Generation": "G0", "Human-Review": "H2", "AI-Review": "A0", "Assisted-by": [], "AI-Reviewed-by": [], "Reviewed-by": ["Jane Doe"], "source": "SIGNOFF.toml [1]"},
-  {"AI-Generation": "G3", "Human-Review": "H1", "AI-Review": "A1", "Assisted-by": ["Claude Opus (Anthropic)"], "AI-Reviewed-by": ["Claude Opus (Anthropic), self-check by the generating session"], "Reviewed-by": ["Jane Doe"], "source": "commit d307518 (Add solver part (#1)), pull request checkboxes"}
+  {"AI-Generation": "G3", "Human-Review": "H1", "AI-Review": "A1", "Assisted-by": ["Claude Opus (Anthropic)"], "AI-Reviewed-by": ["Claude Opus (Anthropic), new session without the generating conversation"], "Reviewed-by": ["Jane Doe"], "source": "commit d307518 (Add solver part (#1)), pull request checkboxes"}
  ],
  "files": {
   "src/solver.py": {"blob": "…", "runs": [[1, 20, 0], [21, 30, 1]]}

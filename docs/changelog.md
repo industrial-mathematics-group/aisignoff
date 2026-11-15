@@ -2,8 +2,21 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
-## Unreleased
+## 1.0.0rc6
 
+The AI review scale changes, so that both review scales are cumulative and the AI review counts only review that is independent of the session that wrote the content ([Levels and rules](levels.md), with definitions for code and for research and writing). Existing repositories keep working and keep their levels: [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6).
+
+- **Breaking:** the AI review levels mean something else. **A0** is no independent AI review (the self-check of the generating session is part of generating), **A1** a context-free check by a new session, **A2** that check by a different, capable model, with one committed review report, **A3** a validation by a different, capable model with new evidence, committed with the report. Before, A1 was the self-check, A2 the new session and A3 an extensive review by a different model.
+- **Breaking:** `SIGNOFF.toml` is `version = 4`. A file with `version = 3` is still read, as the scale before: its levels, and those of inline tags, commit messages, pull request descriptions and snapshots of earlier rules, are taken over (A1 to A0 without a reviewer, A2 to A1), and `lint` adds a note. `annotate` and `attest` refuse until the file is converted, with the new `examples/convert-to-version-4.py`. Snapshots are written under rules 2.
+- **Breaking:** the built-in rules "G1–G3 need at least A1" and "G0 can't be A1" are gone, and with them the special cases of `[policy]` (A1 for G0 meant A2) and of lines (A1 didn't reach hand-written lines). A policy minimum now means the same for every generation level.
+- **Breaking:** `lint` fails on A1–A3 whose `AI-Reviewed-by` names only a self-check, on A2 or A3 whose `AI-Reviewed-by` names only models from `Assisted-by`, and, with version 4, on a ticked A1 box of the old pull request template.
+- **Breaking:** in the check before the merge (`lint --declare-from`, with version 4), a ticked human review box above an unticked one is an error: the levels build on each other.
+- **Breaking:** the `"*"` minimum of `[policy]` also applies to a declaration whose generation is missing or `TODO`. Before, such a declaration was checked against no minimum.
+- Fixed: an attestation could lower a review. For lines whose commit declares nothing, an attestation replaced the review of the file-level declaration, also with a lower one. Now the higher counts.
+- New `[review]` table with `recheck` (default `"major"`): the severity from which a review's finding needs a new review after its fix, on a scale of trivial, minor, major and critical defined in [When a review counts](levels.md#when-a-review-counts).
+- **Breaking:** `lint` fails on a committed review report (`[review]` `reports`, by default the Markdown files in `reviews/`) that lists a finding from that severity on: the finding is fixed, the change reviewed again, and the new report replaces the old one. A report lists its findings as list items or headings that start with the severity, such as `- **minor:** …`.
+- In a ticked template, A2 and A3 need the reviewing model after `Model:`; A1 without one names the models that wrote the change, as a new session.
+- The issue form of the signoff request and the `@signoff` assistant use the new wording. The assistant's pull requests declare G1 with A0.
 - New example: the `@signoff` assistant (`signoff-assistant.yml`), which turns a request in plain words in an issue or comment into the answers of the signoff request form with the Claude API, asks in a comment for what is missing, and hands complete answers to `signoff-request.yml`, which now also runs through `workflow_call` ([The @signoff assistant](ci.md#the-signoff-assistant)). Optional: needs the secret `ANTHROPIC_API_KEY`.
 
 ## 1.0.0rc5

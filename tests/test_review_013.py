@@ -102,7 +102,7 @@ def test_freeze_reset_works_a_file_out_again_with_its_archived_corrections(repo,
 
 def test_a_file_included_after_a_prune_keeps_its_archived_correction(repo, capsys):
     toml = repo / "SIGNOFF.toml"
-    toml.write_text(toml.read_text().replace("version = 3\n", 'version = 3\nexclude = ["gen/**"]\n'))
+    toml.write_text(toml.read_text().replace("version = 4\n", 'version = 4\nexclude = ["gen/**"]\n'))
     (repo / "gen").mkdir()
     (repo / "gen" / "a.py").write_text("generated\n")
     sha = commit(repo, "add gen, undeclared")
@@ -167,7 +167,7 @@ def test_a_hand_edit_fails_whatever_version_or_rules_the_snapshot_says(repo, cap
     commit(repo, "freeze", HAND)
     path = repo / "SIGNOFF.snapshot.json"
     good = json.loads(path.read_text())
-    assert good["rules"] == 1
+    assert good["rules"] == 2
     for key, value in [("aisignoff", "0.13.0"), ("aisignoff", None), ("rules", 0), ("rules", None)]:
         data = json.loads(json.dumps(good))
         data["declarations"][0]["Human-Review"] = "H3"
@@ -342,7 +342,7 @@ def test_a_pull_requests_run_needs_the_default_branch(tmp_path, capsys, monkeypa
     git(tmp_path, "init", "-q", "-b", "develop")
     git(tmp_path, "config", "user.email", "t@example.com")
     git(tmp_path, "config", "user.name", "T")
-    (tmp_path / "SIGNOFF.toml").write_text('version = 3\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
                                            'AI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\nReviewed-by = "J"\n')
     (tmp_path / "a.py").write_text("1\n")
     commit(tmp_path, "one", HAND)

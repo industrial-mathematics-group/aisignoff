@@ -27,7 +27,8 @@ Closes #
 - [ ] **G0** Written by a human, without AI
 - [ ] **G1** AI-assisted
 - [ ] **H0** I checked the result as a whole
-- [ ] **A1** The AI that wrote the change checked its own work
+- [ ] **A0** No independent AI review
+- [ ] **A1** A new AI session, without the generating conversation, checked the change
 """
 
 
@@ -50,7 +51,7 @@ def checkout(tmp_path):
     (src / "README.md").write_text("# x\n")
     (src / ".github").mkdir()
     (src / ".github/pull_request_template.md").write_text(TEMPLATE)
-    (src / "SIGNOFF.toml").write_text('version = 3\n\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\n'
+    (src / "SIGNOFF.toml").write_text('version = 4\n\n[[annotations]]\npath = "**"\nAI-Generation = "G0"\n'
                                       'Human-Review = "H1"\nAI-Review = "A0"\nReviewed-by = "Jane Doe"\n')
     git(tmp_path, "init", "-q", "-b", "main", str(src))
     git(src, "add", "-A")
@@ -91,12 +92,12 @@ def test_declare_files_opens_a_pull_request_from_the_template(checkout):
     r, api = request(checkout, form(kind="Declare files: how they were made", paths="results/",
                                     gen="G2: AI wrote substantial parts", models="Claude Opus 5.5 (Anthropic)",
                                     human="H1: ran it", responsible="Jane Doe", ai="A1: the AI that wrote it",
-                                    ai_by="Claude Opus 5.5 (Anthropic), self-check", notes="Checked."))
+                                    ai_by="Claude Sonnet 5.5 (Anthropic), new session", notes="Checked."))
     assert r.returncode == 0, r.stdout + r.stderr
     work = checkout / "work"
     assert git(work, "branch", "--show-current").strip() == "signoff-request/issue-7"
     toml = (work / "SIGNOFF.toml").read_text()
-    assert 'path = "results/**"' in toml and 'AI-Generation = "G2"' in toml and "self-check" in toml
+    assert 'path = "results/**"' in toml and 'AI-Generation = "G2"' in toml and "new session" in toml
     assert "Co-authored-by: jane <1+jane@users.noreply.github.com>" in git(work, "log", "-1", "--format=%B")
     pr = api.split("----- POST /repos/org/repo/pulls\n", 1)[1].split("\n----- ", 1)[0]
     assert pr.startswith("Declare results/ (signoff request #7)")
@@ -129,7 +130,7 @@ def test_attest_and_correct_a_commit(checkout):
     commit = git(checkout / "work", "rev-parse", "--short", "origin/main").strip()
     r, _ = request(checkout, form(kind="Correct the declaration of a commit", commit=commit, gen="G1: x",
                                   models="M (V)", human="H2: read", responsible='Jane "JD" Doe', ai="A1: y",
-                                  ai_by="M (V), self-check"))
+                                  ai_by="M (V), new session"))
     assert r.returncode == 0, r.stdout + r.stderr
     toml = (checkout / "work/SIGNOFF.toml").read_text()
     assert "[[attestations]]" not in toml   # each run starts from the default branch

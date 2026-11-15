@@ -54,7 +54,7 @@ def test_tree_merges_single_folder_chains_and_sorts(repo):
 
 
 def test_tree_leaves_out_excluded_files(repo):
-    text = (repo / "SIGNOFF.toml").read_text().replace("version = 3\n", 'version = 3\nexclude = ["src/bad.py"]\n')
+    text = (repo / "SIGNOFF.toml").read_text().replace("version = 4\n", 'version = 4\nexclude = ["src/bad.py"]\n')
     (repo / "SIGNOFF.toml").write_text(text)
     tree = tree_of(repo)
     assert tree["files"] == 5 and tree["errors"] == 0

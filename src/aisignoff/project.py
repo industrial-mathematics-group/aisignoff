@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import inline
 from .config import FILENAME, Config, load
-from .model import AXES, Declaration, validate
+from .model import AXES, Declaration, from_version_3, validate
 
 ALWAYS_SKIPPED = {FILENAME, "SIGNOFF.snapshot.json"}
 
@@ -133,6 +133,9 @@ def resolve(root: Path, config: Config, path: str) -> Declaration:
     if annotation is not None and annotation.precedence == "override":
         return annotation.declaration()
     found = inline.parse(root / path)
+    if found is not None and config.version_3 and found.ai is not None:
+        # inline tags follow the scale SIGNOFF.toml says
+        found.ai, found.ai_reviewed_by = from_version_3(found.ai, found.ai_reviewed_by)
     if found is not None:
         return _merge_closest(found, annotation.declaration() if annotation else None)
     if annotation is not None:
@@ -164,6 +167,11 @@ class Project:
     def files(self) -> list[str]:
         return [f for f in list_files(self.root)
                 if f not in ALWAYS_SKIPPED and not self.config.is_excluded(f)]
+
+    def report_problems(self) -> list[str]:
+        """Committed review reports that list a finding whose fix needs a new review ([review])."""
+        from .reports import problems
+        return problems(self.root, list_files(self.root), self.config.reports, self.config.recheck)
 
     def results(self, declared=None, base: str | None = None, quiet: bool = False,
                 use_snapshot: bool = True) -> list[FileResult]:
