@@ -97,8 +97,22 @@ def test_the_base_branch_sets_the_rules(branch, tmp_path, capsys):
     code, out = lint(branch, tmp_path, h0, "--author", "jane", capsys=capsys)
     assert code == 1 and "G0 requires at least H1 by policy" in out   # the base's policy
     assert "the change alters [policy] in SIGNOFF.toml" in out
+    # a maintainer's change may alter the policy, but can't lower the bar for itself
     code, out = lint(branch, tmp_path, h0, "--author", "jane", "--allow-policy-change", capsys=capsys)
-    assert code == 0, out   # a maintainer's change: its own policy applies
+    assert code == 1 and "G0 requires at least H1 by policy" in out
+    assert "the change alters [policy] in SIGNOFF.toml, which only" not in out
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
+    assert code == 0, out   # it meets the base's policy: the new one applies to the pull requests after it
+    assert "the change alters [policy] in SIGNOFF.toml (allowed by --allow-policy-change)" in out
+    assert "still checked under the base branch's [policy] (main)" in out
+    # after it has landed, the lower policy is main's
+    git(branch, "checkout", "-q", "main")
+    git(branch, "merge", "-q", "--no-ff", "-m", "Merge the policy change\n\nAI-Generation: G0\nHuman-Review: H1\n"
+        "AI-Review: A0\nReviewed-by: jane", "feature")
+    git(branch, "checkout", "-q", "-b", "next")
+    write(branch, "solver.py", "changed again\n")
+    commit(branch, "next change")
+    assert lint(branch, tmp_path, h0, "--author", "jane")[0] == 0
 
 
 @pytest.mark.parametrize("change, what", [
@@ -177,3 +191,12 @@ def test_helpers():
     assert responsible_person("x\nResponsible person: @jane-doe\n") == "jane-doe"
     assert responsible_person("```\nResponsible person: @jane\n```\n") is None
     assert responsible_person("<!-- Responsible person: @jane -->\n") is None
+
+
+def test_allowed_removal_of_signoff_toml_is_said(branch, tmp_path, capsys):
+    git(branch, "rm", "-q", "SIGNOFF.toml")
+    commit(branch, "remove SIGNOFF.toml")
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", capsys=capsys)
+    assert code == 1 and "the change removes SIGNOFF.toml" in out
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
+    assert code == 0 and "the change removes SIGNOFF.toml (allowed by --allow-policy-change)" in out
