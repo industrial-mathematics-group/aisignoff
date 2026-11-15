@@ -105,6 +105,7 @@ Ready-to-copy files are in [`examples/`](https://github.com/industrial-mathemati
 | [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the summary, `report --json` and the folder report to each GitHub release |
 | [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | publishes the folder report to GitHub Pages (only for repositories without another Pages site) |
 | [`signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-request.yml) with the issue form [`ISSUE_TEMPLATE/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/ISSUE_TEMPLATE/signoff-request.yml) | turns an issue into a pull request that changes `SIGNOFF.toml` ([below](#signoff-requests-from-issues)) |
+| [`signoff-assistant.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-assistant.yml) | the `@signoff` assistant: Claude turns a request in plain words into the form's answers, or asks for what is missing, and hands them to `signoff-request.yml` ([below](#the-signoff-assistant)) |
 | [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) | runs `aisignoff lint` before each commit |
 
 Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to either. The pull request workflows only read the repository and never fail on their own, so they also work for pull requests from forks. To adapt them:
@@ -149,6 +150,32 @@ By default the branch, commit and pull request come from `github-actions[bot]`. 
 2. Store its App ID as the Actions variable `SIGNOFF_APP_ID` and a private key it generates as the secret `SIGNOFF_APP_PRIVATE_KEY` (on the repository, or once for the organisation).
 
 The workflow then gets a token with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and acts as `<app>[bot]`. Its pull requests start your checks like anyone's, so nothing is dispatched by hand, and the repository setting for `GITHUB_TOKEN` to open pull requests isn't needed. Without the variable, it falls back to `GITHUB_TOKEN`. The form's text never reaches a shell: the workflow reads it from the event file and passes it to aisignoff as separate arguments, and runs no code of the repository.
+
+### The @signoff assistant
+
+For requests in plain words, the optional [`signoff-assistant.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-assistant.yml) lets people write `@signoff` in a new issue or a comment:
+
+> @signoff I wrote results/convergence/ with Claude Opus 5.5, which also checked its work. I reran the study and read the important parts.
+
+It sends the conversation, the repository's file list, `SIGNOFF.toml` and the recent commits to Claude through the [Claude API](https://platform.claude.com/docs), which fills in the form's answers. Before anything is handed on, the answers go through the form's checks and, on a scratch copy of the default branch, through `aisignoff annotate` or `attest` and `lint`. What fails goes back to Claude once; what is still missing or ambiguous becomes questions in a comment, answered with another `@signoff` comment. Complete answers go, written exactly as the form writes them, to `signoff-request.yml` (through `workflow_call`), which checks them again and opens the pull request as above. Claude only suggests: it never writes `SIGNOFF.toml`, pushes or ticks a review.
+
+```
+@signoff + plain words ──► Claude: the form's answers ──► form checks + aisignoff (scratch copy)
+   ▲   comment: questions, or what fails      │ missing, ambiguous or refused    │ complete
+   └──────────────────────────────────────────┘                                  ▼
+                                   signoff-request.yml: aisignoff, lint ──► PR ──► requester reviews, ticks, merges
+```
+
+Setup, in addition to the [form's](#signoff-requests-from-issues):
+
+1. Copy `signoff-assistant.yml` to `.github/workflows/`, next to `signoff-request.yml` (its `uses:` names that file).
+2. Create an API key in the [Claude Console](https://platform.claude.com) (best in a workspace with a spend limit) and store it as the Actions secret `ANTHROPIC_API_KEY`, on the repository or for the organisation. Without it, `@signoff` gets a comment that points to the form, and nothing else changes.
+3. Optional: change `MODEL` (default `claude-sonnet-5-5`) and `MODEL_NAME`, the name the pull request declares, together; `EFFORT` sets how hard the model thinks. A request costs a few cents with the default model, mostly for the file list it reads.
+
+Because an AI turned the requester's words into the answers, the pull request ticks **G1**, the model and **A1** instead of **G0** (the result is checked by aisignoff before the pull request opens), and says that the answers come from the assistant. The requester checks the diff and ticks their review as for the form; they can correct the ticks.
+
+!!! warning "Prompt injection"
+    Issue text is input from people, and the model reads it. The assistant therefore answers only people with write access and leaves out the text of anyone else; the model has no tools and can only fill in a fixed JSON schema ([structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)), whose values are checked and passed to aisignoff as separate arguments, never to a shell; its comments can't mention other people or carry the workflow's hidden markers; and the API key is only in the step that calls the model. The human review of the pull request remains the signoff.
 
 ## pre-commit
 

@@ -2,6 +2,10 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## Unreleased
+
+- New example: the `@signoff` assistant (`signoff-assistant.yml`), which turns a request in plain words in an issue or comment into the answers of the signoff request form with the Claude API, asks in a comment for what is missing, and hands complete answers to `signoff-request.yml`, which now also runs through `workflow_call` ([The @signoff assistant](ci.md#the-signoff-assistant)). Optional: needs the secret `ANTHROPIC_API_KEY`.
+
 ## 1.0.0rc5
 
 - **Breaking:** `lint` checks every `[[commits]]` entry against the built-in rules and the `[policy]`, as the declaration of its commit corrected by the entry, also when that commit owns no line that is checked. Before, an entry was only checked through the lines it owns, so one for a commit that changed only `SIGNOFF.toml`, or whose lines are gone, passed whatever it said (seen in a signoff request that recorded G3/H0/A1 under a policy that needs H1 and A2 for G3).
