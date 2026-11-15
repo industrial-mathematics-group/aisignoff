@@ -35,7 +35,8 @@ import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .model import AI_REVIEWED, AIR, AXES, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key, from_version_3, validate
+from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, LEVEL_KEYS, LIST_KEYS, RECHECK, TODO, Declaration, canonical_key,
+                    findings_problems, from_version_3, validate)
 
 UNCOMMITTED = "0" * 40
 SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
@@ -293,6 +294,31 @@ def _boxes(text: str) -> list[tuple[bool, str]]:
 _OLD_A1_BOX = re.compile(r"its own work|self[- ]?check", re.I)
 
 
+def _own_text(item: str) -> str:
+    """A box's text as the template wrote it: without what was filled in after "Model ...:"."""
+    return re.split(r"\bModel\b", item, maxsplit=1)[0]
+
+
+def old_template(text: str) -> bool | None:
+    """Whether the AI review boxes of a pull request template are of the scale before SIGNOFF.toml
+    version 4: its A1 box was the self-check of the generating session. None: there is no A1 box."""
+    for _, item in _boxes(text):
+        if item.startswith("**A1**"):
+            return bool(_OLD_A1_BOX.search(_own_text(item)))
+    return None
+
+
+def findings_line(text: str) -> str | None:
+    """The value of the "AI-Review-Findings:" line of a message (the last one, "" if it is left
+    empty), outside code blocks and comments. None: the message has no such line."""
+    found = None
+    for line in _prose_lines(text):
+        m = _KEY_LINE.match(line)
+        if m and m.group(1).lower() == FINDINGS.lower():
+            found = m.group(2).strip().strip("*_`").strip()
+    return found
+
+
 def parse_checkboxes(text: str, author: str, source: str, version_3: bool = False, gaps: bool = False) -> dict[int, Piece]:
     """Axis pieces from the ticked checkboxes of a pull request template in a commit message
     (a squash commit with the default message "Pull request title and description"):
@@ -325,7 +351,7 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
             seen.add(code[0])
             if ticked:
                 levels[code[0]].append(code)
-                old_box = old_box or (code == "A1" and bool(_OLD_A1_BOX.search(item)))
+                old_box = old_box or (code == "A1" and bool(_OLD_A1_BOX.search(_own_text(item))))
             else:
                 unticked.add(code)
             if ticked and code[0] == "A" and "Model" in item:
@@ -387,22 +413,30 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
 
 
 def parse_message(body: str, author: str, source: str, version_3: bool = False,
-                  gaps: bool = False) -> tuple[dict[int, Piece], str | None]:
+                  gaps: bool = False, recheck: str | None = RECHECK) -> tuple[dict[int, Piece], str | None]:
     """The declaration in a commit message body or a pull request description: its "Key: value"
     lines, or the ticked checkboxes of a pull request template. One or the other: with both, both
     count (the lines where they overlap) and the second value is the problem to report.
     version_3: the repository's SIGNOFF.toml says version 3, so the AI review is of the scale
-    before version 4 and is taken over to today's. gaps: see parse_checkboxes."""
+    before version 4 and is taken over to today's; ticked boxes of today's template (its A1 box is
+    no self-check) are read on today's scale all the same, so that a repository can take the new
+    template before it changes over. gaps: see parse_checkboxes. recheck: an "AI-Review-Findings:"
+    line of that severity or above is a problem of the AI review (None: the caller checks the line)."""
     from_trailers = parse_trailers(body, source)
-    from_boxes = parse_checkboxes(body, author.strip(), source, version_3, gaps)
+    old_boxes = version_3 and old_template(body) is not False
+    from_boxes = parse_checkboxes(body, author.strip(), source, old_boxes, gaps)
     both = None
     if from_trailers and from_boxes:
         both = (f"{source} declares levels both as trailers and as ticked checkboxes; "
                 "use one of them, or settle it with a [[commits]] entry")
     pieces = {**from_boxes, **from_trailers}
-    if version_3 and 2 in pieces:
+    if 2 in pieces and (old_boxes if 2 not in from_trailers else version_3):
         level, names = from_version_3(pieces[2].level, pieces[2].names)
         pieces[2] = replace(pieces[2], level=level, names=names)
+    elif 2 in pieces and recheck is not None and not version_3:
+        wrong = findings_problems(pieces[2].level, findings_line(body), recheck)
+        if wrong:
+            pieces[2] = replace(pieces[2], problems=pieces[2].problems + tuple(f"{source}: {w}" for w in wrong))
     return pieces, both
 
 
@@ -956,7 +990,8 @@ class History:
         self.subjects[sha] = subject.strip()
         self.parents[sha] = parents.split()
         body = message.split("\n", 1)[1] if "\n" in message else ""
-        self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3)
+        self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3,
+                                                   recheck=self.config.recheck)
         if both:
             self._both[sha] = both
         revert, pr = REVERT.search(body), REVERT_PR.search(body)

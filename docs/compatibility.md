@@ -1,6 +1,6 @@
 # Compatibility
 
-aisignoff is at a release candidate for 1.0 (1.0.0rc6). From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers, so you know what to rely on when you pin a version in a workflow or a pre-commit hook. A release candidate may still change these formats before 1.0.0, with a note in the [changelog](changelog.md).
+aisignoff is at a release candidate for 1.0 (1.0.0rc7). From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers, so you know what to rely on when you pin a version in a workflow or a pre-commit hook. A release candidate may still change these formats before 1.0.0, with a note in the [changelog](changelog.md).
 
 ## What 1.x will keep stable
 

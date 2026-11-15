@@ -168,11 +168,6 @@ class Project:
         return [f for f in list_files(self.root)
                 if f not in ALWAYS_SKIPPED and not self.config.is_excluded(f)]
 
-    def report_problems(self) -> list[str]:
-        """Committed review reports that list a finding whose fix needs a new review ([review])."""
-        from .reports import problems
-        return problems(self.root, list_files(self.root), self.config.reports, self.config.recheck)
-
     def results(self, declared=None, base: str | None = None, quiet: bool = False,
                 use_snapshot: bool = True) -> list[FileResult]:
         """Every file's declaration. With [history] enabled (and full git history at hand), line

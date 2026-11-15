@@ -53,30 +53,28 @@ The terms:
 
 ### The record of a review
 
-- **A2: one report.** Exactly one Markdown file, committed with the change (for example `reviews/2026-11-15-solver.md`), with only the results: what was reviewed and how, the findings with their severity, the fixes made for them, and the problems left open. No other files.
+- **A2: one report.** Exactly one Markdown file, committed with the change (for example `reviews/pull12.md`), with only the results.
 - **A3: everything.** The same report, and with it what the reviewer produced: the new tests, benchmarks, scripts or derivations.
 - **A1** needs no record.
 
-A report lists its findings one per list item or heading that starts with the severity ([below](#when-a-review-counts)), so that `lint` can read them:
+The report follows a template, [`examples/review-report.md`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/review-report.md): who reviewed what and how, a summary, and two lists that are kept apart.
 
-```markdown
-## Findings
+- **Findings in this change:** what the change itself introduces or makes worse, each with its severity ([below](#when-a-review-counts)) and whether it is fixed or open. The line `Highest finding in this change:` at the top gives the highest severity among them, or `none`.
+- **Outside this change:** problems the reviewer met that were there before, of any severity, each with the reason why the change isn't its cause. They don't count towards the highest finding, so a reviewer can report a major problem elsewhere in the code without holding up the change. A maintainer reads this section to see that it really is separate.
 
-- **minor:** the error message names the wrong file. Fixed in 3f1c9e0.
-- **trivial:** two typos in the docstring. Fixed.
+The declaration carries two things about the review. `AI-Reviewed-by` names the model and the report, such as `GPT Sol (OpenAI), reviews/pull12.md`. A line `AI-Review-Findings:` repeats the report's highest finding in this change:
 
-## Open problems
-
-- **minor:** no test covers an empty input.
+```
+AI-Review: A2
+AI-Reviewed-by: GPT Sol (OpenAI), reviews/pull12.md
+AI-Review-Findings: minor
 ```
 
-`**severity:**`, `[severity]` and `severity:` all count, in any case, as do numbered items and headings (`### [minor] …`). Fenced code blocks don't.
-
-`AI-Reviewed-by` names the report, such as `GPT Sol (OpenAI), new session, reviews/2026-11-15-solver.md`. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
+In a pull request template, the same line stands below the AI review boxes. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
 
 ### When a review counts
 
-A review counts once each of its findings is fixed or listed as open in its record. A fix for a small finding needs no review of its own. A severe finding ends the review: it is fixed, the change is reviewed again, and the new report replaces the old one. What is severe is set per repository, on this scale:
+A review counts once each of its findings in the change is fixed or listed as open in its record. A fix for a small finding needs no review of its own. A severe finding in the change ends the review: it is fixed, the change is reviewed again, and the new report replaces the old one. What is severe is set per repository, on this scale:
 
 | Severity | Meaning | Code | Research and writing |
 |---|---|---|---|
@@ -87,17 +85,20 @@ A review counts once each of its findings is fixed or listed as open in its reco
 
 The four levels follow the severity of IEEE Std 1044-2009, the standard classification for software anomalies (critical, major, minor, inconsequential; its "blocking" counts as critical here) and of bug trackers such as Bugzilla. A security finding takes its level from its [CVSS](https://www.first.org/cvss/) rating: critical and high are critical, medium is major, low is minor.
 
-By default the threshold is **major**: a major or critical finding needs a new review, and fixes for minor and trivial findings need none. A repository can move the threshold, and say where its reports are:
+By default the threshold is **major**: a major or critical finding in the change needs a new review, and fixes for minor and trivial findings need none. A repository can move the threshold:
 
 ```toml
 [review]
-recheck = "major"        # trivial, minor, major (the default) or critical
-reports = "reviews/**"   # the Markdown files that are review reports (the default)
+recheck = "major"   # trivial, minor, major (the default) or critical
 ```
 
-`lint` enforces it: **a committed report that lists a finding from the threshold on fails**, fixed or not. So such a finding can't be merged with the review that found it. The way out is the rule itself: fix the finding, have the change reviewed again in a new session, and commit that review's report in place of the old one. The new report then lists at most smaller findings. A finding that turns out to be less severe is corrected in the report by the reviewer, not by the author.
+What `lint` checks:
 
-aisignoff reads the severity each report gives. Whether a finding was rated correctly, and whether a new review was really done, stays with the people who declare it.
+- **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity, and a report: `AI-Reviewed-by` names a Markdown file that is in the change, has the line `Highest finding in this change:` with the same word, and has the section `Outside this change`.
+- **A severity from the threshold on fails,** in a pull request description and in a landed commit's message. So a severe finding can't be merged with the review that found it: fix it, have the change reviewed again in a new session, and declare that review, with its report in place of the old one.
+- The threshold is the base branch's: a pull request can't change `[review]` for itself.
+
+This is a guard against mistakes, not a proof. aisignoff doesn't read the findings themselves: whether one was rated correctly, whether it really lies outside the change, and whether a new review was done, stays with the people who declare it. File-level declarations and attestations aren't checked for a report.
 
 ### Model tiers
 
@@ -123,10 +124,10 @@ The rows pair each vendor's lineup by position, its most capable model first, no
 
 `lint` also fails on two declarations that contradict the definitions:
 
-- **A self-check is A0.** A1–A3 whose `AI-Reviewed-by` names only a self-check of the generating session.
+- **A self-check is A0.** A1–A3 whose `AI-Reviewed-by` names only a self-check, the same session or the generating session.
 - **A2 and A3 need a different model.** A2 or A3 whose `AI-Reviewed-by` names only models from `Assisted-by`. A new session of a model that wrote the content is A1.
 
-aisignoff compares the names as they are written, so it can't tell two versions of a model apart, and it doesn't check tiers: whether a reviewer is capable, and whether a review was context-free, stays with the people who declare it.
+aisignoff compares model names by their words, without the vendor in brackets and without version numbers: `Claude Opus 5.5 (Anthropic)` and `Opus` name a model that `Claude Opus (Anthropic)` wrote with, and `Claude Fable` doesn't. It doesn't check tiers: whether a reviewer is capable, and whether a review was context-free, stays with the people who declare it.
 
 No level of generation requires an AI review by itself. A repository that wants one sets a minimum.
 

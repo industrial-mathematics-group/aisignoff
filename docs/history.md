@@ -112,6 +112,8 @@ The description can use "Key: value" lines as above, or the checkboxes of a pull
 - [x] **A1** A new AI session, without the generating conversation, checked the final change
 - [ ] **A2** A different, capable model did that check and committed a review report. Model and report:
 - [ ] **A3** A different, capable model validated it with new evidence, committed with the report. Model and report:
+
+AI-Review-Findings:
 ```
 
 | Axis | Level | Names |
@@ -121,6 +123,8 @@ The description can use "Key: value" lines as above, or the checkboxes of a pull
 | AI review | the highest ticked `**A…**` box, or **A0** when the AI review boxes are there and none is ticked | the text after `Model:` (or `Model and report:`) in that box. A2 and A3 need it; A1 without one names the models that wrote the change, as a new session without the generating conversation |
 
 Boxes in code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are an unfilled template: `TODO`, which `lint` reports.
+
+The line `AI-Review-Findings:` belongs to a review of A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)). It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
 
 Two more checks keep a template to the [definitions](levels.md):
 

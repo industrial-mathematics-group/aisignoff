@@ -2,6 +2,7 @@
 on its own, a bot needs a responsible person, the base branch's rules apply and the change can't alter
 them, and a repository without SIGNOFF.toml has its description checked alone."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,8 @@ FILLED = """Change things.
 - [ ] **A2** A different, capable model did that check. Model:
 """
 EMPTY = FILLED.replace("[x]", "[ ]")
+REPORT = (Path(__file__).parent.parent / "examples/review-report.md").read_text().replace(
+    "<none, trivial, minor, major or critical>", "minor")
 
 
 @pytest.fixture
@@ -66,8 +69,10 @@ def test_names_the_levels_need(branch, tmp_path, capsys):
     code, out = lint(branch, tmp_path, a1.replace("Model:", "Model: Claude Opus (Anthropic)")
                      .replace("[ ] **A2**", "[x] **A2**"), "--author", "jane", capsys=capsys)
     assert code == 1 and "names only models that wrote it" in out
-    assert lint(branch, tmp_path, g3.replace("Model:", "Model: GPT Sol (OpenAI)").replace("[ ] **A2**", "[x] **A2**"),
-                "--author", "jane")[0] == 0
+    a2 = g3.replace("Model:", "Model: GPT Sol (OpenAI), reviews/pull7.md").replace("[ ] **A2**", "[x] **A2**")
+    write(branch, "reviews/pull7.md", REPORT)
+    commit(branch, "the review report")
+    assert lint(branch, tmp_path, a2 + "\nAI-Review-Findings: minor\n", "--author", "jane")[0] == 0
     # the levels of human review build on each other: H1 without H0 is refused before the merge
     code, out = lint(branch, tmp_path, FILLED.replace("[x] **H0**", "[ ] **H0**"), "--author", "jane", capsys=capsys)
     assert code == 1 and "ticks H1 but not H0" in out
@@ -117,7 +122,7 @@ def test_the_base_branch_sets_the_rules(branch, tmp_path, capsys):
     code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
     assert code == 0, out   # it meets the base's policy: the new one applies to the pull requests after it
     assert "the change alters [policy] in SIGNOFF.toml (allowed by --allow-policy-change)" in out
-    assert "still checked under the base branch's [policy] (main)" in out
+    assert "still checked under the base branch's [policy] and [review] (main)" in out
     # after it has landed, the lower policy is main's
     git(branch, "checkout", "-q", "main")
     git(branch, "merge", "-q", "--no-ff", "-m", "Merge the policy change\n\nAI-Generation: G0\nHuman-Review: H1\n"
@@ -241,3 +246,95 @@ def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, 
     capsys.readouterr()
     code, out = main(["--root", str(repo), "lint"]), capsys.readouterr().out
     assert code == 1 and f"[[commits]] entry 1 ({target[:7]}): " in out, out
+
+
+def test_a_review_by_a_different_model_gives_its_findings_and_its_report(branch, tmp_path, capsys):
+    """Before the merge, A2 and A3 need the line AI-Review-Findings and the review report that
+    AI-Reviewed-by names, which follows the template and says the same severity."""
+    write(branch, "solver.py", "changed\n")
+    commit(branch, "change")
+    g3 = (FILLED.replace("[x] **G0**", "[ ] **G0**").replace("[ ] **G3**", "[x] **G3**")
+          .replace("[ ] **Claude Opus**", "[x] **Claude Opus**").replace("[ ] **A2**", "[x] **A2**"))
+    a2 = g3.replace("Model:", "Model: GPT Sol (OpenAI), reviews/pull7.md")
+
+    def check(text, *more):
+        return lint(branch, tmp_path, text, "--author", "jane", *more, capsys=capsys)
+
+    code, out = check(g3.replace("Model:", "Model: GPT Sol (OpenAI)"))
+    assert code == 1 and "A2 needs a line 'AI-Review-Findings:'" in out and "A2 needs its review report" in out
+    code, out = check(a2 + "\nAI-Review-Findings: minor\n")
+    assert code == 1 and "the review report reviews/pull7.md isn't in this change" in out
+    write(branch, "reviews/pull7.md", "# Review\n\nLooks fine.\n")
+    commit(branch, "a report")
+    code, out = check(a2 + "\nAI-Review-Findings: minor\n")
+    assert code == 1 and "doesn't follow the template" in out
+    write(branch, "reviews/pull7.md", REPORT)   # the template as it is, with "minor" filled in
+    commit(branch, "the report")
+    assert check(a2 + "\nAI-Review-Findings: minor\n")[0] == 0
+    assert check(a2 + "\nAI-Review-Findings: Minor\n")[0] == 0
+    code, out = check(a2 + "\nAI-Review-Findings: none\n")
+    assert code == 1 and 'says "Highest finding in this change: minor", but the description says AI-Review-Findings: none' in out
+    code, out = check(a2 + "\nAI-Review-Findings: high\n")
+    assert code == 1 and "invalid AI-Review-Findings 'high'" in out
+    # a finding from the threshold on needs a new review: the pull request can't be merged with it
+    write(branch, "reviews/pull7.md", REPORT.replace("change:** minor", "change:** major"))
+    commit(branch, "a major finding")
+    code, out = check(a2 + "\nAI-Review-Findings: major\n")
+    assert code == 1 and "found a major problem in this change" in out and "needs a new review" in out
+    # ... and it can't raise the threshold for itself: [review] is the base branch's
+    write(branch, "SIGNOFF.toml", BASE_TOML + '\n[review]\nrecheck = "critical"\n')
+    commit(branch, "raise the threshold")
+    code, out = check(a2 + "\nAI-Review-Findings: major\n")
+    assert code == 1 and "needs a new review" in out and "the change alters [review] in SIGNOFF.toml" in out
+    code, out = check(a2 + "\nAI-Review-Findings: major\n", "--allow-policy-change")
+    assert code == 1 and "needs a new review" in out and "alters [review] in SIGNOFF.toml (allowed" in out
+    # the same lines as "Key: value" lines, and the report as JSON
+    lines = ("AI-Generation: G3\nAssisted-by: Claude Opus (Anthropic)\nHuman-Review: H1\nReviewed-by: jane\n"
+             "AI-Review: A3\nAI-Reviewed-by: GPT Sol (OpenAI), reviews/pull7.md\nAI-Review-Findings: major\n")
+    code, out = lint(branch, tmp_path, lines, capsys=capsys)
+    assert code == 1 and "needs a new review" in out
+    desc = tmp_path / "d.md"
+    desc.write_text(lines)
+    capsys.readouterr()
+    main(["--root", str(branch), "report", "--json", "--declare-from", str(desc), "--base", "main"])
+    assert json.loads(capsys.readouterr().out)["pull_request"]["AI-Review-Findings"] == "major"
+
+
+def test_a_pull_request_cant_change_the_scale_by_changing_the_version(branch, tmp_path, capsys):
+    """version decides the scale the AI review levels are read on: a change of it is a change of
+    the rules, and one that only changes the number would raise every AI review of the file."""
+    old = (BASE_TOML.replace("version = 4", "version = 3") + '\n[[annotations]]\npath = "solver.py"\n'
+           'AI-Generation = "G3"\nHuman-Review = "H1"\nAI-Review = "A2"\nAssisted-by = "M"\n'
+           'AI-Reviewed-by = "M, new session"\nReviewed-by = "Jane"\n')
+    git(branch, "checkout", "-q", "main")
+    write(branch, "SIGNOFF.toml", old)
+    commit(branch, "the scale before")
+    git(branch, "checkout", "-q", "feature")
+    git(branch, "merge", "-q", "main")
+    write(branch, "SIGNOFF.toml", old.replace("version = 3", "version = 4"))
+    commit(branch, "only the number")
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", capsys=capsys)
+    assert code == 1 and "the change alters version in SIGNOFF.toml" in out
+    assert "changes to version 4 without converting its levels: the entry for solver.py read AI-Review A1 before and reads A2 now" in out
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
+    assert code == 1 and "without converting its levels" in out   # also for a maintainer
+    write(branch, "SIGNOFF.toml", old.replace("version = 3", "version = 4").replace('"A2"', '"A1"'))
+    commit(branch, "converted")
+    code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
+    assert code == 0 and "alters version in SIGNOFF.toml (allowed" in out
+
+
+def test_todays_template_is_read_on_todays_scale_before_the_repository_changes_over(branch, tmp_path, capsys):
+    """A repository with version = 3 reads commit messages on the scale before, but the ticked boxes
+    of today's template (its A1 box is no self-check) are today's levels."""
+    from aisignoff.history import old_template, parse_message
+    new = FILLED.replace("[ ] **A1**", "[x] **A1**").replace("Model, if not one of the above:", "Model, if not one of the above: N")
+    old = ("- [x] **G3** AI\n- [x] **Claude Opus** (Anthropic)\n- [x] **H0** checked\n"
+           "- [x] **A1** The AI that wrote the change checked its own work\n- [ ] **A2** A new AI session reviewed it. Model:\n")
+    assert old_template(new) is False and old_template(old) is True and old_template("- [x] **G0** x\n") is None
+    assert parse_message(new, "J", "c", version_3=True)[0][2].level == "A1"
+    assert parse_message(old, "J", "c", version_3=True)[0][2].level == "A0"
+    assert parse_message(old.replace("[ ] **A2**", "[x] **A2**"), "J", "c", version_3=True)[0][2].level == "A1"
+    # a name typed after "Model:" is not the template's own text
+    typed = new.replace("above: N", "above: N, selfcheck-free session")
+    assert old_template(typed) is False and not parse_message(typed, "J", "c")[0][2].problems

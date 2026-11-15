@@ -57,10 +57,34 @@ def at_least(level: str, minimum: str) -> bool:
     return ORDER[level] >= ORDER[minimum]
 
 
-# How severe a review's finding is, lowest first (docs/levels.md, after IEEE Std 1044-2009). A fix
-# for a finding from [review] recheck on (RECHECK by default) needs a new review before the level counts.
+# How severe a review's finding is, lowest first (docs/levels.md, after IEEE Std 1044-2009). A
+# commit message or pull request description that declares A2 or A3 says the highest severity the
+# review found in the change itself, in a line "AI-Review-Findings: minor" ("none": no finding).
+# A finding from [review] recheck on (RECHECK by default) needs a new review.
 SEVERITIES = ("trivial", "minor", "major", "critical")
 RECHECK = "major"
+FINDINGS = "AI-Review-Findings"
+NO_FINDINGS = "none"
+
+
+def findings_problems(level: str | None, value: str | None, recheck: str = RECHECK, required: bool = False) -> list[str]:
+    """What is wrong with the AI-Review-Findings line VALUE (None: there is none) next to the AI
+    review LEVEL. required: A2 and A3 must give it (the check before the merge)."""
+    if not value:
+        if required and level in ("A2", "A3"):
+            return [f"{level} needs a line '{FINDINGS}:' with the highest severity the review found in this change "
+                    f"({NO_FINDINGS}, {', '.join(SEVERITIES)})"]
+        return []
+    v = value.strip().lower()
+    if v == NO_FINDINGS:
+        return []
+    if v not in SEVERITIES:
+        return [f"invalid {FINDINGS} {value!r}: must be one of {NO_FINDINGS}, {', '.join(SEVERITIES)}"]
+    if SEVERITIES.index(v) >= SEVERITIES.index(recheck):
+        return [f"{FINDINGS}: {v} says that the AI review found a {v} problem in this change, and a finding from "
+                f"{recheck} on needs a new review ([review] recheck): fix it, have the change reviewed again, "
+                "and declare that review"]
+    return []
 
 
 # ------------------------------------------------------------------ the AI review scale of version 3
@@ -232,14 +256,30 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
     return errors
 
 
-_SELF_CHECK = re.compile(r"self[- ]?check", re.I)
+_SELF_CHECK = re.compile(r"self[- ]?check|same session|(?<!without the )generating session", re.I)
+_VERSION = re.compile(r"^v?\d[\w.-]*$", re.I)
+
+
+def _model_words(name: str) -> list[str]:
+    """The words that name a model in "Claude Opus 5.5 (Anthropic), new session": what comes before
+    the first comma, without the vendor in brackets and without version numbers."""
+    name = re.sub(r"\([^()]*\)", " ", name.split(",")[0])
+    return [w for w in re.findall(r"[^\W_]+(?:[.-][^\W_]+)*", name.casefold()) if not _VERSION.match(w)]
 
 
 def _same_model(reviewer: str, assisted: tuple[str, ...]) -> bool:
-    """Whether an AI-Reviewed-by entry names a model of Assisted-by: the same text, or that text
-    followed by how it reviewed ("Model X, new session")."""
-    r = reviewer.casefold().strip()
-    return any(r == m.casefold().strip() or r.startswith(m.casefold().strip() + ",") for m in assisted if m.strip())
+    """Whether an AI-Reviewed-by entry names a model of Assisted-by. Names are compared by their
+    words, without vendor and version: "Claude Opus (Anthropic)" wrote it, so "Claude Opus 5.5
+    (Anthropic), new session" and "Opus 5.5, new session" review it as the same model, and "Claude
+    Fable" as a different one. Another version of a model is the same model."""
+    r = _model_words(reviewer)
+    for m in assisted:
+        words = _model_words(m)
+        if not words or not r:
+            continue
+        if all(w in words for w in r):  # the same words, or a short form of them ("Opus")
+            return True
+    return False
 
 
 UNDECLARED = "undeclared"

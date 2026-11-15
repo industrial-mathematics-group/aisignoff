@@ -24,6 +24,7 @@ import difflib
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from aisignoff import config
@@ -50,16 +51,18 @@ def _blocks(lines):
 
 def _without_names(lines):
     """A table's lines without its AI-Reviewed-by, which may be an array over several lines."""
-    out, skipping = [], False
+    out, value = [], None
     for line in lines:
-        if skipping:
-            skipping = "]" not in line.split("#")[0]
+        if value is None and not NAMES.match(line):
+            out.append(line)
             continue
-        if NAMES.match(line):
-            value = line.split("=", 1)[1].split("#")[0]
-            skipping = "[" in value and "]" not in value
-            continue
-        out.append(line)
+        # the value ends with the line that makes it valid TOML ("#" and "]" may be inside a string)
+        value = (value or "") + line
+        try:
+            tomllib.loads("x =" + value.split("=", 1)[1])
+            value = None
+        except tomllib.TOMLDecodeError:
+            pass
     return out
 
 
@@ -108,10 +111,13 @@ def main(argv):
     if not before.version_3:
         sys.exit(f"{NAME} is not version 3: nothing to convert")
     new = convert(old)
-    after = config.load_text(new, path)
-    same = all(getattr(before, key) == getattr(after, key)
+    try:
+        after = config.load_text(new, path)
+    except config.ConfigError:
+        after = None
+    same = after is not None and all(getattr(before, key) == getattr(after, key)
                for key in ("annotations", "policy", "commits", "attestations", "exclude", "history"))
-    if after.version_3 or not same:
+    if not same or after.version_3:
         sys.exit(f"{NAME} has a layout this script can't convert (nothing was written). Edit it by hand: "
                  "see the table at the top of this script, or docs/migrating.md")
     sys.stdout.writelines(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),

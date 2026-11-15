@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import FILENAME, Config, ConfigError, load_text
+from .model import AI_REVIEWED, AIR
 
 _RESPONSIBLE = re.compile(r"^\s*Responsible person:\s*@?([A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?)\s*$", re.I)
 
@@ -53,6 +54,8 @@ class BaseRules:
 
     config: Config | None  # None: that branch has no SIGNOFF.toml
     changed: list[str] = field(default_factory=list)  # protected settings the pull request changes
+    # declarations that read differently only because the pull request changes 'version' to 4
+    unconverted: list[str] = field(default_factory=list)
 
 
 def _show(root: Path, rev: str, name: str) -> str | None:
@@ -63,7 +66,8 @@ def _show(root: Path, rev: str, name: str) -> str | None:
 
 def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     """The rules of the base branch BASE, and which protected settings HEAD's SIGNOFF.toml changes:
-    [policy], exclude and [history]. A repository's first SIGNOFF.toml changes nothing."""
+    [policy], [review], exclude, [history] and version (which decides the scale the AI review levels
+    are read on). A repository's first SIGNOFF.toml changes nothing."""
     text = _show(root, base, FILENAME)
     if text is None:
         return BaseRules(None)
@@ -75,7 +79,57 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
         changed.append("exclude")
     if config.history != head.history:
         changed.append("[history]")
-    return BaseRules(config, changed)
+    if config.recheck != head.recheck:
+        changed.append("[review]")
+    unconverted = []
+    if config.version_3 != head.version_3:
+        changed.append("version")
+        # the change to version 4 rewrites the levels (examples/convert-to-version-4.py): an entry that
+        # is still there must read as before, or the change would raise its AI review by itself
+        for what, key in (("annotations", "paths"), ("commits", "commit"), ("attestations", "blob")):
+            before = {getattr(e, key): e.values.get(AIR) for e in getattr(config, what)}
+            for e in getattr(head, what):
+                was = before.get(getattr(e, key))
+                now = e.values.get(AIR)
+                if was and now and was != now:
+                    name = ", ".join(e.paths) if what == "annotations" else getattr(e, key)[:12]
+                    unconverted.append(f"{FILENAME} changes to version {4 if config.version_3 else 3} without converting "
+                                       f"its levels: the entry for {name} read {AIR} {was} before and reads {now} now. "
+                                       "Convert the file with examples/convert-to-version-4.py, and raise levels "
+                                       "in another change")
+    return BaseRules(config, changed, unconverted)
+
+
+_REPORT_PATH = re.compile(r"[\w./@+-]*[\w@+-]\.md\b", re.I)
+_REPORT_HIGHEST = re.compile(r"Highest finding in this change[\s:*_`]*(none|trivial|minor|major|critical)\b", re.I)
+_REPORT_OUTSIDE = re.compile(r"^#+\s*Outside this change\b", re.I | re.M)
+
+
+def review_problems(root: Path, piece, findings: str | None, recheck: str) -> list[str]:
+    """The check before the merge of a pull request that declares A2 or A3 (PIECE, its AI review):
+    the "AI-Review-Findings:" line FINDINGS, and the review report that AI-Reviewed-by names, which
+    is in the change, follows the template (examples/review-report.md) and says the same severity."""
+    from .model import FINDINGS, findings_problems
+    level = piece.level if piece else None
+    problems = findings_problems(level, findings, recheck, required=True)
+    if level not in ("A2", "A3"):
+        return problems
+    paths = [m.group(0).removeprefix("./") for name in piece.names for m in _REPORT_PATH.finditer(name)]
+    if not paths:
+        return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of the Markdown file "
+                           "(after the model: \"GPT Sol (OpenAI), reviews/pull12.md\")"]
+    found = [p for p in paths if (root / p).is_file()]
+    if not found:
+        return problems + [f"the review report {paths[0]} isn't in this change: commit it with the pull request"]
+    text = (root / found[0]).read_text(encoding="utf-8", errors="replace")
+    highest = _REPORT_HIGHEST.search(text)
+    if not highest or not _REPORT_OUTSIDE.search(text):
+        problems.append(f"the review report {found[0]} doesn't follow the template (examples/review-report.md): it needs "
+                        "the line \"Highest finding in this change: …\" and the section \"Outside this change\"")
+    elif findings and highest.group(1).lower() != findings.strip().lower():
+        problems.append(f"the review report {found[0]} says \"Highest finding in this change: {highest.group(1).lower()}\", "
+                        f"but the description says {FINDINGS}: {findings}")
+    return problems
 
 
 def description_problems(pieces: dict, policy) -> list[str]:

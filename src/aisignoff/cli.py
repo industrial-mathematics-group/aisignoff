@@ -121,12 +121,11 @@ def cmd_init(args) -> int:
         '# "*" = { human = "H1" }',
         '# G3  = { human = "H2", ai = "A1" }',
         "",
-        "# An AI review counts once its findings are fixed or listed as open. A fix for a finding of",
-        "# this severity or above (trivial, minor, major, critical) needs a new review (optional).",
-        "# lint fails on a committed review report that lists such a finding: the review is done again.",
+        "# A commit or pull request that declares A2 or A3 says the highest severity its review found in",
+        '# the change, in a line "AI-Review-Findings: minor". From this severity on (trivial, minor, major,',
+        "# critical), the finding needs a new review, and lint fails (optional).",
         "# [review]",
         f'# recheck = "{RECHECK}"',
-        '# reports = "reviews/**"   # the Markdown files that are review reports',
         "",
     ]
     given = [args.generation, args.human, args.ai]
@@ -164,7 +163,7 @@ def _declared(args, version_3: bool = False):
         return Declaration.from_mapping(values, "declared for this change") if values else None
     if values:
         raise UsageError("give --declare-from or the level options, not both")
-    from .history import parse_message
+    from .history import findings_line, parse_message
     try:
         text = sys.stdin.read() if args.declare_from == "-" else Path(args.declare_from).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
@@ -173,8 +172,11 @@ def _declared(args, version_3: bool = False):
     text = text.replace("\r\n", "\n")
     name, problems, notes = reviewer(text, args.author or "")
     # the check before the merge: on the scale the repository's SIGNOFF.toml says, and strict about
-    # human review boxes ticked above an unticked one
-    pieces, both = parse_message(text, name, "the pull request description", version_3, gaps=not version_3)
+    # human review boxes ticked above an unticked one. Its "AI-Review-Findings:" line is checked with
+    # the review report, under the base branch's [review] (_pull_request)
+    pieces, both = parse_message(text, name, "the pull request description", version_3, gaps=not version_3,
+                                 recheck=None)
+    args.pr_findings = findings_line(text)
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}
     args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
@@ -205,6 +207,7 @@ def _history_results(project: Project, args):
             raise UsageError(str(e))
         if args.pr_rules.config is not None:
             project.config.policy = args.pr_rules.config.policy
+            project.config.recheck = args.pr_rules.config.recheck
     elif getattr(args, "allow_policy_change", False):
         raise UsageError("--allow-policy-change needs --base")
     project.landed = args.landed
@@ -244,7 +247,7 @@ def _pull_request(project: Project, args) -> dict | None:
     if args.declare_from is None:
         return None
     from .history import combine
-    from .pullrequest import description_problems
+    from .pullrequest import description_problems, review_problems
     if not hasattr(args, "pr_pieces"):
         _declared(args, project.config.version_3)
     rules = getattr(args, "pr_rules", None)
@@ -257,13 +260,17 @@ def _pull_request(project: Project, args) -> dict | None:
     if not (project.history_used and project.config.history.merge_method == "rebase"):
         problems += [f"the pull request description: {p}"
                      for p in description_problems(args.pr_pieces, project.config.policy) if p not in problems]
+        if not project.config.version_3:
+            problems += [f"the pull request description: {p}" for p in
+                         review_problems(project.root, args.pr_pieces.get(2), args.pr_findings, project.config.recheck)]
     if rules is not None and rules.config is not None:
         what = (f"removes {FILENAME}" if project.config.path is None
                 else f"alters {', '.join(rules.changed)} in {FILENAME}" if rules.changed else None)
+        problems += rules.unconverted
         if what and getattr(args, "allow_policy_change", False):
             # allowed, but said out loud, and it doesn't lower the bar for this pull request itself
             out["notes"].append(f"the change {what} (allowed by --allow-policy-change); this pull request is "
-                                f"still checked under the base branch's [policy] ({args.base}); the new rules apply once it has landed")
+                                f"still checked under the base branch's [policy] and [review] ({args.base}); the new rules apply once it has landed")
         elif what:
             problems.append(f"the change {what}, which only the branch it goes into "
                             f"{'can do' if project.config.path is None else 'sets'}: commit it there directly, "
@@ -282,6 +289,7 @@ def _description_only(project: Project, args) -> int:
             raise UsageError(str(e))
         if args.pr_rules.config is not None:
             project.config.policy = args.pr_rules.config.policy
+            project.config.recheck = args.pr_rules.config.recheck
     pr = _pull_request(project, args)
     for problem in pr["problems"]:
         print(f"✗ {printable(problem)}")
@@ -312,9 +320,6 @@ def cmd_lint(args) -> int:
         print(f"✗ {printable(problem)}")
     for problem in project.history_problems:
         print(f"✗ {printable(problem)}")
-    report_problems = project.report_problems()
-    for problem in report_problems:
-        print(f"✗ {printable(problem)}")
     _print_errors(results, args.max_files)
     for index in unused:
         print(f"{'✗' if args.strict else '!'} {project.config.path.name} annotation [{index}] matches no file")
@@ -334,7 +339,7 @@ def cmd_lint(args) -> int:
         lines = sum(p.lines for r in results for p in r.parts or ())
         bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors and not p.advisory)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
-    failed = bad > 0 or bool(project.history_problems) or bool(pr_problems) or bool(report_problems) or (args.strict and (unused or project.history_warnings
+    failed = bad > 0 or bool(project.history_problems) or bool(pr_problems) or (args.strict and (unused or project.history_warnings
                                                                                     or project.config.warnings))
     if failed:
         print(f"See {SPEC_URL}")
@@ -397,7 +402,8 @@ def cmd_report(args) -> int:
         pr = _pull_request(project, args)
         if pr is not None:
             # the levels for labels and the like: what the description declares, and whether it applies
-            out["pull_request"] = {"applies": pr["applies"], **pr["declaration"].as_dict(), "errors": pr["problems"]}
+            out["pull_request"] = {"applies": pr["applies"], **pr["declaration"].as_dict(),
+                                   "AI-Review-Findings": getattr(args, "pr_findings", None), "errors": pr["problems"]}
         print(json.dumps(out, indent=2, ensure_ascii=False))
         return 0
     if args.files:

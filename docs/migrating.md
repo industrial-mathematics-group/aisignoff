@@ -15,7 +15,7 @@ Check the [changelog](changelog.md) for **Breaking** changes before raising the 
 
 Two built-in rules are gone: G1–G3 no longer need an AI review, and G0 content can have any level. In `[policy]`, `ai = "A1"` becomes `"A0"` and `ai = "A2"` becomes `"A1"`; for G0, where A1 meant a new session, both become `"A1"`.
 
-Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of inline tags, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
+Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of inline tags, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
 
 Change over in one pull request per repository, once your workflows pin 1.0.0rc6 or later:
 
@@ -25,7 +25,7 @@ Change over in one pull request per repository, once your workflows pin 1.0.0rc6
 4. **Edit inline tags by hand.** The script lists the files that may have one with A1 or A2.
 5. **Look at each A3:** it now says that the reviewer produced new evidence and left a record.
 
-The pull request that changes over is itself read on the new scale already, since its own `SIGNOFF.toml` says version 4: replace the AI review boxes in its description with the new ones by hand, because GitHub fills in the template of the default branch. If it changes an `ai` minimum in `[policy]`, a maintainer lands it ([Checking the pull request description](ci.md#checking-the-pull-request-description)).
+The pull request that changes over is itself read on the new scale already, since its own `SIGNOFF.toml` says version 4: replace the AI review boxes in its description with the new ones by hand, because GitHub fills in the template of the default branch. Since it changes `version`, which sets the scale, a maintainer lands it: on the default branch directly, or with `--allow-policy-change` ([Checking the pull request description](ci.md#checking-the-pull-request-description)). The check fails a change to version 4 that leaves the level of an existing entry as it was written, because that would raise it.
 
 After the change, commit messages from before it that the snapshot doesn't hold are read on the new scale: lines of a file that `freeze --reset` works out again, and commits that land from branches opened before. Correct those with a `[[commits]]` entry.
 
