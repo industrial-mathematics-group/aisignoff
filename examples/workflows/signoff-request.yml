@@ -1,0 +1,371 @@
+# Example workflow: turn an issue form into a pull request that changes SIGNOFF.toml, without AI.
+# Copy it to .github/workflows/, and examples/ISSUE_TEMPLATE/signoff-request.yml to .github/ISSUE_TEMPLATE/.
+# The form asks for an annotation, an attestation or a [[commits]] correction in plain words; then this
+#
+#   - writes it with "aisignoff annotate" / "aisignoff attest" (a commit correction directly) on the
+#     branch signoff-request/issue-<n>, and refuses, with a comment on the issue, if aisignoff does or if
+#     "aisignoff lint" passed before and fails after
+#   - opens a pull request: from the repository's PR template if it has one (else the organisation's, else
+#     "Key: value" lines), with the change, "Closes #<n>", G0 ticked (the bot is deterministic) and
+#     "Responsible person: @<requester>", for the requester to review, tick and merge
+#   - runs again when the issue is edited and updates the pull request
+#
+# SIGNOFF.toml declares itself nothing (aisignoff never checks it as a file), so "aisignoff lint
+# --declare-from" requires nothing of such a pull request's description: the human signoff is the review
+# and the merge.
+#
+# It runs as github-actions[bot]. Pull requests opened with GITHUB_TOKEN start no workflows, so
+# DISPATCH_WORKFLOWS starts your lint workflow on the branch (it needs "workflow_dispatch:"), so its check
+# shows on the pull request; and it needs Settings -> Actions -> General -> "Allow GitHub Actions to create
+# and approve pull requests". To act as your own GitHub App instead (its name on the pull requests, which
+# then start your checks as usual), set the variable SIGNOFF_APP_ID and the secret SIGNOFF_APP_PRIVATE_KEY
+# (docs/ci.md). The app needs Contents, Pull requests and Issues: read and write.
+#
+# Only people with write access get a branch. The form's text never reaches a shell: it is read from the
+# event file and passed to aisignoff as separate arguments. No code of the repository runs.
+name: aisignoff signoff request
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the pull request
+  issues: write          # comment on the issue
+  actions: write         # without an app: start the lint workflow on the branch
+
+env:
+  AISIGNOFF_VERSION: "1.0.0rc2"   # pin a release, so a new version can't break your CI unannounced
+
+jobs:
+  request:
+    # issues made with the form, and edits of their text
+    if: >-
+      github.event.issue.state == 'open' && contains(github.event.issue.body, '### What should be recorded?') &&
+      (github.event.action != 'edited' || github.event.changes.body)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: signoff-request-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    steps:
+      # Optional: act as your own GitHub App instead of github-actions[bot]
+      - name: Token of the bot app
+        id: app
+        if: vars.SIGNOFF_APP_ID != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SIGNOFF_APP_ID }}
+          private-key: ${{ secrets.SIGNOFF_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the whole history: aisignoff lint with [history], and commit corrections
+          token: ${{ steps.app.outputs.token || github.token }}   # pushes the branch as the app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install aisignoff
+        env:
+          VERSION: ${{ env.AISIGNOFF_VERSION }}
+        run: pip install "aisignoff==${VERSION}"
+      - name: Turn the issue into a pull request
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          DISPATCH_WORKFLOWS: signoff-lint.yml   # or signoff-badges.yml; "" for none
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, re, subprocess, sys, urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          # ---------------------------------------------------------------- settings and helpers
+          EVENT = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+          SERVER = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          TOKEN = os.environ.get("GITHUB_TOKEN", "")
+          APP_SLUG = os.environ.get("APP_SLUG", "")   # set when the token is a GitHub App's, not GITHUB_TOKEN
+          DRY_RUN = os.environ.get("SIGNOFF_DRY_RUN") == "1"   # for testing outside Actions: print the API calls
+          ISSUE = EVENT["issue"]
+          NUMBER = ISSUE["number"]
+          REQUESTER = ISSUE["user"]["login"]
+          DEFAULT_BRANCH = EVENT["repository"]["default_branch"]
+          BRANCH = f"signoff-request/issue-{NUMBER}"
+          MARKER = "<!-- aisignoff-signoff-request -->"
+          NONE = "_No response_"   # what GitHub writes for a form field left empty
+
+          # The form's field labels, exactly as in the issue form (signoff-request.yml).
+          F_KIND = "What should be recorded?"
+          F_PATHS = "Files, folders or globs"
+          F_COMMIT = "Commit"
+          F_GEN = "How much of it did AI write?"
+          F_MODELS = "Which AI tools and models wrote parts of it?"
+          F_HUMAN = "How did a human check it?"
+          F_RESPONSIBLE = "Responsible person"
+          F_AI = "Did an AI review it?"
+          F_AI_BY = "Which model reviewed it, and how?"
+          F_NOTES = "Notes for the reviewer"
+          F_CONFIRM = "Confirmation"
+          KINDS = {"Declare files": "annotate", "Raise the review": "attest", "Correct the declaration of a commit": "commit"}
+
+
+          def api(method, path, body=None, ok404=False):
+              if DRY_RUN:
+                  print(f"[dry run] {method} {path}" + (f" {json.dumps(body)[:200]}" if body else ""))
+                  if body and "body" in body and os.environ.get("SIGNOFF_DRY_RUN_OUT"):
+                      with open(os.environ["SIGNOFF_DRY_RUN_OUT"], "a", encoding="utf-8") as f:
+                          f.write(f"----- {method} {path}\n{body.get('title', '')}\n\n{body['body']}\n")
+                  return {"html_url": f"{SERVER}/{REPO}/pull/0", "number": 0} if method == "POST" else []
+              req = urllib.request.Request(API + path, method=method,
+                                           data=json.dumps(body).encode() if body is not None else None)
+              req.add_header("Authorization", f"Bearer {TOKEN}")
+              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("X-GitHub-Api-Version", "2022-11-28")
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      data = r.read()
+                      return json.loads(data) if data else None
+              except urllib.error.HTTPError as e:
+                  if ok404 and e.code == 404:
+                      return None
+                  raise SystemExit(f"GitHub API {method} {path}: {e.code} {e.read().decode(errors='replace')[:500]}")
+
+
+          def run(*cmd, check=True):
+              r = subprocess.run(cmd, capture_output=True, text=True)
+              if check and r.returncode:
+                  raise SystemExit(f"{' '.join(cmd)} failed:\n{r.stdout}{r.stderr}")
+              return r
+
+
+          def comment(text):
+              """One comment per issue, updated on each run."""
+              body = f"{MARKER}\n{text}"
+              for c in api("GET", f"/repos/{REPO}/issues/{NUMBER}/comments?per_page=100") or []:
+                  if MARKER in (c.get("body") or "") and c["user"]["type"] == "Bot":
+                      api("PATCH", f"/repos/{REPO}/issues/comments/{c['id']}", {"body": body})
+                      return
+              api("POST", f"/repos/{REPO}/issues/{NUMBER}/comments", {"body": body})
+
+
+          def fence(text, lang=""):
+              tick = "`" * max(3, max((len(m) for m in re.findall(r"`+", text)), default=0) + 1)
+              return f"{tick}{lang}\n{text.rstrip()}\n{tick}"
+
+
+          def reject(problems, output=""):
+              lines = ["**The request couldn't be turned into a pull request.** Edit the issue to fix this; "
+                       "the bot runs again on each edit.", ""] + [f"- {p}" for p in problems]
+              if output:
+                  lines += ["", "<details><summary>aisignoff output</summary>", "", fence(output), "", "</details>"]
+              comment("\n".join(lines))
+              sys.exit(1)
+
+
+          # ---------------------------------------------------------------- who may ask
+          # Anyone can open an issue in a public repository; only people who can push may get a branch.
+          perm = api("GET", f"/repos/{REPO}/collaborators/{REQUESTER}/permission", ok404=True)
+          if not DRY_RUN and (not perm or perm.get("permission") not in ("admin", "write")):
+              comment(f"@{REQUESTER}, only people with write access to this repository can request a signoff. "
+                      "A maintainer can copy this request into a new issue.")
+              sys.exit(0)
+
+          # ---------------------------------------------------------------- read the form
+          body = (ISSUE.get("body") or "").replace("\r\n", "\n")
+          fields, current = {}, None
+          for line in body.split("\n"):
+              m = re.match(r"^### (.+?)\s*$", line)
+              if m:
+                  current = m.group(1)
+                  fields[current] = []
+              elif current:
+                  fields[current].append(line)
+          fields = {k: "\n".join(v).strip() for k, v in fields.items()}
+          value = lambda k: "" if fields.get(k, "") == NONE else fields.get(k, "")
+          level = lambda k, axis: (re.match(rf"^({axis}[0-3])\b", value(k)) or [None, ""])[1]
+          lines_of = lambda k: [l.strip() for l in value(k).split("\n") if l.strip()]
+
+          problems = []
+          kind = next((v for k, v in KINDS.items() if value(F_KIND).startswith(k)), None)
+          if not kind:
+              reject([f'Choose what should be recorded under "{F_KIND}".'])
+          paths = [p.strip("`") for p in lines_of(F_PATHS)]
+          gen, human, ai = level(F_GEN, "G"), level(F_HUMAN, "H"), level(F_AI, "A")
+          models, ai_by = lines_of(F_MODELS), lines_of(F_AI_BY)
+          responsible = value(F_RESPONSIBLE).strip()
+          commit = value(F_COMMIT).strip().strip("`")
+          if not re.search(r"^- \[[xX]\] ", fields.get(F_CONFIRM, ""), re.M):
+              problems.append(f'Tick the box under "{F_CONFIRM}".')
+          for p in paths:
+              if p.startswith("-") or "\0" in p:
+                  problems.append(f"`{p}` isn't a path.")
+          if kind in ("annotate", "attest") and not paths:
+              problems.append(f'Name at least one file, folder or glob under "{F_PATHS}".')
+          if kind != "commit" and commit:
+              problems.append(f'"{F_COMMIT}" is only for correcting a commit; leave it empty.')
+          if kind == "attest":
+              if gen or models:
+                  problems.append("An attestation records a review only: leave the AI generation and the models empty "
+                                  "(correct a generation with \"Correct the declaration of a commit\").")
+              if not human and not ai:
+                  problems.append("Give the human review, the AI review or both that you did.")
+          if kind == "annotate" and not (gen and human and ai):
+              problems.append("Declaring files needs all three: the AI generation, the human check and the AI review.")
+          if kind == "commit":
+              if not re.fullmatch(r"[0-9a-fA-F]{4,40}", commit):
+                  problems.append(f'Write the commit hash (at least 4 hex digits) under "{F_COMMIT}".')
+              elif run("git", "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode:
+                  problems.append(f"There is no commit `{commit}` in this repository.")
+              if paths:
+                  problems.append(f'A commit correction takes no paths; leave "{F_PATHS}" empty.')
+              if not (gen or human or ai):
+                  problems.append("Give at least one level to correct.")
+          if human and not responsible:
+              problems.append(f'Name the "{F_RESPONSIBLE}" for the human check.')
+          if responsible and not human:
+              problems.append(f'"{F_RESPONSIBLE}" goes with a human check level; choose one, or leave the name empty.')
+          if models and not gen:
+              problems.append("The AI models go with an AI generation level.")
+          if ai_by and not ai:
+              problems.append("The reviewing model goes with an AI review level.")
+          if problems:
+              reject(problems)
+
+          # ---------------------------------------------------------------- make the change
+          run("git", "checkout", "-B", BRANCH, f"origin/{DEFAULT_BRANCH}")
+          lint_before = run("aisignoff", "lint", check=False)
+          config = Path("SIGNOFF.toml")
+          if not config.exists():
+              reject(["This repository has no SIGNOFF.toml yet. Create it once with `aisignoff init` "
+                      "(see the aisignoff documentation), then edit this issue to run the bot again."])
+
+          options = [f"{flag}={v}" for flag, v in (("--generation", gen), ("--human", human), ("--ai", ai)) if v]
+          options += [f"--assisted-by={m}" for m in models]
+          options += [f"--reviewed-by={responsible}"] if human else []
+          options += [f"--ai-reviewed-by={m}" for m in ai_by]
+
+          if kind in ("annotate", "attest"):
+              r = run("aisignoff", kind, *options, "--", *paths, check=False)
+              if r.returncode:
+                  reject([f"`aisignoff {kind}` refused the request."], r.stdout + r.stderr)
+          else:
+              toml = lambda s: json.dumps(s, ensure_ascii=False)   # a JSON string is a valid TOML basic string
+              entry = ["", "[[commits]]", f"commit = {toml(commit.lower())}"]
+              for key, v in (("AI-Generation", gen), ("Assisted-by", models), ("Human-Review", human),
+                             ("Reviewed-by", [responsible] if human else []), ("AI-Review", ai), ("AI-Reviewed-by", ai_by)):
+                  if v:
+                      entry.append(f"{key} = " + (toml(v) if isinstance(v, str) else "[" + ", ".join(map(toml, v)) + "]"))
+              text = config.read_text(encoding="utf-8")
+              config.write_text(text + ("" if text.endswith("\n") else "\n") + "\n".join(entry) + "\n", encoding="utf-8")
+
+          if not run("git", "status", "--porcelain").stdout.strip():
+              reject(["This changes nothing: SIGNOFF.toml already records it."])
+          lint_after = run("aisignoff", "lint", check=False)
+          if lint_after.returncode == 2 or (lint_after.returncode and not lint_before.returncode):
+              reject(["With this change `aisignoff lint` fails, while it passed before."], lint_after.stdout + lint_after.stderr)
+          diff = run("git", "diff").stdout
+
+          # ---------------------------------------------------------------- commit and push
+          what = {"annotate": "Declare " + ", ".join(paths), "attest": "Attest the review of " + ", ".join(paths),
+                  "commit": f"Correct the declaration of {commit[:12]}"}[kind]
+          title = (what if len(what) <= 60 else what[:57] + "…") + f" (signoff request #{NUMBER})"
+          email = f"{ISSUE['user']['id']}+{REQUESTER}@users.noreply.github.com"
+          run("git", "add", "-A")
+          if APP_SLUG:   # commit as the app's bot account, so the commit shows its name and avatar
+              bot = f"{APP_SLUG}[bot]"
+              bot_id = (api("GET", f"/users/{urllib.parse.quote(bot)}") or {}).get("id", 0) if not DRY_RUN else 0
+          else:
+              bot, bot_id = "github-actions[bot]", 41898282
+          run("git", "-c", f"user.name={bot}", "-c", f"user.email={bot_id}+{bot}@users.noreply.github.com",
+              "commit", "-q", "-m", title, "-m", f"Requested in #{NUMBER}.", "-m", f"Co-authored-by: {REQUESTER} <{email}>")
+          # An edit that asks for the same change leaves the branch, and the ticks in the pull request, alone.
+          unchanged = (run("git", "rev-parse", "--verify", "-q", f"origin/{BRANCH}", check=False).returncode == 0
+                       and run("git", "diff", "--quiet", f"origin/{BRANCH}", "HEAD", check=False).returncode == 0)
+          if DRY_RUN:
+              print(f"[dry run] branch unchanged: {unchanged}")
+          elif not unchanged:
+              run("git", "push", "--force", "origin", f"HEAD:refs/heads/{BRANCH}")
+
+          # ---------------------------------------------------------------- the pull request description
+          def template():
+              for name in (".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
+                           "pull_request_template.md", "PULL_REQUEST_TEMPLATE.md",
+                           "docs/pull_request_template.md", "docs/PULL_REQUEST_TEMPLATE.md"):
+                  if Path(name).is_file():
+                      return Path(name).read_text(encoding="utf-8")
+              # the organisation's default template, from its public .github repository
+              owner = REPO.split("/")[0]
+              for name in (".github/PULL_REQUEST_TEMPLATE.md", ".github/pull_request_template.md"):
+                  f = api("GET", f"/repos/{owner}/.github/contents/{name}", ok404=True)
+                  if isinstance(f, dict) and f.get("encoding") == "base64":
+                      return base64.b64decode(f["content"]).decode("utf-8")
+              return None
+
+
+          summary = [
+              f"Records signoff request #{NUMBER} by @{REQUESTER} in `SIGNOFF.toml`, written by the signoff bot "
+              "from the issue form (no AI involved):", "", fence(diff, "diff"), "",
+          ]
+          if value(F_NOTES):
+              summary += ["Notes from the request:", "", "> " + value(F_NOTES).replace("\n", "\n> "), ""]
+          if lint_after.returncode:
+              summary += ["`aisignoff lint` reports problems that were there before this change:", "",
+                          fence((lint_after.stdout + lint_after.stderr)[-3000:]), ""]
+          summary += [f"**@{REQUESTER}: check the diff above, then tick your review below** (at least H0, and "
+                      "\"I take responsibility\"). The AI declaration of this pull request describes this change to "
+                      "`SIGNOFF.toml`, not the files it declares. The PR-signoff check passes only once you have ticked.", ""]
+          summary = "\n".join(summary)
+
+          tpl = template()
+          if tpl is None:
+              pr_body = (summary + f"\nCloses #{NUMBER}\n\nAI-Generation: G0\nHuman-Review: \nAI-Review: A0\n"
+                         f"Reviewed-by: {responsible or REQUESTER}\n")
+          else:
+              tpl = tpl.replace("\r\n", "\n")
+              m = re.search(r"^#+ *What does this (PR|pull request) change\?.*$", tpl, re.M | re.I)
+              pr_body = tpl[:m.end()] + "\n\n" + summary + tpl[m.end():] if m else summary + "\n" + tpl
+              pr_body, closes = re.subn(r"^([ \t]*(?:Closes|Fixes|Resolves) #)[ \t]*$", rf"\g<1>{NUMBER}", pr_body,
+                                        count=1, flags=re.M | re.I)
+              if not closes:
+                  pr_body = pr_body.replace(summary, summary + f"\nCloses #{NUMBER}\n", 1)
+              pr_body = re.sub(r"^([-*]) \[ \] \*\*G0\*\*", r"\1 [x] **G0**", pr_body, count=1, flags=re.M)
+              # who is responsible for a pull request opened by a bot (read by the PR-signoff check)
+              who = f"Responsible person: @{REQUESTER}"
+              m = re.search(r"^#+ *AI declaration.*$", pr_body, re.M | re.I)
+              if m:
+                  end = pr_body.find("-->", m.end())
+                  nl = pr_body.find("\n", end) if end >= 0 else m.end()
+                  cut = nl if nl >= 0 else len(pr_body)
+                  pr_body = pr_body[:cut] + f"\n\n{who}\n" + pr_body[cut:]
+              else:
+                  pr_body = pr_body.rstrip("\n") + f"\n\n{who}\n"
+
+          # ---------------------------------------------------------------- open or update the pull request
+          owner = REPO.split("/")[0]
+          existing = api("GET", f"/repos/{REPO}/pulls?state=open&head={owner}:{BRANCH}") or []
+          if existing:
+              pr = existing[0]
+              if not unchanged:
+                  api("PATCH", f"/repos/{REPO}/pulls/{pr['number']}", {"title": title, "body": pr_body})
+          else:
+              pr = api("POST", f"/repos/{REPO}/pulls", {"title": title, "head": BRANCH, "base": DEFAULT_BRANCH,
+                                                         "body": pr_body, "maintainer_can_modify": True})
+              try:   # best effort: tell the requester
+                  api("POST", f"/repos/{REPO}/issues/{pr['number']}/assignees", {"assignees": [REQUESTER]})
+                  api("POST", f"/repos/{REPO}/pulls/{pr['number']}/requested_reviewers", {"reviewers": [REQUESTER]})
+              except SystemExit as e:
+                  print(f"::notice::{e}")
+
+          # Pull requests opened with GITHUB_TOKEN start no workflows, so start the file check by hand
+          # (workflow_dispatch is the exception); its check then shows on the pull request's commit.
+          # A GitHub App's token starts them as for any pull request.
+          for wf in ([] if APP_SLUG or (unchanged and existing) else os.environ.get("DISPATCH_WORKFLOWS", "").split()):
+              try:
+                  api("POST", f"/repos/{REPO}/actions/workflows/{wf}/dispatches", {"ref": BRANCH})
+              except SystemExit as e:
+                  print(f"::warning::Couldn't start {wf} on {BRANCH}: {e}")
+
+          comment(f"Pull request: {pr['html_url']}\n\n@{REQUESTER}, check the change there and tick your review in its "
+                  "description; then it can be merged. Editing this issue updates the pull request.")
+          print(f"Pull request: {pr['html_url']}")
+          PY

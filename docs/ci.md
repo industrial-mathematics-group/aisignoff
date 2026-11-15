@@ -93,6 +93,7 @@ Ready-to-copy files are in [`examples/`](https://github.com/industrial-mathemati
 | [`signoff-pr-files.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pr-files.yml) | the declarations of the files a pull request changes, in the job summary and as annotations in *Files changed* |
 | [`signoff-release.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-release.yml) | attaches the summary, `report --json` and the folder report to each GitHub release |
 | [`signoff-pages.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-pages.yml) | publishes the folder report to GitHub Pages (only for repositories without another Pages site) |
+| [`signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-request.yml) with the issue form [`ISSUE_TEMPLATE/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/ISSUE_TEMPLATE/signoff-request.yml) | turns an issue into a pull request that changes `SIGNOFF.toml` ([below](#signoff-requests-from-issues)) |
 | [`pre-commit-config.yaml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/pre-commit-config.yaml) | runs `aisignoff lint` before each commit |
 
 Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to either. The pull request workflows only read the repository and never fail on their own, so they also work for pull requests from forks. To adapt them:
@@ -103,6 +104,40 @@ Pick **one** of `signoff-lint.yml` and `signoff-badges.yml`; the others add to e
 
 !!! tip "Industrial Mathematics Group"
     Repositories of the group use the organisation's ready-made **File-signoff**, **PR-signoff** and **Signoff-Badges** workflows (*Actions → New workflow*, section "By Industrial Mathematics Group") instead of the first two; setup is in the organisation's [SETUP.md](https://github.com/industrial-mathematics-group/.github/blob/main/SETUP.md). The other examples work next to them.
+
+## Signoff requests from issues
+
+For people who'd rather not edit TOML or use git, an issue form and a workflow turn plain answers into a pull request, without AI:
+
+1. Copy [`examples/ISSUE_TEMPLATE/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/ISSUE_TEMPLATE/signoff-request.yml) to `.github/ISSUE_TEMPLATE/` and [`examples/workflows/signoff-request.yml`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/workflows/signoff-request.yml) to `.github/workflows/`.
+2. Allow it to open pull requests: *Settings → Actions → General → Workflow permissions* → **Allow GitHub Actions to create and approve pull requests** (or let it act as [your own app](#your-own-bot-account)).
+3. Set `DISPATCH_WORKFLOWS` in the workflow to the file name of your lint workflow (`signoff-lint.yml` by default). It needs `workflow_dispatch:` among its triggers, which the examples have.
+
+Someone with write access opens an issue with the form **Signoff: declare or attest files** and picks one of three things to record:
+
+| Choice | Written with | Fields |
+|---|---|---|
+| Declare files | [`aisignoff annotate`](commands.md#annotate) | paths, all three levels and their names |
+| Raise the review of files | [`aisignoff attest`](commands.md#attest) (needs `[history]`) | paths, the human and/or AI review |
+| Correct a commit | a [`[[commits]]`](signoff-toml.md#commits) entry (needs `[history]`) | the commit, the levels to correct |
+
+The workflow writes the change on the branch `signoff-request/issue-<n>` and opens a pull request. aisignoff validates it as on the command line: a declaration that is incomplete or below the [policy](levels.md#minimum-levels), a path that doesn't exist, or a change after which `lint` fails where it passed before is refused with a comment on the issue. Editing the issue runs it again and updates the pull request.
+
+The pull request description comes from the repository's PR template (else the organisation's default from its `.github` repository, else "Key: value" lines): the change as a diff and `Closes #<n>` under the first heading, **G0** ticked, since the workflow is a deterministic tool, and `Responsible person: @<requester>`. The requester reviews *Files changed*, ticks their own review of the change and merges. That description declares the change to `SIGNOFF.toml`, not the files the change declares, which the form's answers do.
+
+!!! note "Pull requests that change only SIGNOFF.toml"
+    aisignoff never declares `SIGNOFF.toml` itself, so such a pull request has no lines to declare: `lint` checks only that the declarations it adds are valid, and `lint --declare-from` requires nothing of its description. A check that reads only the description, such as the Industrial Mathematics Group's *PR-signoff*, still requires it, which is the human signoff the workflow leaves to the requester.
+
+Pull requests opened with the workflow's `GITHUB_TOKEN` start no other workflows (GitHub's rule against loops), apart from `workflow_dispatch`. That's why the workflow starts your lint workflow on the branch, so its check shows on the pull request; a check that runs on `pull_request_target` with `edited` runs once the requester edits the description.
+
+### Your own bot account
+
+By default the branch, commit and pull request come from `github-actions[bot]`. To use a GitHub App of your own instead, with its name and avatar:
+
+1. Create a GitHub App (*Settings → Developer settings → GitHub Apps*, for an organisation under its settings) with no webhook and the repository permissions **Contents**, **Pull requests** and **Issues**: read and write. Install it on the repositories.
+2. Store its App ID as the Actions variable `SIGNOFF_APP_ID` and a private key it generates as the secret `SIGNOFF_APP_PRIVATE_KEY` (on the repository, or once for the organisation).
+
+The workflow then gets a token with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and acts as `<app>[bot]`. Its pull requests start your checks like anyone's, so nothing is dispatched by hand, and the repository setting for `GITHUB_TOKEN` to open pull requests isn't needed. Without the variable, it falls back to `GITHUB_TOKEN`. The form's text never reaches a shell: the workflow reads it from the event file and passes it to aisignoff as separate arguments, and runs no code of the repository.
 
 ## pre-commit
 

@@ -1,0 +1,97 @@
+name: "Signoff: declare or attest files"
+description: Record how files were made and reviewed in SIGNOFF.toml. A bot opens the pull request; no TOML needed.
+title: "Signoff: "
+labels: ["signoff-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in the form; the signoff bot turns it into a `SIGNOFF.toml` change with aisignoff, checks it with
+        `aisignoff lint` and opens a pull request that you review, tick and merge. If something doesn't fit,
+        it says so in a comment here; edit the issue and it runs again. No AI is involved.
+
+        The files must already be on the default branch. Issues in public repositories are public.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What should be recorded?
+      options:
+        - "Declare files: how they were made and reviewed (an annotation)"
+        - "Raise the review of files I checked as they are now (an attestation, needs [history])"
+        - "Correct the declaration of a commit ([[commits]], needs [history])"
+    validations:
+      required: true
+  - type: textarea
+    id: paths
+    attributes:
+      label: Files, folders or globs
+      description: One per line, relative to the repository root. A folder covers everything in it. Not for a commit correction.
+      placeholder: |
+        results/convergence-study/
+        figures/fig3.pdf
+        notebooks/*.ipynb
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Only for a commit correction. For a merged pull request, its merge or squash commit.
+      placeholder: 6686c01
+  - type: dropdown
+    id: generation
+    attributes:
+      label: How much of it did AI write?
+      description: The highest level that applies to a substantial part. Leave empty for an attestation.
+      options:
+        - "G0: nothing, a human wrote it without AI"
+        - "G1: a human wrote it, AI suggested or edited parts"
+        - "G2: AI wrote substantial parts, a human directed the work and edited the result"
+        - "G3: an AI agent produced it largely end to end"
+  - type: textarea
+    id: models
+    attributes:
+      label: Which AI tools and models wrote parts of it?
+      description: G1 to G3 only. One per line, tool and model as precisely as you know.
+      placeholder: Claude Opus 5.5 (Anthropic)
+  - type: dropdown
+    id: human
+    attributes:
+      label: How did a human check it?
+      description: The highest level you completed; each includes the ones above it.
+      options:
+        - "H0: checked the result as a whole: it does what was asked and the output is plausible"
+        - "H1: ran it or reproduced the key results, and read the important parts"
+        - "H2: read every line, understood it, checked edge cases"
+        - "H3: validated it independently: new tests, a reference solution or method, or a second person's review"
+  - type: input
+    id: responsible
+    attributes:
+      label: Responsible person
+      description: Full name of who did the human check, recorded as Reviewed-by.
+      placeholder: Jane Doe
+  - type: dropdown
+    id: ai-review
+    attributes:
+      label: Did an AI review it?
+      options:
+        - "A0: no AI review"
+        - "A1: the AI that wrote it checked its own work (not for G0)"
+        - "A2: a new AI session, without the original conversation, reviewed it"
+        - "A3: a different model reviewed it extensively or benchmarked it"
+  - type: textarea
+    id: ai-reviewer
+    attributes:
+      label: Which model reviewed it, and how?
+      description: A1 to A3 only. One per line.
+      placeholder: "GPT Sol (OpenAI), benchmark against reference solutions"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes for the reviewer
+      description: Copied into the pull request. Not part of the declaration.
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: The answers are true to the best of my knowledge, and I'll review the pull request before it is merged.
+          required: true

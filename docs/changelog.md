@@ -2,6 +2,10 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## Unreleased
+
+- New example: an issue form and workflow that turn a request into a pull request that changes `SIGNOFF.toml`, written with `annotate` or `attest` or as a `[[commits]]` entry, for the requester to review and merge, without AI, as `github-actions[bot]` or your own GitHub App ([Signoff requests from issues](ci.md#signoff-requests-from-issues)).
+
 ## 1.0.0rc2
 
 Removes what was kept for repositories from before version 3 of the format, so 1.0 reads only the current one. Allowed in a release candidate by the [compatibility](compatibility.md) promise, which starts with 1.0.0.
