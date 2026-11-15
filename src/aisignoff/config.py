@@ -164,7 +164,19 @@ def load(root: Path) -> Config:
     data = read_toml(root)
     if data is None:
         return Config(path=None)
-    path = config_path(root)
+    return parse(data, config_path(root))
+
+
+def load_text(text: str, path: Path) -> Config:
+    """A SIGNOFF.toml given as text, such as the one of another commit (path names it in errors)."""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{path.name}: invalid TOML: {e}") from e
+    return parse(data, path)
+
+
+def parse(data: dict, path: Path) -> Config:
     name = path.name
 
     version = data.get("version")

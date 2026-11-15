@@ -115,7 +115,7 @@ The description can use "Key: value" lines as above, or the checkboxes of a pull
 | Axis | Level | Names |
 |---|---|---|
 | Generation | the ticked `**G…**` box; more than one is an error | the ticked models (`**Name** (Vendor)`) between the generation and the human review boxes, and the text after `**Other:**` |
-| Human review | the highest ticked `**H…**` box | the commit's author. On GitHub, that is the pull request's author for a squash commit, but whoever clicked *Merge* for a merge commit: correct it with `[[commits]]` if that wasn't the reviewer |
+| Human review | the highest ticked `**H…**` box | the commit's author (before the merge, `lint --author`, or the `Responsible person: @login` line of a pull request opened by a bot). On GitHub, that is the pull request's author for a squash commit, but whoever clicked *Merge* for a merge commit: correct it with `[[commits]]` if that wasn't the reviewer |
 | AI review | the highest ticked `**A…**` box, or **A0** when the AI review boxes are there and none is ticked | the text after `Model:` in that box, else the models that wrote the change |
 
 Boxes in code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are an unfilled template: `TODO`, which `lint` reports.

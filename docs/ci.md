@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc2"
+      - run: pip install "aisignoff==1.0.0rc3"
       - run: aisignoff lint
 ```
 
@@ -57,8 +57,19 @@ on:
 ```
 
 - `--declare-from` reads the description exactly as the merge or squash commit's message will be read: "Key: value" lines or a ticked [template](history.md#pull-request-descriptions). `-` reads standard input.
-- `--author` names who the human review of a ticked template is by.
+- `--author` names who the human review of a ticked template is by: the pull request's author. For a pull request opened by a bot (a login ending in `[bot]`), the description must name a human on a line `Responsible person: @login`, and that person is the reviewer; a bot can't be.
 - `--base` is the branch the pull request goes into. `HEAD^1` is the first parent of GitHub's merge preview, the base branch as this run merged it. A pull request into another branch than the default one declares nothing, so its description isn't applied or checked.
+
+With `--declare-from`, `lint` checks the pull request as a whole, before it is merged (aisignoff >= 1.0.0rc3):
+
+- **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
+- **The base branch sets the rules.** With `--base`, the `[policy]` of the base branch's `SIGNOFF.toml` applies to the merged result, not the pull request's own.
+- **A pull request can't change them.** A change to `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, or its removal, fails. Maintainers commit such changes to the default branch directly, or the workflow passes `--allow-policy-change` for pull requests it trusts (for example by their author's permission); the pull request's own policy then applies. A repository's first `SIGNOFF.toml` is not a change.
+- **Without `SIGNOFF.toml`,** only the description is checked, so the same workflow can check pull requests in repositories that declare no files.
+
+`report --json` with the same options adds `pull_request`: the levels and names the description declares, whether it `applies` (not for a pull request into another branch) and its `errors`, for labels and the like.
+
+These rules are for the check before the merge. How landed commits are read hasn't changed.
 
 Pass the description through an environment variable as above, never by inserting `${{ … }}` into the script, which would let a description run shell commands.
 
@@ -126,7 +137,7 @@ The workflow writes the change on the branch `signoff-request/issue-<n>` and ope
 The pull request description comes from the repository's PR template (else the organisation's default from its `.github` repository, else "Key: value" lines): the change as a diff and `Closes #<n>` under the first heading, **G0** ticked, since the workflow is a deterministic tool, and `Responsible person: @<requester>`. The requester reviews *Files changed*, ticks their own review of the change and merges. That description declares the change to `SIGNOFF.toml`, not the files the change declares, which the form's answers do.
 
 !!! note "Pull requests that change only SIGNOFF.toml"
-    aisignoff never declares `SIGNOFF.toml` itself, so such a pull request has no lines to declare: `lint` checks only that the declarations it adds are valid, and `lint --declare-from` requires nothing of its description. A check that reads only the description, such as the Industrial Mathematics Group's *PR-signoff*, still requires it, which is the human signoff the workflow leaves to the requester.
+    aisignoff never declares `SIGNOFF.toml` itself, so such a pull request has no lines to declare, but its description still declares the change: [`lint --declare-from`](#checking-the-pull-request-description) requires it to be complete, so the check stays red until the requester has ticked their review. That is the human signoff the workflow leaves to them.
 
 Pull requests opened with the workflow's `GITHUB_TOKEN` start no other workflows (GitHub's rule against loops), apart from `workflow_dispatch`. That's why the workflow starts your lint workflow on the branch, so its check shows on the pull request; a check that runs on `pull_request_target` with `edited` runs once the requester edits the description.
 
@@ -144,7 +155,7 @@ The workflow then gets a token with [`actions/create-github-app-token`](https://
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0rc2   # the same version as in your workflows
+    rev: v1.0.0rc3   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```
