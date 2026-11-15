@@ -70,7 +70,7 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs). The lev
 aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV [--allow-policy-change]] | --landed]
 ```
 
-Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
+Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a committed review report that lists a finding severe enough to need a new review ([When a review counts](levels.md#when-a-review-counts)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
 
 `--strict` also fails on warnings: annotations that match no file; reverts, `git pull` merges and commits that look like pull requests that own lines without declaring them; review levels in a `[[commits]]` entry for a commit inside a pull request; attestations of files under `precedence = "override"` or with an `AI-Generation`.
 

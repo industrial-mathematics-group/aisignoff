@@ -200,6 +200,36 @@ def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):
             load(tmp_path)
 
 
+def test_lint_fails_on_a_report_with_a_finding_that_needs_a_new_review(tmp_path, capsys):
+    from aisignoff.reports import findings
+    report = ("# Review\n\n## Major findings\n\nNone left. A major rework wasn't needed.\n\n"
+              "- **minor:** a typo in the message. Fixed.\n- [Trivial] naming\n3. **Major** wrong result for n = 0. Fixed.\n"
+              "### critical: data loss\n\n```\n- **critical:** quoted\n```\n- Major things are fine.\n")
+    assert findings(report) == [(7, "minor"), (8, "trivial"), (9, "major"), (10, "critical")]
+    write(tmp_path, "SIGNOFF.toml", HEAD + 'exclude = "reviews/**"\n[[annotations]]\npath = "**"\n' + TOML_G0)
+    write(tmp_path, "a.py")
+    write(tmp_path, "reviews/1.md", report)
+    write(tmp_path, "docs/notes.md", "- **critical:** not a report\n")
+
+    def lint(*extra):
+        capsys.readouterr()
+        code = main(["--root", str(tmp_path), "lint", *extra])
+        return code, capsys.readouterr().out
+
+    code, out = lint()
+    assert code == 1 and "reviews/1.md line 9: the review report lists a major finding" in out
+    assert "line 10" in out and "line 7" not in out and "notes.md" not in out
+    write(tmp_path, "reviews/1.md", report.replace("3. **Major**", "3. **minor**").replace("### critical:", "### minor:"))
+    assert lint()[0] == 0
+    toml = (tmp_path / "SIGNOFF.toml").read_text()
+    write(tmp_path, "SIGNOFF.toml", toml.replace("[[annotations]]", '[review]\nrecheck = "minor"\n[[annotations]]', 1))
+    code, out = lint()
+    assert code == 1 and "lists a minor finding" in out and "line 8" not in out
+    write(tmp_path, "SIGNOFF.toml", toml.replace("[[annotations]]", '[review]\nreports = "docs/*.md"\n[[annotations]]', 1))
+    code, out = lint()
+    assert code == 1 and "docs/notes.md line 1" in out and "reviews/" not in out
+
+
 def test_unknown_settings_are_warnings(tmp_path):
     # a later 1.x may add optional settings: an older install warns about them instead of failing
     (tmp_path / "SIGNOFF.toml").write_text('version = 4\nfoo = 1\n[history]\nbar = 2\n')

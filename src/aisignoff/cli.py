@@ -123,8 +123,10 @@ def cmd_init(args) -> int:
         "",
         "# An AI review counts once its findings are fixed or listed as open. A fix for a finding of",
         "# this severity or above (trivial, minor, major, critical) needs a new review (optional).",
+        "# lint fails on a committed review report that lists such a finding: the review is done again.",
         "# [review]",
         f'# recheck = "{RECHECK}"',
+        '# reports = "reviews/**"   # the Markdown files that are review reports',
         "",
     ]
     given = [args.generation, args.human, args.ai]
@@ -310,6 +312,9 @@ def cmd_lint(args) -> int:
         print(f"✗ {printable(problem)}")
     for problem in project.history_problems:
         print(f"✗ {printable(problem)}")
+    report_problems = project.report_problems()
+    for problem in report_problems:
+        print(f"✗ {printable(problem)}")
     _print_errors(results, args.max_files)
     for index in unused:
         print(f"{'✗' if args.strict else '!'} {project.config.path.name} annotation [{index}] matches no file")
@@ -329,7 +334,7 @@ def cmd_lint(args) -> int:
         lines = sum(p.lines for r in results for p in r.parts or ())
         bad_lines = sum(p.lines for r in results for p in r.parts or () if p.errors and not p.advisory)
         print(f"{lines - bad_lines} of {lines} lines have a valid declaration (line by line, from git history).")
-    failed = bad > 0 or bool(project.history_problems) or bool(pr_problems) or (args.strict and (unused or project.history_warnings
+    failed = bad > 0 or bool(project.history_problems) or bool(pr_problems) or bool(report_problems) or (args.strict and (unused or project.history_warnings
                                                                                     or project.config.warnings))
     if failed:
         print(f"See {SPEC_URL}")

@@ -67,7 +67,8 @@ Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overridi
 
 | Key | Default | Value |
 |---|---|---|
-| `recheck` | `"major"` | `"trivial"`, `"minor"`, `"major"` or `"critical"`: a fix for a finding of this severity or above needs a new AI review before the level counts. See [When a review counts](levels.md#when-a-review-counts). A rule for reviewers, which aisignoff doesn't check |
+| `recheck` | `"major"` | `"trivial"`, `"minor"`, `"major"` or `"critical"`: a finding of this severity or above needs a new AI review after its fix. `lint` fails on a review report that lists one. See [When a review counts](levels.md#when-a-review-counts) |
+| `reports` | `"reviews/**"` | a glob or list of globs: the Markdown files that are review reports, in the format of [The record of a review](levels.md#the-record-of-a-review). `exclude` doesn't apply to it. `[]` turns the check off |
 
 ## `[[annotations]]`
 
