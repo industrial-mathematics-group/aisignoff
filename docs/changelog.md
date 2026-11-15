@@ -2,6 +2,10 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc5
+
+- **Breaking:** `lint` checks every `[[commits]]` entry against the built-in rules and the `[policy]`, as the declaration of its commit corrected by the entry, also when that commit owns no line that is checked. Before, an entry was only checked through the lines it owns, so one for a commit that changed only `SIGNOFF.toml`, or whose lines are gone, passed whatever it said (seen in a signoff request that recorded G3/H0/A1 under a policy that needs H1 and A2 for G3).
+
 ## 1.0.0rc4
 
 - **Breaking:** with `--allow-policy-change`, the pull request is still checked under the base branch's `[policy]`, not its own, so a pull request can't lower the bar for itself; the new policy applies to the pull requests after it. In 1.0.0rc3 a maintainer's pull request that lowered the policy was checked under the lowered one and passed.

@@ -200,3 +200,32 @@ def test_allowed_removal_of_signoff_toml_is_said(branch, tmp_path, capsys):
     assert code == 1 and "the change removes SIGNOFF.toml" in out
     code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
     assert code == 0 and "the change removes SIGNOFF.toml (allowed by --allow-policy-change)" in out
+
+
+COMMIT_ENTRY = ('\n[[commits]]\ncommit = "{c}"\nAI-Generation = "G3"\nAssisted-by = ["Model A"]\n'
+                'Human-Review = "H0"\nReviewed-by = ["Jane"]\nAI-Review = "A1"\n')
+
+
+def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, tmp_path, capsys):
+    """A correction for a commit that owns no checked line (it changed only SIGNOFF.toml) still has to
+    meet the rules: playground PR #9 recorded G3/H0/A1 under a policy that needs H1 and A2 for G3."""
+    write(repo, "SIGNOFF.toml", BASE_TOML + '\n[policy]\nG3 = { human = "H1", ai = "A2" }\n')
+    target = commit(repo, "policy", "AI-Generation: G0\nHuman-Review: H2\nAI-Review: A0\nReviewed-by: Jane")
+    git(repo, "checkout", "-q", "-b", "feature")
+    write(repo, "SIGNOFF.toml", (repo / "SIGNOFF.toml").read_text() + COMMIT_ENTRY.format(c=target[:7]))
+    commit(repo, "correct the policy commit")
+    code, out = lint(repo, tmp_path, FILLED, "--author", "jane", capsys=capsys)
+    assert code == 1, out
+    assert f"[[commits]] entry 1 ({target[:7]}): G3 requires at least H1 by policy (declared H0)" in out
+    assert "G3 requires at least A2" in out and "A1 needs AI-Reviewed-by" in out
+    good = COMMIT_ENTRY.replace('"H0"', '"H1"').replace('"A1"', '"A2"\nAI-Reviewed-by = ["Model B"]')
+    write(repo, "SIGNOFF.toml", BASE_TOML + '\n[policy]\nG3 = { human = "H1", ai = "A2" }\n' + good.format(c=target[:7]))
+    commit(repo, "a valid correction")
+    assert lint(repo, tmp_path, FILLED, "--author", "jane")[0] == 0
+    # a partial entry is checked together with the commit's own message: G1 over its A0 breaks a built-in rule
+    write(repo, "SIGNOFF.toml", BASE_TOML + f'\n[[commits]]\ncommit = "{target[:7]}"\nAI-Generation = "G1"\n'
+          'Assisted-by = ["Model A"]\n')
+    commit(repo, "partial")
+    capsys.readouterr()
+    code, out = main(["--root", str(repo), "lint"]), capsys.readouterr().out
+    assert code == 1 and f"[[commits]] entry 1 ({target[:7]}): " in out, out

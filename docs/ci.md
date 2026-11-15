@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc4"
+      - run: pip install "aisignoff==1.0.0rc5"
       - run: aisignoff lint
 ```
 
@@ -155,7 +155,7 @@ The workflow then gets a token with [`actions/create-github-app-token`](https://
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0rc4   # the same version as in your workflows
+    rev: v1.0.0rc5   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```
