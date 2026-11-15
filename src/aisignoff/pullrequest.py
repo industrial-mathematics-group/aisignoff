@@ -100,36 +100,31 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     return BaseRules(config, changed, unconverted)
 
 
-_REPORT_PATH = re.compile(r"[\w./@+-]*[\w@+-]\.md\b", re.I)
-_REPORT_HIGHEST = re.compile(r"Highest finding in this change[\s:*_`]*(none|trivial|minor|major|critical)\b", re.I)
-_REPORT_OUTSIDE = re.compile(r"^#+\s*Outside this change\b", re.I | re.M)
+_REPORT_LINK = re.compile(r"https?://[^\s,;()<>]+", re.I)
+_REPORT_PATH = re.compile(r"[\w./@+-]*[\w@+-]\.[A-Za-z][\w]*|[\w.@+-]+(?:/[\w.@+-]+)+")
 
 
 def review_problems(root: Path, piece, findings: str | None, recheck: str) -> list[str]:
     """The check before the merge of a pull request that declares A2 or A3 (PIECE, its AI review):
-    the "AI-Review-Findings:" line FINDINGS, and the review report that AI-Reviewed-by names, which
-    is in the change, follows the template (examples/review-report.md) and says the same severity."""
-    from .model import FINDINGS, findings_problems
+    the "AI-Review-Findings:" line FINDINGS, and that AI-Reviewed-by names the review's report, a
+    file of the change or a link. What the report says is never read: its form is the
+    repository's business."""
+    from .model import findings_problems
     level = piece.level if piece else None
     problems = findings_problems(level, findings, recheck, required=True)
     if level not in ("A2", "A3"):
         return problems
-    paths = [m.group(0).removeprefix("./") for name in piece.names for m in _REPORT_PATH.finditer(name)]
-    if not paths:
-        return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of the Markdown file "
-                           "(after the model: \"GPT Sol (OpenAI), reviews/pull12.md\")"]
-    found = [p for p in paths if (root / p).is_file()]
-    if not found:
-        return problems + [f"the review report {paths[0]} isn't in this change: commit it with the pull request"]
-    text = (root / found[0]).read_text(encoding="utf-8", errors="replace")
-    highest = _REPORT_HIGHEST.search(text)
-    if not highest or not _REPORT_OUTSIDE.search(text):
-        problems.append(f"the review report {found[0]} doesn't follow the template (examples/review-report.md): it needs "
-                        "the line \"Highest finding in this change: …\" and the section \"Outside this change\"")
-    elif findings and highest.group(1).lower() != findings.strip().lower():
-        problems.append(f"the review report {found[0]} says \"Highest finding in this change: {highest.group(1).lower()}\", "
-                        f"but the description says {FINDINGS}: {findings}")
-    return problems
+    text = " ".join(piece.names)
+    if _REPORT_LINK.search(text):
+        return problems
+    paths = [m.group(0).removeprefix("./") for m in _REPORT_PATH.finditer(_REPORT_LINK.sub(" ", text))]
+    if any((root / p).is_file() for p in paths):
+        return problems
+    named = [p for p in paths if "/" in p or p.lower().endswith((".md", ".txt", ".pdf", ".rst", ".html"))]
+    if named:
+        return problems + [f"the review report {named[0]} isn't in this change: commit it with the pull request"]
+    return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of a file in this change, or a "
+                       "link (after the model: \"GPT Sol (OpenAI), reviews/pull12.md\")"]
 
 
 def description_problems(pieces: dict, policy) -> list[str]:

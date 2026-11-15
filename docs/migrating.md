@@ -2,6 +2,20 @@
 
 Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade.
 
+## To 1.0.0rc7: no declarations in files
+
+From 1.0.0rc7 on, a declaration comes only from `SIGNOFF.toml` and from git (commit messages, pull request descriptions, blame). The content of a file is never read for one, so **inline tags** (`# AI-Generation: G2` in a header comment) no longer declare anything, and `annotate --inline` is gone. A file that only its tags declared becomes undeclared, and one whose tags differed from its annotation falls back to the annotation.
+
+Before you raise the pinned version, move the tags into `SIGNOFF.toml` with [`inline-tags-to-toml.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/inline-tags-to-toml.py), run with the last release that reads them:
+
+```bash
+uv run --with aisignoff==1.0.0rc6 python inline-tags-to-toml.py   # --dry-run shows the change only
+```
+
+It appends one annotation per tagged file, with exactly the declaration the file has today, and writes nothing if the result would differ. `SIGNOFF.toml` must be version 4 for it ([below](#to-signofftoml-version-4-the-ai-review-scale-of-100rc6)). The tag comments can then be deleted whenever the files are next edited.
+
+The check of a review also reads no file any more: A2 and A3 give `AI-Review-Findings:` and name their report in `AI-Reviewed-by`, and what the report looks like is up to the repository ([The record of a review](levels.md#the-record-of-a-review)).
+
 ## To `SIGNOFF.toml` version 4: the AI review scale of 1.0.0rc6
 
 1.0.0rc6 changes what the AI review levels mean, so that the scale counts only review that is independent of the session that wrote the content ([Levels and rules](levels.md#ai-review-a0-to-a3)):
@@ -15,15 +29,14 @@ Check the [changelog](changelog.md) for **Breaking** changes before raising the 
 
 Two built-in rules are gone: G1–G3 no longer need an AI review, and G0 content can have any level. In `[policy]`, `ai = "A1"` becomes `"A0"` and `ai = "A2"` becomes `"A1"`; for G0, where A1 meant a new session, both become `"A1"`.
 
-Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of inline tags, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
+Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
 
 Change over in one pull request per repository, once your workflows pin 1.0.0rc6 or later:
 
 1. **With `[history]`, write a snapshot:** `aisignoff freeze` on the default branch, landed as usual ([Snapshots](snapshots.md)). Commit messages can't be rewritten, and from version 4 on they are read on the new scale: the snapshot keeps what the commits so far declare, as taken over.
 2. **Convert the file** with [`convert-to-version-4.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/convert-to-version-4.py): `python convert-to-version-4.py` at the repository root (`--dry-run` shows the change only). It rewrites the levels and `[policy]` with the table, sets `version = 4`, keeps comments and layout, and writes nothing if the result wouldn't be read as the same declarations.
 3. **Change the AI review boxes of the pull request template** in the same pull request, to the wording in [Pull request descriptions](history.md#pull-request-descriptions). With version 4, a ticked A1 box that still says "checked its own work" is an error. Do the same for the issue form of the signoff request, if you use it.
-4. **Edit inline tags by hand.** The script lists the files that may have one with A1 or A2.
-5. **Look at each A3:** it now says that the reviewer produced new evidence and left a record.
+4. **Look at each A3:** it now says that the reviewer produced new evidence and left a record.
 
 The pull request that changes over is itself read on the new scale already, since its own `SIGNOFF.toml` says version 4: replace the AI review boxes in its description with the new ones by hand, because GitHub fills in the template of the default branch. Since it changes `version`, which sets the scale, a maintainer lands it: on the default branch directly, or with `--allow-policy-change` ([Checking the pull request description](ci.md#checking-the-pull-request-description)). The check fails a change to version 4 that leaves the level of an existing entry as it was written, because that would raise it.
 
@@ -45,7 +58,7 @@ Without it, run `aisignoff lint` after upgrading and settle what it reports: mov
 
 ## From aidecl, or format version 1 or 2
 
-aisignoff reads only `SIGNOFF.toml` with `version = 4` or `3` and the inline tags of those versions. `AIDECL.toml` (the name up to aidecl 0.3.0), format version 1 (one verification axis, `AI-Verification: V0`–`V3`, `Tested-by`, `Verified-by`) and format version 2 (the AI review scale `A-`, `A0`–`A3`, which moved up by one) are no longer read since 1.0.0rc2: `lint` stops with an error for `AIDECL.toml` and old versions of `SIGNOFF.toml`, and old inline tags aren't recognised as a declaration.
+aisignoff reads only `SIGNOFF.toml` with `version = 4` or `3`. `AIDECL.toml` (the name up to aidecl 0.3.0), format version 1 (one verification axis, `AI-Verification: V0`–`V3`, `Tested-by`, `Verified-by`) and format version 2 (the AI review scale `A-`, `A0`–`A3`, which moved up by one) are no longer read since 1.0.0rc2: `lint` stops with an error for `AIDECL.toml` and old versions of `SIGNOFF.toml`.
 
 Convert such a repository once with 1.0.0rc1, the last release with `aisignoff migrate`, then raise the version you pin:
 

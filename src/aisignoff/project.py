@@ -8,9 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from . import inline
 from .config import FILENAME, Config, load
-from .model import AXES, Declaration, from_version_3, validate
+from .model import Declaration, validate
 
 ALWAYS_SKIPPED = {FILENAME, "SIGNOFF.snapshot.json"}
 
@@ -103,44 +102,11 @@ def _history_result(path: str, parts: list) -> FileResult:
     return FileResult(path, main.declaration, errors, parts, index)
 
 
-def _merge_closest(own: Declaration, fallback: Declaration | None) -> Declaration:
-    """Inline tags win per axis; a missing axis is taken from SIGNOFF.toml.
-
-    The axes are generation (AI-Generation + Assisted-by), human review
-    (Human-Review + Reviewed-by) and AI review (AI-Review + AI-Reviewed-by). An axis counts
-    as given inline when its level line is present.
-    """
-    stray = [f"inline {names} without an inline {level} line"
-             for level, names in AXES if own.get(level) is None and own.get(names)]
-    if stray:
-        own = replace(own, problems=own.problems + stray)
-    if fallback is None:
-        return own
-    updates = {}
-    for level, names in AXES:
-        if own.get(level) is None and fallback.get(level) is not None:
-            updates[Declaration._FIELDS[level]] = fallback.get(level)
-            updates[Declaration._FIELDS[names]] = fallback.get(names)
-    if not updates:
-        return own
-    return replace(own, **updates, source=f"inline + {fallback.source}", problems=list(own.problems))
-
-
 def resolve(root: Path, config: Config, path: str) -> Declaration:
-    """Declaration of one file. With precedence "closest" (default), inline tags win and
-    SIGNOFF.toml fills a missing axis; with "override", the annotation alone counts."""
+    """Declaration of one file: its annotation in SIGNOFF.toml. The content of a file is never read
+    for a declaration."""
     annotation = config.match(path)
-    if annotation is not None and annotation.precedence == "override":
-        return annotation.declaration()
-    found = inline.parse(root / path)
-    if found is not None and config.version_3 and found.ai is not None:
-        # inline tags follow the scale SIGNOFF.toml says
-        found.ai, found.ai_reviewed_by = from_version_3(found.ai, found.ai_reviewed_by)
-    if found is not None:
-        return _merge_closest(found, annotation.declaration() if annotation else None)
-    if annotation is not None:
-        return annotation.declaration()
-    return Declaration()
+    return annotation.declaration() if annotation is not None else Declaration()
 
 
 class Project:

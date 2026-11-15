@@ -16,8 +16,8 @@ Each line has one owner, and the owner declares it:
 4. A review is the higher of the owner's level (or the file level's, where that declares the
    line) and an [[attestations]] entry of the file whose content (a git blob) already contained
    the line.
-5. An owner that declares nothing leaves its lines to the file-level declaration (SIGNOFF.toml
-   annotations and inline tags), or fails lint with undeclared = "error". One that declares some
+5. An owner that declares nothing leaves its lines to the file-level declaration (the annotations of
+   SIGNOFF.toml), or fails lint with undeclared = "error". One that declares some
    axes but not all, or leaves the template unfilled, is an error.
 
 Lines that aren't on the default branch yet (a feature branch, a pull request's merge preview,

@@ -23,8 +23,7 @@ FILLED = """Change things.
 - [ ] **A2** A different, capable model did that check. Model:
 """
 EMPTY = FILLED.replace("[x]", "[ ]")
-REPORT = (Path(__file__).parent.parent / "examples/review-report.md").read_text().replace(
-    "<none, trivial, minor, major or critical>", "minor")
+REPORT = "# Review\n"
 
 
 @pytest.fixture
@@ -249,8 +248,8 @@ def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, 
 
 
 def test_a_review_by_a_different_model_gives_its_findings_and_its_report(branch, tmp_path, capsys):
-    """Before the merge, A2 and A3 need the line AI-Review-Findings and the review report that
-    AI-Reviewed-by names, which follows the template and says the same severity."""
+    """Before the merge, A2 and A3 need the line AI-Review-Findings and the review's report, named in
+    AI-Reviewed-by: a file of the change or a link. What the report says is never read."""
     write(branch, "solver.py", "changed\n")
     commit(branch, "change")
     g3 = (FILLED.replace("[x] **G0**", "[ ] **G0**").replace("[ ] **G3**", "[x] **G3**")
@@ -264,21 +263,18 @@ def test_a_review_by_a_different_model_gives_its_findings_and_its_report(branch,
     assert code == 1 and "A2 needs a line 'AI-Review-Findings:'" in out and "A2 needs its review report" in out
     code, out = check(a2 + "\nAI-Review-Findings: minor\n")
     assert code == 1 and "the review report reviews/pull7.md isn't in this change" in out
-    write(branch, "reviews/pull7.md", "# Review\n\nLooks fine.\n")
+    # a link names the report as well
+    assert check(g3.replace("Model:", "Model: GPT Sol (OpenAI), https://example.org/pull/7#comment-1")
+                 + "\nAI-Review-Findings: minor\n")[0] == 0
+    # the file only has to be there: a report of any form, even one that says something else
+    write(branch, "reviews/pull7.md", "# Review\n\nHighest finding in this change: critical\n")
     commit(branch, "a report")
-    code, out = check(a2 + "\nAI-Review-Findings: minor\n")
-    assert code == 1 and "doesn't follow the template" in out
-    write(branch, "reviews/pull7.md", REPORT)   # the template as it is, with "minor" filled in
-    commit(branch, "the report")
     assert check(a2 + "\nAI-Review-Findings: minor\n")[0] == 0
     assert check(a2 + "\nAI-Review-Findings: Minor\n")[0] == 0
-    code, out = check(a2 + "\nAI-Review-Findings: none\n")
-    assert code == 1 and 'says "Highest finding in this change: minor", but the description says AI-Review-Findings: none' in out
+    assert check(a2 + "\nAI-Review-Findings: none\n")[0] == 0
     code, out = check(a2 + "\nAI-Review-Findings: high\n")
     assert code == 1 and "invalid AI-Review-Findings 'high'" in out
     # a finding from the threshold on needs a new review: the pull request can't be merged with it
-    write(branch, "reviews/pull7.md", REPORT.replace("change:** minor", "change:** major"))
-    commit(branch, "a major finding")
     code, out = check(a2 + "\nAI-Review-Findings: major\n")
     assert code == 1 and "found a major problem in this change" in out and "needs a new review" in out
     # ... and it can't raise the threshold for itself: [review] is the base branch's

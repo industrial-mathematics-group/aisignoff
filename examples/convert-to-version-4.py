@@ -17,12 +17,11 @@ reported levels don't change. Run it with that aisignoff installed, at the repos
     aisignoff freeze            # with [history]: keeps what the commit messages so far declare
     python convert-to-version-4.py            # or: --dry-run to see the change only
 
-Then change the AI review boxes of your pull request template in the same pull request, and edit
-inline tags by hand (the script lists them). The full steps are in docs/migrating.md.
+Then change the AI review boxes of your pull request template in the same pull request. The full
+steps are in docs/migrating.md.
 """
 import difflib
 import re
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -35,7 +34,6 @@ LEVEL = re.compile(r'^(\s*"?AI-Review"?\s*=\s*)"(A[0-3])"')
 NAMES = re.compile(r'^\s*"?AI-Reviewed-by"?\s*=')
 POLICY = re.compile(r'^\s*"?(\*|G[0-3])"?\s*=\s*\{')
 MINIMUM = re.compile(r'(\bai\s*=\s*)"(A[0-3])"')
-TAG = re.compile(rb"AI-Review:\s*A[12]\b")
 
 
 def _blocks(lines):
@@ -125,18 +123,6 @@ def main(argv):
     if not dry:
         path.write_text(new, encoding="utf-8")
         print(f"\nWrote {NAME} as version 4.")
-    tagged = []
-    listed = subprocess.run(["git", "ls-files", "-z"], capture_output=True)
-    for name in listed.stdout.decode("utf-8", "surrogateescape").split("\0"):
-        try:
-            if name and name != NAME and TAG.search(Path(name).read_bytes()[:4096]):
-                tagged.append(name)
-        except OSError:
-            pass
-    if tagged:
-        print("\nThese files may have an inline tag with AI-Review A1 or A2. Edit them by hand (A1 becomes A0, "
-              "without AI-Reviewed-by; A2 becomes A1):")
-        print("".join(f"  {name}\n" for name in tagged), end="")
     print("\nNext: change the AI review boxes of your pull request template (docs/history.md), and check that "
           "every A3 meets today's A3 (docs/levels.md).")
 

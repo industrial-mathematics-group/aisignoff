@@ -74,7 +74,7 @@ Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overridi
 | Key | Value |
 |---|---|
 | `path` | a glob or list of globs, required. The last matching annotation wins |
-| `precedence` | `"closest"` (default): inline tags win per axis. `"override"`: the annotation alone counts, and with `[history]` the file is declared as a whole |
+| `precedence` | `"closest"` (default): with `[history]`, the commits that wrote a line declare it, and the annotation declares the rest. `"override"`: the annotation alone counts, and the file is declared as a whole |
 | declaration keys | as above |
 
 See [Declaring files](files.md).

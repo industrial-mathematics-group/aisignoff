@@ -53,16 +53,16 @@ The terms:
 
 ### The record of a review
 
-- **A2: one report.** Exactly one Markdown file, committed with the change (for example `reviews/pull12.md`), with only the results.
+- **A2: one report,** with only the results. It is committed with the change (for example `reviews/pull12.md`) or linked.
 - **A3: everything.** The same report, and with it what the reviewer produced: the new tests, benchmarks, scripts or derivations.
 - **A1** needs no record.
 
-The report follows a template, [`examples/review-report.md`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/review-report.md): who reviewed what and how, a summary, and two lists that are kept apart.
+What a report looks like is up to the repository or its organisation, and so is checking it: aisignoff never reads one. [`examples/review-report.md`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/review-report.md) is a template to start from. Whatever the form, a report should keep two things apart:
 
-- **Findings in this change:** what the change itself introduces or makes worse, each with its severity ([below](#when-a-review-counts)) and whether it is fixed or open. The line `Highest finding in this change:` at the top gives the highest severity among them, or `none`.
-- **Outside this change:** problems the reviewer met that were there before, of any severity, each with the reason why the change isn't its cause. They don't count towards the highest finding, so a reviewer can report a major problem elsewhere in the code without holding up the change. A maintainer reads this section to see that it really is separate.
+- **Findings in this change:** what the change itself introduces or makes worse, each with its severity ([below](#when-a-review-counts)) and whether it is fixed or open.
+- **Outside this change:** problems the reviewer met that were there before, of any severity, each with the reason why the change isn't its cause. They don't count towards the highest finding, so a reviewer can report a major problem elsewhere in the code without holding up the change. A maintainer reads this part to see that it really is separate.
 
-The declaration carries two things about the review. `AI-Reviewed-by` names the model and the report, such as `GPT Sol (OpenAI), reviews/pull12.md`. A line `AI-Review-Findings:` repeats the report's highest finding in this change:
+The declaration carries everything aisignoff needs to know about the review. `AI-Reviewed-by` names the model and the report, such as `GPT Sol (OpenAI), reviews/pull12.md`. A line `AI-Review-Findings:` gives the highest severity among the findings in this change, or `none`:
 
 ```
 AI-Review: A2
@@ -94,7 +94,7 @@ recheck = "major"   # trivial, minor, major (the default) or critical
 
 What `lint` checks:
 
-- **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity, and a report: `AI-Reviewed-by` names a Markdown file that is in the change, has the line `Highest finding in this change:` with the same word, and has the section `Outside this change`.
+- **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity, and its report: `AI-Reviewed-by` names a file that is in the change, or a link. Nothing is read from the report.
 - **A severity from the threshold on fails,** in a pull request description and in a landed commit's message. So a severe finding can't be merged with the review that found it: fix it, have the change reviewed again in a new session, and declare that review, with its report in place of the old one.
 - The threshold is the base branch's: a pull request can't change `[review]` for itself.
 

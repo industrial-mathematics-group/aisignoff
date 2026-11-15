@@ -21,7 +21,7 @@ Commit the file, through a pull request if you use them.
 
 ## What a snapshot does
 
-- **A line that doesn't change keeps the snapshot's levels,** whatever a later version, a changed annotation or a new `[[commits]]` entry would say. That includes lines that took the file-level declaration: editing the annotation or the inline tags afterwards doesn't change them. A line follows its file through a rename. A file whose content is again exactly what the snapshot recorded, such as after a revert, gets the snapshot's levels back.
+- **A line that doesn't change keeps the snapshot's levels,** whatever a later version, a changed annotation or a new `[[commits]]` entry would say. That includes lines that took the file-level declaration: editing the annotation afterwards doesn't change them. A line follows its file through a rename. A file whose content is again exactly what the snapshot recorded, such as after a revert, gets the snapshot's levels back.
 - **Lines that change afterwards** are declared by the commits that land them, as in [Declaring lines](history.md). History is only read from the snapshot's commit on, which also makes `lint` faster.
 - **A frozen line changes only through an attestation,** which can raise its reviews, or through `freeze --reset` (below). Its generation stays.
 - **Files the snapshot doesn't have**, because they were excluded or declared with `precedence = "override"` when it was taken, are resolved from history once they're included.
@@ -40,7 +40,7 @@ The archived entries still count wherever levels are worked out from history: fo
 aisignoff freeze --reset src/solver.py docs/index.md
 ```
 
-`--reset FILE...` works these files out from history again, with the `[[commits]]` entries of `SIGNOFF.toml` and of the archive, the attestations, and the annotations and inline tags as they are now, instead of keeping their frozen levels. Use it to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation to frozen lines. The snapshot lists these files under `reset`, so its check works them out the same way.
+`--reset FILE...` works these files out from history again, with the `[[commits]]` entries of `SIGNOFF.toml` and of the archive, the attestations, and the annotations as they are now, instead of keeping their frozen levels. Use it to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation to frozen lines. The snapshot lists these files under `reset`, so its check works them out the same way.
 
 Correcting a frozen generation takes two steps, since `freeze` runs on a commit of the default branch:
 

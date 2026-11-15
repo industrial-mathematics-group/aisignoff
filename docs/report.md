@@ -23,7 +23,7 @@ AI review
 
 The shares count files, or lines with `[history]`. Each axis is counted on its own, with an *undeclared* share for what is missing, `TODO`, invalid or has an error about that axis ([how axes are counted](levels.md#how-reports-count-an-axis)).
 
-- `--files` gives one line per file: its levels (with `[history]`, the share of each combination of levels), where they come from (`SIGNOFF.toml [2]` is the second annotation, `inline` a tag in the file), and any problems.
+- `--files` gives one line per file: its levels (with `[history]`, the share of each combination of levels), where they come from (`SIGNOFF.toml [2]` is the second annotation), and any problems.
 - `--json` gives the same per file for other tools: `{"format": 1, "aisignoff": VERSION, "files": [...]}`. With `[history]`, each file has `parts`: runs of lines with one declaration, with `kinds` (where each axis comes from) and `advisory` (lines that haven't landed and wait for their pull request). See [JSON output](#json-output) for every key and [Compatibility](compatibility.md) for what `format` promises.
 
 ## Folder tree: `report --tree`

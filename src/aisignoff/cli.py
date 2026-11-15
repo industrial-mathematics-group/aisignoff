@@ -10,7 +10,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from . import __version__, inline
+from . import __version__
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, RECHECK, REVIEWED, TODO, Declaration,
@@ -66,7 +66,7 @@ def _policy(root: Path) -> Policy:
 
 
 def _refuse_version_3(config) -> None:
-    """Commands that write levels into SIGNOFF.toml (or inline tags) take them on today's scale."""
+    """Commands that write levels into SIGNOFF.toml take them on today's scale."""
     if config.version_3:
         raise UsageError(f"{config.path.name} says version = 3, the AI review scale before version 4, and this "
                          "command writes levels of today's scale: change the file over first (see 'Upgrading' in "
@@ -109,8 +109,8 @@ def cmd_init(args) -> int:
         "# AI declarations for this repository: generation (G0-G3), human review (H0-H3)",
         "# and AI review (A0-A3).",
         f"# Scheme: {SPEC_URL}",
-        "# The LAST annotation that matches a file wins. Inline tags in a file win over",
-        '# this file unless the matching annotation sets precedence = "override".',
+        "# The LAST annotation that matches a file wins. With [history], the commits that wrote",
+        '# a line win over it unless the matching annotation sets precedence = "override".',
         f"version = {VERSION}",
         "",
         '# exclude = ["reviews/**", "docs/build/**"]   # files that need no declaration,',
@@ -542,29 +542,6 @@ def cmd_annotate(args) -> int:
     values = _values(args)
     _check_complete(values, _policy(root))
 
-    if args.inline:
-        if args.precedence:
-            raise UsageError("--precedence only applies to SIGNOFF.toml, not to --inline")
-        status = 0
-        for arg in args.paths:
-            path = Path(arg)
-            if not path.is_file():
-                print(f"aisignoff annotate: {arg} does not exist or is not a file", file=sys.stderr)
-                status = 1
-                continue
-            rel = os.path.relpath(_real(arg), os.path.realpath(root))
-            if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel):
-                print(f"aisignoff annotate: {arg} is outside the project root {root}", file=sys.stderr)
-                status = 1
-                continue
-            try:
-                inline.write(path, values)
-                print(f"Tagged {path}")
-            except (ValueError, OSError, UnicodeDecodeError) as e:
-                print(f"aisignoff annotate: {e}", file=sys.stderr)
-                status = 1
-        return status
-
     patterns = [_pattern(root, a) for a in args.paths]
     target = _append_annotation(root, patterns, values, args.precedence)
     print(f"Added an annotation for {', '.join(patterns)} to {target}")
@@ -943,10 +920,9 @@ def main(argv: list[str] | None = None) -> int:
     _add_history_options(p)
     p.set_defaults(func=cmd_report)
 
-    p = sub.add_parser("annotate", help=f"declare files in {FILENAME} (or inline with --inline)")
+    p = sub.add_parser("annotate", help=f"declare files in {FILENAME}")
     p.add_argument("paths", nargs="+", help="files, directories or glob patterns (quote globs)")
     _add_values(p, required=True)
-    p.add_argument("--inline", action="store_true", help="write tag comments into the files instead")
     p.add_argument("--precedence", choices=["closest", "override"])
     p.set_defaults(func=cmd_annotate)
 

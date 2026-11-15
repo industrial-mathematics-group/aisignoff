@@ -163,7 +163,7 @@ class Declaration:
     assisted_by: tuple[str, ...] = ()
     reviewed_by: tuple[str, ...] = ()
     ai_reviewed_by: tuple[str, ...] = ()
-    source: str = "none"  # e.g. 'SIGNOFF.toml [2]', 'inline', 'none'
+    source: str = "none"  # e.g. 'SIGNOFF.toml [2]', 'none'
     problems: list[str] = field(default_factory=list)  # parse problems found while reading it
 
     _FIELDS = {GEN: "generation", HUM: "human", AIR: "ai",
@@ -207,7 +207,7 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
     axes that are filled in.
     """
     if d.source == "none":
-        return ["no declaration (not matched by SIGNOFF.toml and no inline tags)"]
+        return ["no declaration (not matched by SIGNOFF.toml)"]
     errors = list(d.problems)
     for key in KEYS:
         v = d.get(key)

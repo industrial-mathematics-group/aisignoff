@@ -43,7 +43,7 @@ Then add [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/ai
 **[industrial-mathematics-group.github.io/aisignoff](https://industrial-mathematics-group.github.io/aisignoff/)**:
 
 - [Levels and rules](https://industrial-mathematics-group.github.io/aisignoff/levels/): what G, H and A mean and what each requires
-- [Declaring files](https://industrial-mathematics-group.github.io/aisignoff/files/): `SIGNOFF.toml` annotations and inline tags
+- [Declaring files](https://industrial-mathematics-group.github.io/aisignoff/files/): `SIGNOFF.toml` annotations
 - [Declaring lines](https://industrial-mathematics-group.github.io/aisignoff/history/): one owner per line, pull request descriptions, `[[commits]]` and attestations
 - [Snapshots](https://industrial-mathematics-group.github.io/aisignoff/snapshots/): `aisignoff freeze`, so that levels stay
 - [CI and workflows](https://industrial-mathematics-group.github.io/aisignoff/ci/): example workflows, merge methods, merge queues, pre-commit

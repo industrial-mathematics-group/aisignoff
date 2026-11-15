@@ -1,6 +1,6 @@
 # Declaring files
 
-A file's declaration comes from `SIGNOFF.toml`, from tags in the file itself, or from both. With [line-level declarations](history.md), this file-level declaration is the fallback for lines that git doesn't declare.
+A file's declaration comes from `SIGNOFF.toml`. With [line-level declarations](history.md), this file-level declaration is the fallback for lines that git doesn't declare. aisignoff never reads the content of a file for a declaration: everything it knows comes from `SIGNOFF.toml` and from git.
 
 ## Annotations in SIGNOFF.toml
 
@@ -30,7 +30,7 @@ Reviewed-by = "Jane Doe"
 - **The last matching annotation wins.** Put the general default first and the exceptions after it.
 - **`path`** is one glob or a list, relative to the repository root. `*` stays within a folder, `**` crosses folders (`**/` also matches no folder), `?` is one character, and `\*`, `\?`, `\\` match those characters literally.
 - **Names** (`Assisted-by`, `Reviewed-by`, `AI-Reviewed-by`) take a string or a list.
-- **`precedence`** decides between the annotation and inline tags, [below](#which-one-wins).
+- **`precedence`** decides between the annotation and git history, [below](#which-one-wins).
 
 Write annotations by hand or with `aisignoff annotate`:
 
@@ -43,36 +43,20 @@ aisignoff annotate results/ -g G2 -H H1 -a A1 \
 
 Each call appends one annotation for all the paths it's given. It refuses an incomplete declaration or one below the [policy](levels.md#minimum-levels), and leaves `SIGNOFF.toml` unchanged if the result wouldn't be valid. Existing files are matched exactly (even with `*` in their name), a folder becomes `folder/**`, and anything else is a glob, which must be quoted and is read relative to the current directory. Paths outside the project are refused.
 
-## Inline tags
-
-Text files can declare themselves in a comment within their first 30 lines:
-
-```python
-# AI-Generation: G2
-# Human-Review: H2
-# AI-Review: A2
-# Assisted-by: Claude Opus 5.5 (Anthropic)
-# AI-Reviewed-by: GPT Sol (OpenAI), new session without the generating conversation
-# Reviewed-by: Jane Doe
-```
-
-`aisignoff annotate FILE … --inline` writes or updates this block. It puts it after a shebang, an encoding line, an XML declaration or Markdown front matter, leaves the rest of the file untouched (line endings and byte-order mark included), and refuses if the block wouldn't fit into the first 30 lines.
-
-So that documentation is never mistaken for a declaration, tags count only:
-
-- **in the file type's own comment syntax**: `#` (Python, Julia, R, shell, YAML, TOML, …), `//` or `/* */` (C-like languages, JavaScript, Rust, Go, Typst, …), `%` (LaTeX, MATLAB), `--` (Lua, SQL, Haskell), `;` (Lisp, INI), `<!-- -->` (Markdown, HTML, XML, SVG) and `(* *)` (OCaml). File types without a known syntax, such as `.txt`, `.csv`, `.json`, notebooks or `LICENSE`, can only be declared in `SIGNOFF.toml`;
-- **at the start of a line**: only the `*` continuation lines of a `/* */` comment may be indented, so indented examples in docstrings are ignored. Fenced code blocks in Markdown are skipped;
-- **as a contiguous block that contains a valid level line**, such as `AI-Generation: G2`. A comment that explains the keys (`# AI-Generation: G0-G3`) is ignored. `TODO` counts as a level here, so an unfilled block is found and fails `lint`.
-
 ## Which one wins
 
-By default (`precedence = "closest"`), a file's inline tags win over its annotation, **axis by axis**:
+Without `[history]`, the annotation is the file's declaration. With it, by default (`precedence = "closest"`), each line is declared by the commit that wrote it, and the annotation declares the lines whose commits declare nothing.
 
-- The axes are generation (`AI-Generation` with `Assisted-by`), human review (`Human-Review` with `Reviewed-by`) and AI review (`AI-Review` with `AI-Reviewed-by`).
-- An axis counts as declared inline when its level line is there; the axes the block leaves out come from the matching annotation. A file can, for example, declare only its AI review inline.
-- A name line without its level line, such as `Assisted-by` without `AI-Generation`, is an error.
+With `precedence = "override"` on the annotation, the annotation alone counts: such files are never resolved line by line, which suits vendored or generated code.
 
-With `precedence = "override"` on the annotation, the annotation alone counts. With `[history]`, such files are also never resolved line by line, which suits vendored or generated code.
+!!! note "Inline tags"
+    Up to 1.0.0rc6, a file could also declare itself in a header comment (`# AI-Generation: G2`). These tags are no longer read: [move them into `SIGNOFF.toml`](migrating.md#to-100rc7-no-declarations-in-files).
+
+## What aisignoff reads
+
+Declarations come from two places only: `SIGNOFF.toml` (with its [snapshot](snapshots.md), `SIGNOFF.snapshot.json`) and git, that is commit messages, the pull request description passed to [`lint --declare-from`](ci.md#checking-the-pull-request-description), diffs and blame. Nothing in the content of a file can declare, raise or lower anything.
+
+The files themselves are opened for three things, none of which reads a declaration: to count their lines (and to see that a file is binary), to show their text in the [folder report](report.md#the-interactive-report) with `--with-source`, and to pass `.git-blame-ignore-revs` on to git.
 
 ## Which files are checked
 

@@ -37,7 +37,7 @@ flowchart TD
     other -- "yes" --> missing(["Missing, unless an attestation<br/>gives it: lint fails"])
     other -- "no" --> required{"undeclared = &quot;error&quot;, or after<br/>require-trailers-since?"}
     required -- "yes" --> fail(["lint fails"])
-    required -- "no" --> file(["The file-level declaration:<br/>SIGNOFF.toml annotation or inline tags"])
+    required -- "no" --> file(["The file-level declaration:<br/>SIGNOFF.toml annotation"])
 ```
 
 ### An example

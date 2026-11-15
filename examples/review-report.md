@@ -2,7 +2,8 @@
 
 <!-- The report of an A2 or A3 review (docs/levels.md, "The record of a review"). Copy this file to
      reviews/pull<number>.md (or reviews/commit<hash>.md), fill it in and commit it with the change.
-     Keep the headings and the "Highest finding" line: `aisignoff lint` reads them before the merge.
+     This is a template to start from: aisignoff never reads a report, so a repository or organisation
+     can use any form, and check it with a tool of its own. Keep the two lists apart in any form.
      Severities: trivial, minor, major, critical (docs/levels.md, "When a review counts"). -->
 
 - **Reviewer:** <model, and how it reviewed, e.g. "GPT Sol (OpenAI), new session without the generating conversation">
