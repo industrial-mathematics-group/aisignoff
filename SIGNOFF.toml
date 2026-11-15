@@ -1,4 +1,4 @@
-version = 3
+version = 4
 exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
 # Line-level declarations from git history (aisignoff >= 0.12): each line takes the declaration of the
@@ -14,7 +14,7 @@ enabled = true
 path = "**"
 AI-Generation = "G3"
 Human-Review = "H1"
-AI-Review = "A2"
+AI-Review = "A1"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
@@ -23,6 +23,6 @@ AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generat
 path = "LICENSE"   # standard MIT text, added by Pascal
 AI-Generation = "G0"
 Human-Review = "H1"
-AI-Review = "A2"
+AI-Review = "A1"
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
