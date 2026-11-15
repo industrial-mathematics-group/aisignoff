@@ -105,7 +105,7 @@ Assisted-by = ["M"]
 Reviewed-by = ["J"]
 AI-Reviewed-by = [
     "M, self-check by the generating session",   # an array over several lines
-    "M again",
+    "M again [in PR #12]",
 ]
 
 [[annotations]]
@@ -116,6 +116,15 @@ AI-Review = "A2"
 Reviewed-by = "J"
 AI-Reviewed-by = "N, new session"
 
+[[annotations]]
+path = "src/**"
+AI-Generation = "G2"
+Human-Review = "H1"
+AI-Review = "A1"
+Assisted-by = "M"
+AI-Reviewed-by = "M, self-check in PR #12 [see there]"   # a "#" and a "]" inside the string
+Reviewed-by = "J"
+
 [[commits]]
 commit = "0123456789ab"
 AI-Review = "A3"
@@ -125,7 +134,7 @@ AI-Reviewed-by = "N, benchmark"
 
 def test_the_converter_writes_what_version_3_was_read_as(tmp_path):
     new = converter().convert(TOML_3)
-    assert new.startswith("version = 4   # the format\n") and "self-check" not in new and "M again" not in new
+    assert new.startswith("version = 4   # the format\n") and "self-check" not in new and "M again" not in new and "PR #12" not in new
     assert 'AI-Review = "A0"   # checked itself\nAssisted-by = ["M"]\nReviewed-by = ["J"]\n\n[[annotations]]' in new
     assert '"*" = { human = "H1", ai = "A0" }   # every file\nG0  = { ai = "A1" }' in new
     assert 'G3  = { human = "H2", ai = "A1" }' in new

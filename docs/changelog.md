@@ -2,6 +2,21 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc7
+
+aisignoff now takes everything it knows from `SIGNOFF.toml` and from git (commit messages, pull request descriptions, blame), and never from the content of a file. That ends two things: the report check of 1.0.0rc6, which read the findings out of review reports, and inline tags. See [Upgrading](migrating.md#to-100rc7-no-declarations-in-files).
+
+- A ticked human review box above an unticked one is no longer an error in the check before the merge (it was since 1.0.0rc6): the highest ticked box counts, as for the other axes.
+- **Breaking:** inline tags (a declaration in a header comment of the file) are no longer read, and `annotate --inline` is gone. Move them into `SIGNOFF.toml` with `examples/inline-tags-to-toml.py`, run with 1.0.0rc6, before you upgrade. The source `inline` no longer appears in reports.
+- **Breaking:** `lint` no longer reads review reports, and the `reports` key of `[review]` is gone (an unknown key now: a warning). How a report looks, and whether it is in order, is up to the repository; `examples/review-report.md` is a template to start from, with problems outside the change kept in a section of their own.
+- **Breaking:** a commit message or pull request description gives the highest severity that a review found in the change itself in a line `AI-Review-Findings:` (`none`, `trivial`, `minor`, `major` or `critical`). In the check before the merge, A2 and A3 need it. A severity from `[review]` `recheck` on fails, also in a landed commit: such a finding needs a new review.
+- **Breaking:** in the check before the merge, A2 and A3 need their report attached: `AI-Reviewed-by` names a file that is in the change, or a link.
+- **Breaking:** a pull request can't change `[review]` or `version` of `SIGNOFF.toml` any more, as it can't change `[policy]`: the base branch's `recheck` applies, and `--allow-policy-change` covers both. A change to version 4 that leaves the AI review of an existing entry as it was written fails in any case, since it would raise that level without a review.
+- **Breaking:** model names are compared by their words, without vendor and version, for "A2 and A3 need a different model": `Claude Opus 5.5 (Anthropic), new session` and `Opus` are the model that `Claude Opus (Anthropic)` wrote with. Before, only the same text counted, which the names of the template's model boxes almost never were. "Same session" and "generating session" count as a self-check.
+- A repository with `version = 3` reads the ticked boxes of today's pull request template on today's scale, so the template can change before the repository changes over. Before, its A1 box was read as A0.
+- Fixed: a model name typed after `Model:` that contained "selfcheck" made the box count as the old template's.
+- Fixed: `convert-to-version-4.py` no longer lists files with inline tags. Fixed: it refused a file with `#` or `]` inside a reviewer's name, or stopped with a traceback.
+
 ## 1.0.0rc6
 
 The AI review scale changes, so that both review scales are cumulative and the AI review counts only review that is independent of the session that wrote the content ([Levels and rules](levels.md), with definitions for code and for research and writing). Existing repositories keep working and keep their levels: [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6).

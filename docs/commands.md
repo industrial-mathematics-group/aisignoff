@@ -7,7 +7,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | Command | What it does |
 |---|---|
 | [`init`](#init) | create `SIGNOFF.toml` |
-| [`annotate`](#annotate) | declare files in `SIGNOFF.toml`, or inline |
+| [`annotate`](#annotate) | declare files in `SIGNOFF.toml` |
 | [`lint`](#lint) | check that everything has a valid declaration |
 | [`report`](#report) | summaries, the folder tree and the interactive report |
 | [`diff`](#diff) | the levels of the lines changed since a commit |
@@ -17,7 +17,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 
 **Global options** go before the command: `--root DIR` runs on another directory (default `.`), `--version` prints the version.
 
-**Exit codes:** `0` success, `1` problems found (`lint`, `freeze --check`, or a file `annotate --inline` couldn't tag), `2` usage or configuration error.
+**Exit codes:** `0` success, `1` problems found (`lint`, `freeze --check`), `2` usage or configuration error.
 
 ## Level options
 
@@ -59,10 +59,10 @@ Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default ann
 ## annotate
 
 ```bash
-aisignoff annotate PATHS -g G -H H -a A [names…] [--precedence closest|override] [--inline]
+aisignoff annotate PATHS -g G -H H -a A [names…] [--precedence closest|override]
 ```
 
-Appends one annotation for all `PATHS` (files, folders or quoted globs). The levels are required; the declaration must be complete and meet the policy, with `TODO` allowed. With `--inline`, writes [inline tags](files.md#inline-tags) into each file instead (not with `--precedence`). See [Declaring files](files.md#annotations-in-signofftoml).
+Appends one annotation for all `PATHS` (files, folders or quoted globs). The levels are required; the declaration must be complete and meet the policy, with `TODO` allowed. See [Declaring files](files.md#annotations-in-signofftoml).
 
 ## lint
 
@@ -70,7 +70,7 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs). The lev
 aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV [--allow-policy-change]] | --landed]
 ```
 
-Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a committed review report that lists a finding severe enough to need a new review ([When a review counts](levels.md#when-a-review-counts)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
+Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a commit message whose `AI-Review-Findings:` line says a finding severe enough to need a new review ([When a review counts](levels.md#when-a-review-counts)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
 
 `--strict` also fails on warnings: annotations that match no file; reverts, `git pull` merges and commits that look like pull requests that own lines without declaring them; review levels in a `[[commits]]` entry for a commit inside a pull request; attestations of files under `precedence = "override"` or with an `AI-Generation`.
 

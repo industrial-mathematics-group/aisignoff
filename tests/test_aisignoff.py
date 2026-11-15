@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from aisignoff import inline
 from aisignoff.cli import badge_json, main, percentages
 from aisignoff.config import ConfigError, load
 from aisignoff.globbing import matches
@@ -26,7 +25,6 @@ TOML_G2 = ('AI-Generation = "G2"\nHuman-Review = "H1"\nAI-Review = "A2"\nAssiste
 HEAD = f"version = 4\n"
 ARGS_G0 = ["-g", "G0", "-H", "H2", "-a", "A0", "--reviewed-by", "Jane"]
 VALS_G0 = {"AI-Generation": "G0", "Human-Review": "H2", "AI-Review": "A0", "Reviewed-by": ["J"]}
-INLINE_G0 = "# AI-Generation: G0\n# Human-Review: H2\n# AI-Review: A0\n# Reviewed-by: J\n"
 
 
 # ------------------------------------------------------------------ globbing
@@ -82,7 +80,7 @@ def test_rules(decl, ok):
 
 
 def test_no_declaration():
-    assert validate(Declaration()) == ["no declaration (not matched by SIGNOFF.toml and no inline tags)"]
+    assert validate(Declaration()) == ["no declaration (not matched by SIGNOFF.toml)"]
 
 
 # ------------------------------------------------------------------ policy
@@ -126,13 +124,11 @@ def test_the_scale_of_version_3_is_taken_over(tmp_path):
     write(tmp_path, "SIGNOFF.toml", 'version = 3\n[policy]\nG3 = { ai = "A2" }\n[[annotations]]\npath = "**"\n'
           'AI-Generation = "G2"\nHuman-Review = "H1"\nAI-Review = "A1"\nAssisted-by = "M"\n'
           'AI-Reviewed-by = "M, self-check by the generating session"\nReviewed-by = "J"\n')
-    write(tmp_path, "a.py", "# AI-Review: A2\n# AI-Reviewed-by: M, new session\n")
     write(tmp_path, "b.py")
     config = load(tmp_path)
     assert config.version_3 and "version = 3" in config.notes[0] and config.policy.minimum("G3") == (None, "A1")
     res = {r.path: r for r in Project(tmp_path).results()}
     assert (res["b.py"].declaration.short(), res["b.py"].declaration.ai_reviewed_by, res["b.py"].errors) == ("G2 H1 A0", (), [])
-    assert (res["a.py"].declaration.short(), res["a.py"].errors) == ("G2 H1 A1", [])  # inline tags follow the file
     # commands that write levels take today's scale: the file is changed over first
     assert main(["--root", str(tmp_path), "annotate", "b.py", "-g", "G0", "-H", "H1", "-a", "A0", "--reviewed-by", "J"]) == 2
     assert main(["--root", str(tmp_path), "lint"]) == 0
@@ -188,6 +184,25 @@ def test_config_errors(tmp_path):
             load(tmp_path)
 
 
+def test_the_findings_line_of_a_review():
+    from aisignoff.history import findings_line, parse_message
+    from aisignoff.model import findings_problems
+    assert findings_line("Body\n\nAI-Review: A2\nAI-Review-Findings: Minor\n") == "Minor"
+    assert findings_line("ai-review-findings:\n") == "" and findings_line("AI-Review: A2\n") is None
+    assert findings_line("```\nAI-Review-Findings: major\n```\n<!-- AI-Review-Findings: major -->\n") is None
+    assert findings_problems("A2", "none") == [] and findings_problems("A3", "minor") == []
+    assert findings_problems("A1", None, required=True) == [] and findings_problems("A2", None) == []
+    assert "A2 needs a line 'AI-Review-Findings:'" in findings_problems("A2", "", required=True)[0]
+    assert "invalid AI-Review-Findings 'high'" in findings_problems("A2", "high")[0]
+    assert "needs a new review" in findings_problems("A2", "Major")[0] and findings_problems("A2", "major", "critical") == []
+    assert "needs a new review" in findings_problems("A1", "minor", "minor")[0]
+    # a landed commit: the line is checked where it is given, and isn't required
+    body = "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A2\nAI-Reviewed-by: N, r.md\n"
+    assert parse_message(body, "J", "c")[0][2].problems == ()
+    assert "found a critical problem" in parse_message(body + "AI-Review-Findings: critical\n", "J", "c")[0][2].problems[0]
+    assert parse_message(body + "AI-Review-Findings: critical\n", "J", "c", version_3=True)[0][2].problems == ()
+
+
 def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):
     (tmp_path / "SIGNOFF.toml").write_text('version = 4\n')
     assert load(tmp_path).recheck == "major"
@@ -198,36 +213,6 @@ def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):
         (tmp_path / "SIGNOFF.toml").write_text('version = 4\n' + bad)
         with pytest.raises(ConfigError, match="review"):
             load(tmp_path)
-
-
-def test_lint_fails_on_a_report_with_a_finding_that_needs_a_new_review(tmp_path, capsys):
-    from aisignoff.reports import findings
-    report = ("# Review\n\n## Major findings\n\nNone left. A major rework wasn't needed.\n\n"
-              "- **minor:** a typo in the message. Fixed.\n- [Trivial] naming\n3. **Major** wrong result for n = 0. Fixed.\n"
-              "### critical: data loss\n\n```\n- **critical:** quoted\n```\n- Major things are fine.\n")
-    assert findings(report) == [(7, "minor"), (8, "trivial"), (9, "major"), (10, "critical")]
-    write(tmp_path, "SIGNOFF.toml", HEAD + 'exclude = "reviews/**"\n[[annotations]]\npath = "**"\n' + TOML_G0)
-    write(tmp_path, "a.py")
-    write(tmp_path, "reviews/1.md", report)
-    write(tmp_path, "docs/notes.md", "- **critical:** not a report\n")
-
-    def lint(*extra):
-        capsys.readouterr()
-        code = main(["--root", str(tmp_path), "lint", *extra])
-        return code, capsys.readouterr().out
-
-    code, out = lint()
-    assert code == 1 and "reviews/1.md line 9: the review report lists a major finding" in out
-    assert "line 10" in out and "line 7" not in out and "notes.md" not in out
-    write(tmp_path, "reviews/1.md", report.replace("3. **Major**", "3. **minor**").replace("### critical:", "### minor:"))
-    assert lint()[0] == 0
-    toml = (tmp_path / "SIGNOFF.toml").read_text()
-    write(tmp_path, "SIGNOFF.toml", toml.replace("[[annotations]]", '[review]\nrecheck = "minor"\n[[annotations]]', 1))
-    code, out = lint()
-    assert code == 1 and "lists a minor finding" in out and "line 8" not in out
-    write(tmp_path, "SIGNOFF.toml", toml.replace("[[annotations]]", '[review]\nreports = "docs/*.md"\n[[annotations]]', 1))
-    code, out = lint()
-    assert code == 1 and "docs/notes.md line 1" in out and "reviews/" not in out
 
 
 def test_unknown_settings_are_warnings(tmp_path):
@@ -257,196 +242,20 @@ def test_exclude(tmp_path):
     assert [r.path for r in Project(tmp_path).results()] == ["README.md"]
 
 
-# ------------------------------------------------------------------ inline
-def test_inline_closest_and_override(tmp_path):
-    write(tmp_path, "SIGNOFF.toml", HEAD + f'[[annotations]]\npath = "**"\n{TOML_G0}'
-                                         f'[[annotations]]\npath = "locked/**"\nprecedence = "override"\n{TOML_G0}')
+# ------------------------------------------------------------------ no declarations in files
+def test_the_content_of_a_file_declares_nothing(tmp_path):
+    """Declarations come from SIGNOFF.toml and git only: a header comment that looks like one
+    (the inline tags up to 1.0.0rc6) changes nothing."""
+    write(tmp_path, "SIGNOFF.toml", HEAD + f'[[annotations]]\npath = "src/**"\n{TOML_G0}')
     header = ("# AI-Generation: G2\n# Human-Review: H3\n# AI-Review: A2\n# Assisted-by: A\n"
               "# AI-Reviewed-by: B\n# Reviewed-by: J\n")
     write(tmp_path, "src/a.jl", header + "f(x) = x\n")
-    write(tmp_path, "locked/b.jl", header + "g(x) = x\n")
+    write(tmp_path, "b.jl", header + "g(x) = x\n")
     res = {r.path: r for r in Project(tmp_path).results()}
-    assert (res["src/a.jl"].declaration.short(), res["src/a.jl"].declaration.source) == ("G2 H3 A2", "inline")
-    assert res["src/a.jl"].errors == []
-    assert res["locked/b.jl"].declaration.source == "SIGNOFF.toml [2]"
-
-
-@pytest.mark.parametrize("name,line,found", [
-    ("f.jl", "# AI-Generation: G1", True),
-    ("f.jl", "#= AI-Generation: G1 =#", True),
-    ("f.rs", "// AI-Generation: G1", True),
-    ("f.c", "/* AI-Generation: G1 */", True),
-    ("f.tex", "% AI-Generation: G1", True),
-    ("f.lua", "-- AI-Generation: G1", True),
-    ("f.md", "<!-- AI-Generation: G1 -->", True),
-    ("f.md", "# AI-Generation: G1", False),        # '#' is a heading in Markdown
-    ("f.jl", "// AI-Generation: G1", False),       # not Julia comment syntax
-    ("f.jl", "AI-Generation: G1", False),          # not a comment
-    ("f.jl", "    # AI-Generation: G1", False),    # indented
-    ("f.jl", "x = 1  # AI-Generation: G1", False), # trailing comment after code
-    ("f.txt", "# AI-Generation: G1", False),       # unknown file type: SIGNOFF.toml only
-    ("LICENSE", "-- AI-Generation: G1", False),
-])
-def test_inline_needs_comment(tmp_path, name, line, found):
-    p = write(tmp_path, name, line + "\n")
-    dd = inline.parse(p)
-    assert (dd is not None and dd.generation == "G1") is found
-
-
-@pytest.mark.parametrize("line", ["# Human-Review: H2", "# AI-Review: A0", "# AI-Review: A3"])
-def test_inline_any_level_line_anchors(tmp_path, line):
-    assert inline.parse(write(tmp_path, "f.jl", line + "\n")) is not None
-
-
-def test_inline_markdown_a_minus(tmp_path):
-    p = write(tmp_path, "f.md", "<!-- AI-Review: A0 -->\n")
-    assert inline.parse(p).ai == "A0"
-
-
-def test_inline_ignores_documentation(tmp_path):
-    md = write(tmp_path, "README.md", "# Pkg\n\n```julia\n# AI-Generation: G2\n# Human-Review: H1\n```\n")
-    assert inline.parse(md) is None
-    py = write(tmp_path, "m.py", '"""Example:\n\n    # AI-Generation: G2\n    # Human-Review: H3\n"""\n')
-    assert inline.parse(py) is None
-    yml = write(tmp_path, "w.yml", "# Rules:\n#   AI-Generation: G0-G3   always\n#   Assisted-by: required for G1-G3\n")
-    assert inline.parse(yml) is None
-
-
-def test_inline_block_must_be_contiguous(tmp_path):
-    p = write(tmp_path, "f.jl", "# AI-Generation: G1\n# Human-Review: H0\n# AI-Review: A1\n"
-                                "# AI-Reviewed-by: X\n# Reviewed-by: J\n\n# Assisted-by: X\n")
-    dd = inline.parse(p)
-    assert dd.generation == "G1" and dd.assisted_by == ()
-    assert validate(dd) == ["G1 needs Assisted-by (tool and model)"]
-
-
-def test_inline_two_blocks(tmp_path):
-    p = write(tmp_path, "f.jl", "# AI-Generation: G1\n\n# AI-Generation: G2\n")
-    assert "more than one inline declaration block" in inline.parse(p).problems
-
-
-def test_inline_c_block_comment(tmp_path):
-    p = write(tmp_path, "k.c", "/*\n * AI-Generation: G1\n * Human-Review: H1\n * AI-Review: A2\n"
-                               " * Assisted-by: X\n * AI-Reviewed-by: Y, fresh session\n * Reviewed-by: J\n */\n")
-    dd = inline.parse(p)
-    assert dd.short() == "G1 H1 A2" and validate(dd) == []
-
-
-def test_inline_only_header(tmp_path):
-    assert inline.parse(write(tmp_path, "f.jl", "\n" * 40 + "# AI-Generation: G1\n")) is None
-
-
-def test_inline_binary_ignored(tmp_path):
-    p = tmp_path / "data.jl"
-    p.write_bytes(b"\x00\x01# AI-Generation: G1\n")
-    assert inline.parse(p) is None
-
-
-def test_inline_duplicate(tmp_path):
-    p = write(tmp_path, "f.py", "# AI-Generation: G1\n# AI-Generation: G2\n")
-    assert "more than once" in inline.parse(p).problems[0]
-
-
-def test_inline_old_v_levels_are_not_a_declaration(tmp_path):
-    # AI-Verification (format version 1) is no longer read: the file has no inline declaration
-    p = write(tmp_path, "f.jl", "# AI-Verification: V0\n# Tested-by: J\n")
-    assert inline.parse(p) is None
-
-
-def test_inline_write_roundtrip(tmp_path):
-    p = write(tmp_path, "run.sh", "#!/bin/bash\necho hi\n")
-    values = {"AI-Generation": "G1", "Human-Review": "H1", "AI-Review": "A1", "Assisted-by": ["Copilot"],
-              "AI-Reviewed-by": ["Copilot"], "Reviewed-by": ["J"]}
-    inline.write(p, values)
-    text = p.read_text()
-    assert text.startswith("#!/bin/bash\n# AI-Generation: G1\n")
-    assert text.endswith("\necho hi\n")
-    inline.write(p, {**values, "AI-Generation": "G2"})
-    dd = inline.parse(p)
-    assert dd.generation == "G2" and dd.problems == []
-    assert p.read_text().count("AI-Generation") == 1
-
-
-def test_inline_write_front_matter_and_markdown(tmp_path):
-    p = write(tmp_path, "post.md", "---\ntitle: x\n---\n# Heading\n")
-    inline.write(p, VALS_G0)
-    lines = p.read_text().splitlines()
-    assert lines[:3] == ["---", "title: x", "---"]
-    assert lines[3] == "<!-- AI-Generation: G0 -->"
-    assert inline.parse(p).short() == "G0 H2 A0"
-
-
-def test_inline_write_unknown_type(tmp_path):
-    p = write(tmp_path, "results.csv", "a,b\n")
-    with pytest.raises(ValueError, match="SIGNOFF.toml"):
-        inline.write(p, VALS_G0)
-
-
-def test_inline_write_keeps_crlf_bom_and_other_breaks(tmp_path):
-    p = tmp_path / "a.py"
-    p.write_bytes("﻿#!x\r\ns = 'a b'\r\nform\ffeed\r\n".encode())
-    inline.write(p, VALS_G0)
-    out = p.read_bytes().decode()
-    assert out.startswith("﻿#!x\r\n# AI-Generation: G0\r\n")
-    assert "s = 'a b'\r\nform\ffeed\r\n" in out
-    assert "\n" not in out.replace("\r\n", "")
-    assert inline.parse(p).generation == "G0"
-
-
-def test_inline_bom_first_line(tmp_path):
-    p = tmp_path / "b.jl"
-    p.write_bytes(("﻿" + INLINE_G0).encode())
-    assert validate(inline.parse(p)) == []
-
-
-def test_yaml_documents_are_not_front_matter(tmp_path):
-    p = write(tmp_path, "multi.yml", "---\n" + "".join(f"k{i}: {i}\n" for i in range(35)) + "---\nz: 1\n")
-    inline.write(p, VALS_G0)
-    assert p.read_text().startswith("# AI-Generation: G0\n")
-    inline.write(p, {**VALS_G0, "Human-Review": "H3"})
-    assert p.read_text().count("AI-Generation") == 1 and inline.parse(p).human == "H3"
-
-
-def test_long_front_matter_is_refused(tmp_path):
-    p = write(tmp_path, "post.md", "---\n" + "a: 1\n" * 40 + "---\ntext\n")
-    before = p.read_bytes()
-    with pytest.raises(ValueError, match="SIGNOFF.toml"):
-        inline.write(p, VALS_G0)
-    assert p.read_bytes() == before
-
-
-def test_inline_header_must_fit_completely(tmp_path):
-    values = {"AI-Generation": "G2", "Human-Review": "H1", "AI-Review": "A2", "Assisted-by": ["C"],
-              "AI-Reviewed-by": ["O"], "Reviewed-by": ["J"]}
-    p = write(tmp_path, "edge.md", "---\n" + "a: 1\n" * 24 + "---\ntext\n")   # front matter ends at line 26
-    before = p.read_bytes()
-    with pytest.raises(ValueError, match="first 30 lines"):
-        inline.write(p, values)
-    assert p.read_bytes() == before
-
-
-def test_markdown_fences(tmp_path):
-    p = write(tmp_path, "README.md", "# X\n\n```markdown\n<!-- AI-Generation: G2 -->\n```\n")
-    assert inline.parse(p) is None
-    q = write(tmp_path, "r.md", "```\n~~~\n<!-- AI-Generation: G2 -->\n```\n")
-    assert inline.parse(q) is None
-
-
-def test_closest_fills_missing_axes(tmp_path):
-    write(tmp_path, "SIGNOFF.toml", HEAD + f'[[annotations]]\npath = "**"\n{TOML_G2}')
-    write(tmp_path, "a.jl", "# Human-Review: H3\n# Reviewed-by: Bob\n\nf() = 1\n")
-    (r,) = [r for r in Project(tmp_path).results() if r.path == "a.jl"]
-    dd = r.declaration
-    assert dd.short() == "G2 H3 A2"
-    assert dd.reviewed_by == ("Bob",) and dd.assisted_by == ("Model A",)
-    assert r.errors == [] and dd.source == "inline + SIGNOFF.toml [1]"
-
-
-def test_inline_stray_list_keys_are_errors(tmp_path):
-    write(tmp_path, "SIGNOFF.toml", HEAD + f'[[annotations]]\npath = "**"\n{TOML_G0}')
-    write(tmp_path, "a.jl", "# Human-Review: H1\n# Reviewed-by: J\n# Assisted-by: Copilot\n")
-    (r,) = [r for r in Project(tmp_path).results() if r.path == "a.jl"]
-    assert "inline Assisted-by without an inline AI-Generation line" in r.errors
+    assert (res["src/a.jl"].declaration.short(), res["src/a.jl"].declaration.source) == ("G0 H2 A0", "SIGNOFF.toml [1]")
+    assert res["b.jl"].errors == ["no declaration (not matched by SIGNOFF.toml)"]
+    with pytest.raises(SystemExit):   # the option is gone
+        main(["--root", str(tmp_path), "annotate", str(tmp_path / "b.jl"), "--inline", *ARGS_G0])
 
 
 # ------------------------------------------------------------------ git integration
@@ -574,14 +383,6 @@ def test_annotate_rejects_control_characters(tmp_path, bad):
     args = ["-g", "G0", "-H", "H2", "-a", "A0", "--reviewed-by", bad]
     assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), *args]) == 2
     assert not (tmp_path / "SIGNOFF.toml").exists()
-    assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), "--inline", *args]) == 2
-    assert (tmp_path / "a.py").read_text() == "x = 1\n"
-
-
-def test_inline_with_precedence_refused(tmp_path):
-    write(tmp_path, "a.py", "x = 1\n")
-    assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), "--inline",
-                 "--precedence", "override", *ARGS_G0]) == 2
 
 
 def test_lint_reports_undeclared_and_unused(tmp_path, capsys):
@@ -647,11 +448,6 @@ def test_badge_labels(tmp_path):
     assert labels == ["AI generation", "human review", "AI review"]
 
 
-def test_annotate_inline_missing_file(tmp_path, capsys):
-    assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "nope.py"), "--inline", *ARGS_G0]) == 1
-    assert "does not exist" in capsys.readouterr().err
-
-
 def test_todo_placeholder_in_toml(tmp_path, capsys):
     (tmp_path / "SIGNOFF.toml").write_text(
         'version = 4\n[[annotations]]\npath = "**"\nAI-Generation = "G3"\nHuman-Review = "TODO"\n'
@@ -665,7 +461,7 @@ def test_todo_placeholder_in_toml(tmp_path, capsys):
 
 
 AGENT_TODO = ["-g", "G2", "-H", "TODO", "-a", "A1", "--assisted-by", "Model A",
-              "--ai-reviewed-by", "Model A, generating session", "--reviewed-by", "TODO"]
+              "--ai-reviewed-by", "Model A, new session", "--reviewed-by", "TODO"]
 
 
 def test_annotate_todo_placeholder(tmp_path, capsys):
@@ -708,18 +504,6 @@ def test_annotate_todo_respects_ai_policy(tmp_path):
     assert main([*base, "-a", "A2", "--ai-reviewed-by", "M2"]) == 0  # human minimum waits for the person
 
 
-def test_annotate_todo_inline(tmp_path, capsys):
-    p = write(tmp_path, "a.py", "x = 1\n")
-    assert main(["--root", str(tmp_path), "annotate", str(p), "--inline", *AGENT_TODO]) == 0
-    text = p.read_text()
-    assert "# Human-Review: TODO" in text and "# Reviewed-by: TODO" in text
-    res = {r.path: r for r in Project(tmp_path).results()}
-    assert res["a.py"].declaration.human == "TODO"
-    assert any("Human-Review is still TODO" in e for e in res["a.py"].errors)
-    # filling it in makes it pass
-    p.write_text(text.replace("Human-Review: TODO", "Human-Review: H1").replace("Reviewed-by: TODO", "Reviewed-by: J"))
-    assert main(["--root", str(tmp_path), "lint"]) == 0
-
 def test_annotate_todo_human_adds_reviewed_by_todo(tmp_path):
     write(tmp_path, "a.py")
     assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"),
@@ -730,19 +514,6 @@ def test_annotate_todo_human_adds_reviewed_by_todo(tmp_path):
     assert main(["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), "-g", "G2", "-H", "TODO",
                  "-a", "A1", "--assisted-by", "M", "--ai-reviewed-by", "M", "--reviewed-by", "Jane"]) == 0
     assert 'Reviewed-by = ["Jane"]' in (tmp_path / "SIGNOFF.toml").read_text()
-
-
-def test_annotate_inline_refuses_files_outside_root(tmp_path, monkeypatch, capsys):
-    root = tmp_path / "p"
-    root.mkdir()
-    outside = write(tmp_path, "x.py")
-    monkeypatch.chdir(tmp_path)
-    assert main(["--root", "p", "annotate", "x.py", "--inline", *ARGS_G0]) == 1
-    assert "outside the project root" in capsys.readouterr().err
-    assert outside.read_text() == "x\n"
-    inside = write(root, "y.py")
-    assert main(["--root", "p", "annotate", "p/y.py", "--inline", *ARGS_G0]) == 0
-    assert "AI-Generation: G0" in inside.read_text()
 
 
 def test_init_suggests_excluding_reviews(tmp_path):

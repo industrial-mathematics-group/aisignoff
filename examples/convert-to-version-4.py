@@ -17,13 +17,13 @@ reported levels don't change. Run it with that aisignoff installed, at the repos
     aisignoff freeze            # with [history]: keeps what the commit messages so far declare
     python convert-to-version-4.py            # or: --dry-run to see the change only
 
-Then change the AI review boxes of your pull request template in the same pull request, and edit
-inline tags by hand (the script lists them). The full steps are in docs/migrating.md.
+Then change the AI review boxes of your pull request template in the same pull request. The full
+steps are in docs/migrating.md.
 """
 import difflib
 import re
-import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from aisignoff import config
@@ -34,7 +34,6 @@ LEVEL = re.compile(r'^(\s*"?AI-Review"?\s*=\s*)"(A[0-3])"')
 NAMES = re.compile(r'^\s*"?AI-Reviewed-by"?\s*=')
 POLICY = re.compile(r'^\s*"?(\*|G[0-3])"?\s*=\s*\{')
 MINIMUM = re.compile(r'(\bai\s*=\s*)"(A[0-3])"')
-TAG = re.compile(rb"AI-Review:\s*A[12]\b")
 
 
 def _blocks(lines):
@@ -50,16 +49,18 @@ def _blocks(lines):
 
 def _without_names(lines):
     """A table's lines without its AI-Reviewed-by, which may be an array over several lines."""
-    out, skipping = [], False
+    out, value = [], None
     for line in lines:
-        if skipping:
-            skipping = "]" not in line.split("#")[0]
+        if value is None and not NAMES.match(line):
+            out.append(line)
             continue
-        if NAMES.match(line):
-            value = line.split("=", 1)[1].split("#")[0]
-            skipping = "[" in value and "]" not in value
-            continue
-        out.append(line)
+        # the value ends with the line that makes it valid TOML ("#" and "]" may be inside a string)
+        value = (value or "") + line
+        try:
+            tomllib.loads("x =" + value.split("=", 1)[1])
+            value = None
+        except tomllib.TOMLDecodeError:
+            pass
     return out
 
 
@@ -108,10 +109,13 @@ def main(argv):
     if not before.version_3:
         sys.exit(f"{NAME} is not version 3: nothing to convert")
     new = convert(old)
-    after = config.load_text(new, path)
-    same = all(getattr(before, key) == getattr(after, key)
+    try:
+        after = config.load_text(new, path)
+    except config.ConfigError:
+        after = None
+    same = after is not None and all(getattr(before, key) == getattr(after, key)
                for key in ("annotations", "policy", "commits", "attestations", "exclude", "history"))
-    if after.version_3 or not same:
+    if not same or after.version_3:
         sys.exit(f"{NAME} has a layout this script can't convert (nothing was written). Edit it by hand: "
                  "see the table at the top of this script, or docs/migrating.md")
     sys.stdout.writelines(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
@@ -119,18 +123,6 @@ def main(argv):
     if not dry:
         path.write_text(new, encoding="utf-8")
         print(f"\nWrote {NAME} as version 4.")
-    tagged = []
-    listed = subprocess.run(["git", "ls-files", "-z"], capture_output=True)
-    for name in listed.stdout.decode("utf-8", "surrogateescape").split("\0"):
-        try:
-            if name and name != NAME and TAG.search(Path(name).read_bytes()[:4096]):
-                tagged.append(name)
-        except OSError:
-            pass
-    if tagged:
-        print("\nThese files may have an inline tag with AI-Review A1 or A2. Edit them by hand (A1 becomes A0, "
-              "without AI-Reviewed-by; A2 becomes A1):")
-        print("".join(f"  {name}\n" for name in tagged), end="")
     print("\nNext: change the AI review boxes of your pull request template (docs/history.md), and check that "
           "every A3 meets today's A3 (docs/levels.md).")
 

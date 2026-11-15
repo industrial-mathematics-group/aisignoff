@@ -384,10 +384,9 @@ def test_parse_checkboxes():
     from aisignoff.history import parse_message
     taken_over = parse_message(old.format(a2=" ", model=""), "J", "c", version_3=True)[0][2]
     assert (taken_over.level, taken_over.names, taken_over.problems) == ("A0", (), ())
-    # a human review box ticked above an unticked one: only the check before the merge minds
-    gap = TEMPLATE.replace("- [x] **H0**", "- [ ] **H0**").format(a2=" ", model="")
-    assert parse_checkboxes(gap, "J", "c")[1].problems == ()
-    assert "ticks H1 but not H0" in parse_checkboxes(gap, "J", "c", gaps=True)[1].problems[0]
+    # the highest ticked human review box counts, whether or not the ones below are ticked
+    gap = parse_checkboxes(TEMPLATE.replace("- [x] **H0**", "- [ ] **H0**").format(a2=" ", model=""), "J", "c")[1]
+    assert (gap.level, gap.problems) == ("H1", ())
     pieces = parse_checkboxes(TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"), "J", "c")
     assert pieces[2].level == "A2" and pieces[2].names == ("GPT Sol (OpenAI), fresh session",)
     assert parse_checkboxes("Fix\n\n- [x] done\n- [ ] **Breaking change**\n", "J", "c") == {}

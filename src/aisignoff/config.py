@@ -53,8 +53,7 @@ OLD_RELEASE = "1.0.0rc1"  # the last release that converts old formats
 CONVERT = f"convert it once with 'uvx aisignoff=={OLD_RELEASE} migrate' (or pipx run)"
 VERSION = 4
 # Version 3 had another AI review scale (A1 was the self-check of the generating session). It is
-# still read: its AI review levels, and those of the repository's commit messages and inline tags,
-# are taken over to today's scale (model.from_version_3) until the file says version = 4.
+# still read: its AI review levels, and those of the repository's commit messages, are taken over to today's scale (model.from_version_3) until the file says version = 4.
 VERSION_3 = 3
 PRECEDENCES = ("closest", "override")
 HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace",
@@ -129,11 +128,10 @@ class Config:
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # for the reader, never a failure
-    # [review] recheck: a fix for a finding of this severity or above needs a new AI review. A rule for
-    # the reviewers, which aisignoff records and can't check
+    # [review] recheck: a finding of this severity or above needs a new AI review. A commit message or
+    # pull request description whose "AI-Review-Findings:" line says such a severity fails
     recheck: str = RECHECK
-    reports: tuple[str, ...] = ("reviews/**",)  # [review] reports: where the committed review reports are
-    # version = 3: AI review levels here, in commit messages and in inline tags are of the scale before version 4
+    # version = 3: AI review levels here, and in commit messages are of the scale before version 4
     version_3: bool = False
 
     def is_excluded(self, path: str) -> bool:
@@ -233,15 +231,12 @@ def parse(data: dict, path: Path) -> Config:
     review = data.get("review", {})
     if not isinstance(review, dict):
         raise ConfigError(f"{name}: use a [review] table")
-    if set(review) - {"recheck", "reports"}:
-        warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - {'recheck', 'reports'}))}, ignored "
+    if set(review) - {"recheck"}:
+        warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - {'recheck'}))}, ignored "
                         "(a typo, or a setting of a later aisignoff?)")
     recheck = review.get("recheck", RECHECK)
     if recheck not in SEVERITIES:
         raise ConfigError(f"{name} [review]: recheck must be one of {', '.join(SEVERITIES)}")
-    reports = _str_list(review.get("reports", ["reviews/**"]), f"{name} [review]: 'reports'")
-    for p in reports:
-        compile_glob(p)
     commits = []
     for i, table in enumerate(_tables(data, "commits", name), start=1):
         where = f"{name} [[commits]] entry {i}"
@@ -267,11 +262,11 @@ def parse(data: dict, path: Path) -> Config:
     notes = []
     if old:
         notes.append(f"{name} says version = {VERSION_3}: its AI review levels, and those of this repository's commit "
-                     "messages, pull request descriptions and inline tags, are read on the scale before version 4 "
+                     "messages and pull request descriptions, are read on the scale before version 4 "
                      "and shown on today's (A1 self-check: A0, A2 new session: A1, A3 stays). To change over, run "
                      "examples/convert-to-version-4.py (see 'Upgrading' in the documentation)")
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
-                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old, recheck=recheck, reports=reports)
+                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old, recheck=recheck)
 
 
 def _is_hex(s: str, minimum: int) -> bool:

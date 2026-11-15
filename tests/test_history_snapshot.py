@@ -60,9 +60,12 @@ def test_lint_checks_the_description_of_a_pull_request_into_the_default_branch(r
     commit(repo, "agent", AGENT)
     edit_lines(repo, [3], text="hand")
     commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H3\nReviewed-by: Bob")
+    write(repo, "reviews/pull7.md", "# Review\n\n- **Highest finding in this change:** none\n\n## Outside this change\n\nNone.\n")
+    commit(repo, "the review report")
     git(repo, "checkout", "-q", "--detach", "main")
     git(repo, "merge", "-q", "--no-ff", "pr", "-m", "preview")
-    body = write(repo.parent, "body.md", TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"))
+    body = write(repo.parent, "body.md", TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), reviews/pull7.md")
+                 + "\nAI-Review-Findings: none\n")
     code, out = lint(repo, capsys, "--declare-from", str(body), "--author", "jane", "--base", "HEAD^1")
     assert code == 0 and "All files are declared" in out
     assert lint(repo, capsys, "--declare-from", str(body))[0] == 1  # the template names nobody for the review

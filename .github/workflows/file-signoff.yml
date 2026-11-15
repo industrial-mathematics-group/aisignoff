@@ -1,6 +1,6 @@
 name: File-signoff
 
-# Checks with aisignoff that every file is declared in SIGNOFF.toml or inline tags,
+# Checks with aisignoff that every file is declared in SIGNOFF.toml,
 # and publishes the file badges on pushes to the default branch.
 on:
   push:
