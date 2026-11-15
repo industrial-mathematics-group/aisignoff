@@ -126,9 +126,9 @@ Boxes in code blocks and HTML comments don't count, and other bold checklist ite
 
 The line `AI-Review-Findings:` belongs to a review of A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)). It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
 
-Two more checks keep a template to the [definitions](levels.md):
+Two more rules keep a template to the [definitions](levels.md):
 
-- **The human review levels build on each other.** In the [check before the merge](ci.md#checking-the-pull-request-description), a ticked `**H…**` box above an unticked one is an error: tick every level up to the one that was done. Landed commits are read as before, by their highest ticked box.
+- **The highest ticked box of an axis counts.** The review levels build on each other, so ticking H2 says H0 and H1 too; ticking the ones below as well changes nothing.
 - **A self-check is no AI review.** A ticked A1 box whose text says "its own work" or "self-check" is the template from before `SIGNOFF.toml` version 4, where A1 was the self-check of the generating session. It is an error, so change the template's AI review boxes when you [change over to version 4](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6).
 
 Use one form per message. A message with both "Key: value" lines and ticked level boxes is an error until a `[[commits]]` entry for that commit settles it; meanwhile both count, the lines winning where they overlap.

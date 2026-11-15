@@ -72,9 +72,8 @@ def test_names_the_levels_need(branch, tmp_path, capsys):
     write(branch, "reviews/pull7.md", REPORT)
     commit(branch, "the review report")
     assert lint(branch, tmp_path, a2 + "\nAI-Review-Findings: minor\n", "--author", "jane")[0] == 0
-    # the levels of human review build on each other: H1 without H0 is refused before the merge
-    code, out = lint(branch, tmp_path, FILLED.replace("[x] **H0**", "[ ] **H0**"), "--author", "jane", capsys=capsys)
-    assert code == 1 and "ticks H1 but not H0" in out
+    # the highest ticked human review box counts: H1 alone is H1, as for the other axes
+    assert lint(branch, tmp_path, FILLED.replace("[x] **H0**", "[ ] **H0**"), "--author", "jane")[0] == 0
     code, out = lint(branch, tmp_path, FILLED, capsys=capsys)  # no --author: nobody is responsible
     assert code == 1 and "Human-Review needs Reviewed-by" in out
 

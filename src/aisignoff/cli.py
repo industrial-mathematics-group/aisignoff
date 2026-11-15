@@ -171,11 +171,9 @@ def _declared(args, version_3: bool = False):
     from .pullrequest import reviewer
     text = text.replace("\r\n", "\n")
     name, problems, notes = reviewer(text, args.author or "")
-    # the check before the merge: on the scale the repository's SIGNOFF.toml says, and strict about
-    # human review boxes ticked above an unticked one. Its "AI-Review-Findings:" line is checked with
+    # the check before the merge: on the scale the repository's SIGNOFF.toml says. Its "AI-Review-Findings:" line is checked with
     # the review report, under the base branch's [review] (_pull_request)
-    pieces, both = parse_message(text, name, "the pull request description", version_3, gaps=not version_3,
-                                 recheck=None)
+    pieces, both = parse_message(text, name, "the pull request description", version_3, recheck=None)
     args.pr_findings = findings_line(text)
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}

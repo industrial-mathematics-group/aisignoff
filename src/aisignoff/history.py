@@ -319,7 +319,7 @@ def findings_line(text: str) -> str | None:
     return found
 
 
-def parse_checkboxes(text: str, author: str, source: str, version_3: bool = False, gaps: bool = False) -> dict[int, Piece]:
+def parse_checkboxes(text: str, author: str, source: str, version_3: bool = False) -> dict[int, Piece]:
     """Axis pieces from the ticked checkboxes of a pull request template in a commit message
     (a squash commit with the default message "Pull request title and description"):
 
@@ -333,8 +333,7 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
     for A1 otherwise the models that wrote the change (a new session of them). As in the template,
     no ticked AI review box means A0. version_3: the boxes are of the template before SIGNOFF.toml
     version 4 (parse_message takes its AI review over to today's scale); without it, a ticked A1
-    box that says self-check is that old template, and a problem. gaps: a ticked human review box
-    above an unticked one is a problem (the levels build on each other; the check before the merge).
+    box that says self-check is that old template, and a problem.
     Models count only between the generation and the human review boxes, and boxes in code
     blocks not at all. Generation or human review boxes that are there with none ticked are a
     template that wasn't filled in: TODO. Nothing is returned without any level box."""
@@ -342,7 +341,6 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
     seen: set[str] = set()
     models: list[str] = []
     reviewer: dict[str, str] = {}
-    unticked: set[str] = set()
     old_box = False
     for ticked, item in _boxes(text):
         level = _BOX_LEVEL.match(item)
@@ -352,8 +350,6 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
             if ticked:
                 levels[code[0]].append(code)
                 old_box = old_box or (code == "A1" and bool(_OLD_A1_BOX.search(_own_text(item))))
-            else:
-                unticked.add(code)
             if ticked and code[0] == "A" and "Model" in item:
                 name = re.split(r"Model[^:]*:", item, maxsplit=1)[-1].strip()
                 if name:
@@ -378,11 +374,6 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
         problems.append(f"{source} ticks an A1 box of the template before version 4 (the self-check of the "
                         "generating session, which is no AI-Review now: A0). Use the current template; for a "
                         "commit that has landed, say what was meant with a [[commits]] entry")
-    if gaps and levels["H"]:
-        below = sorted(c for c in unticked if c[0] == "H" and c < max(levels["H"]))
-        if below:
-            problems.append(f"{source} ticks {max(levels['H'])} but not {', '.join(below)}: the Human-Review levels "
-                            "build on each other, so tick every level up to the one that was done")
     out = {}
     names = {"G": tuple(models), "H": (author,) if author else ()}
     if "A" in seen and not levels["A"]:
@@ -413,18 +404,18 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
 
 
 def parse_message(body: str, author: str, source: str, version_3: bool = False,
-                  gaps: bool = False, recheck: str | None = RECHECK) -> tuple[dict[int, Piece], str | None]:
+                  recheck: str | None = RECHECK) -> tuple[dict[int, Piece], str | None]:
     """The declaration in a commit message body or a pull request description: its "Key: value"
     lines, or the ticked checkboxes of a pull request template. One or the other: with both, both
     count (the lines where they overlap) and the second value is the problem to report.
     version_3: the repository's SIGNOFF.toml says version 3, so the AI review is of the scale
     before version 4 and is taken over to today's; ticked boxes of today's template (its A1 box is
     no self-check) are read on today's scale all the same, so that a repository can take the new
-    template before it changes over. gaps: see parse_checkboxes. recheck: an "AI-Review-Findings:"
+    template before it changes over. recheck: an "AI-Review-Findings:"
     line of that severity or above is a problem of the AI review (None: the caller checks the line)."""
     from_trailers = parse_trailers(body, source)
     old_boxes = version_3 and old_template(body) is not False
-    from_boxes = parse_checkboxes(body, author.strip(), source, old_boxes, gaps)
+    from_boxes = parse_checkboxes(body, author.strip(), source, old_boxes)
     both = None
     if from_trailers and from_boxes:
         both = (f"{source} declares levels both as trailers and as ticked checkboxes; "
