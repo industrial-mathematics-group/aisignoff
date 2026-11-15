@@ -17,11 +17,13 @@ HUMAN = {
     "H2": "Reviewed line by line",
     "H3": "Independently validated",
 }
+# AI review counts only what is independent of the generating session: what that session checks
+# itself is part of generating (expected from G2 on), so it is A0. Each level includes the one below.
 AI = {
-    "A0": "No AI review",
-    "A1": "Self-check by the generating session",
-    "A2": "Review by a new session",
-    "A3": "Extensive review or benchmark by a different model",
+    "A0": "No independent AI review",
+    "A1": "Context-free check",
+    "A2": "Check by a different model",
+    "A3": "Validated by a different model",
 }
 
 # Canonical key names, as the PR check shows them in its job summary.
@@ -55,10 +57,35 @@ def at_least(level: str, minimum: str) -> bool:
     return ORDER[level] >= ORDER[minimum]
 
 
+# ------------------------------------------------------------------ the AI review scale of version 3
+def from_version_3(level, names=()):
+    """An AI review level (with its names) of the scale before SIGNOFF.toml version 4, on today's
+    scale. There, A1 was the self-check of the generating session, which is no review now (A0, and
+    A0 has no reviewer); A2, a new session, is A1; A3, a different model, stays A3."""
+    if level == "A1":
+        return "A0", ()
+    if level == "A2":
+        return "A1", tuple(names)
+    return level, tuple(names)
+
+
+def policy_from_version_3(rules: dict) -> dict:
+    """[policy] of the scale before version 4, on today's scale. There, G1-G3 always needed A1 (now
+    A0, so nothing), and a minimum of A1 for G0 meant A2 (now A1)."""
+    out = {gen: dict(req) for gen, req in rules.items()}
+    star = out.get("*", {}).get("ai")
+    for gen, req in out.items():
+        if "ai" in req:
+            if gen == "G0":
+                req["ai"] = {"A1": "A1", "A2": "A1"}.get(req["ai"], req["ai"])
+            else:
+                req["ai"] = from_version_3(req["ai"])[0]
+    if star == "A1" and "ai" not in out.get("G0", {}):
+        out.setdefault("G0", {})["ai"] = "A1"
+    return out
+
+
 # ------------------------------------------------------------------ policy
-BUILTIN_MIN_AI_FOR_GENERATED = "A1"  # G1-G3 need at least a self-check by the AI
-
-
 @dataclass(frozen=True)
 class Policy:
     """Minimum review levels, per generation level ("*" = default for all)."""
@@ -69,12 +96,7 @@ class Policy:
         merged = dict(self.rules.get("*", {}))
         if generation:
             merged.update(self.rules.get(generation, {}))
-        human, ai = merged.get("human"), merged.get("ai")
-        if generation in ("G1", "G2", "G3") and (ai is None or not at_least(ai, BUILTIN_MIN_AI_FOR_GENERATED)):
-            ai = BUILTIN_MIN_AI_FOR_GENERATED
-        if generation == "G0" and ai == "A1":
-            ai = "A2"  # human-written content has no generating session; any AI review of it is A2+
-        return human, ai
+        return merged.get("human"), merged.get("ai")
 
 
 def parse_policy(data, where: str = "policy") -> Policy:
@@ -183,23 +205,40 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
         errors.append(f"{a} needs {AI_REVIEWED} (reviewing model and session)")
     if a == "A0" and d.ai_reviewed_by:
         errors.append(f"A0 means no AI review, but {AI_REVIEWED} is set")
-    if g == "G0" and a == "A1":
-        errors.append("G0 has no generating AI session that could check itself; "
-                      "an AI review of human-written content is A2 or A3")
+    reviewers = [n for n in d.ai_reviewed_by if n != TODO]
+    if a in ("A1", "A2", "A3") and reviewers and all(_SELF_CHECK.search(n) for n in reviewers):
+        errors.append(f"{a} names only a self-check in {AI_REVIEWED}: what the generating session checks itself "
+                      "is no AI review (A0, the scale before version 4 called it A1)")
+    elif a in ("A2", "A3") and reviewers and all(_same_model(n, d.assisted_by) for n in reviewers):
+        errors.append(f"{a} is a review by a different model, but {AI_REVIEWED} names only models that wrote it: "
+                      "a new session of a model that wrote it is A1")
 
-    if g in GENERATION and (h is None or h in HUMAN or h == TODO) and (a is None or a in AI or a == TODO):
-        min_h, min_a = (policy or Policy()).minimum(g)
+    # The minimum for every generation level ("*") doesn't depend on the generation: it is also
+    # checked when that is missing or still TODO.
+    known = g in GENERATION
+    if (known or g is None or g == TODO) and (h is None or h in HUMAN or h == TODO) and (a is None or a in AI or a == TODO):
+        min_h, min_a = (policy or Policy()).minimum(g if known else None)
+        what = g if known else "every generation level"
         if min_h and h in HUMAN and not at_least(h, min_h):
-            errors.append(f"{g} requires at least {min_h} by policy (declared {h})")
+            errors.append(f"{what} requires at least {min_h} by policy (declared {h})")
         if min_a and a in AI and not at_least(a, min_a):
-            reason = "AI-written content must at least be self-checked" if min_a == "A1" else "by policy"
-            errors.append(f"{g} requires at least {min_a} ({reason}; declared {a})")
+            errors.append(f"{what} requires at least {min_a} by policy (declared {a})")
     return errors
+
+
+_SELF_CHECK = re.compile(r"self[- ]?check", re.I)
+
+
+def _same_model(reviewer: str, assisted: tuple[str, ...]) -> bool:
+    """Whether an AI-Reviewed-by entry names a model of Assisted-by: the same text, or that text
+    followed by how it reviewed ("Model X, new session")."""
+    r = reviewer.casefold().strip()
+    return any(r == m.casefold().strip() or r.startswith(m.casefold().strip() + ",") for m in assisted if m.strip())
 
 
 UNDECLARED = "undeclared"
 _AXIS_WORDS = (
-    (AIR, re.compile(rf"{AI_REVIEWED}|{AIR}|requires at least A\d|G0 has no generating AI session")),
+    (AIR, re.compile(rf"{AI_REVIEWED}|{AIR}|requires at least A\d")),
     (HUM, re.compile(rf"(?<!AI-){REVIEWED}|{HUM}|requires at least H\d")),
     (GEN, re.compile(rf"{ASSISTED}|{GEN}|generation level")),
 )

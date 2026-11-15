@@ -19,7 +19,8 @@ def merge(repo, branch, message):
     git(repo, "merge", "-q", "--no-ff", branch, "-m", message)
 
 
-def D(g, h, a, by="Jane", ai="M, fresh session"):
+def D(g, h, a, by="Jane", ai=None):
+    ai = ai or ("M, fresh session" if a == "A1" else "N, fresh session")  # A2 and A3: a different model
     s = f"AI-Generation: {g}\nHuman-Review: {h}\nAI-Review: {a}\nReviewed-by: {by}"
     return s + (f"\nAI-Reviewed-by: {ai}" if a != "A0" else "") + ("\nAssisted-by: M" if g != "G0" else "")
 
@@ -68,7 +69,7 @@ def test_trailers_and_boxes_both_count_until_a_correction_settles_it(repo):
 def test_the_merge_commit_owns_its_lines_and_a_branch_commit_only_says_generation(repo):
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [2, 3])
-    commit(repo, "agent", D("G3", "H0", "A1", ai="M, self-check"))
+    commit(repo, "agent", D("G3", "H0", "A1"))
     edit_lines(repo, [4], text="hand")
     hand = commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H3\nReviewed-by: Bob")
     edit_lines(repo, [5])
@@ -281,19 +282,20 @@ def test_ignore_whitespace_setting(repo):
 
 
 # ------------------------------------------------------------------ 0.10 review
-def test_a_hand_written_commit_inside_a_self_checked_pull_request(repo):
-    """A1 is the generating session checking itself: it doesn't reach lines a human wrote."""
+def test_a_hand_written_commit_inside_a_checked_pull_request(repo):
+    """An AI review is of the change, whoever wrote a line: it stays on the lines a human wrote
+    (before version 4, A1 was the self-check and didn't reach them)."""
     git(repo, "checkout", "-q", "-b", "feature")
     edit_lines(repo, [2], text="hand")
     hand = commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: Jane")
     edit_lines(repo, [3])
     commit(repo, "agent")
-    merge(repo, "feature", "Merge feature\n\n" + D("G3", "H1", "A1", ai="M, self-check"))
+    merge(repo, "feature", "Merge feature\n\n" + D("G3", "H1", "A1"))
     assert by_line(result(repo)[0])[2].declaration.short() == "G3 H1 A1"  # the message alone doesn't lower it
     with open(repo / "SIGNOFF.toml", "a") as f:
         f.write(f'\n[[commits]]\ncommit = "{hand}"\nAI-Generation = "G0"\n')
     lines = by_line(result(repo)[0])
-    assert lines[2].declaration.short() == "G0 H1 A0" and lines[2].errors == []
+    assert lines[2].declaration.short() == "G0 H1 A1" and lines[2].errors == []
     assert lines[3].declaration.short() == "G3 H1 A1" and lines[3].errors == []
 
 
@@ -334,7 +336,7 @@ def test_diff_declare_on_the_branch_resolves_as_the_merge_will(repo, capsys):
     edit_lines(repo, [2])
     commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M")
     declare = ["-g", "G3", "--assisted-by", "M", "-H", "H2", "--reviewed-by", "Jane", "-a", "A2",
-               "--ai-reviewed-by", "M, fresh"]
+               "--ai-reviewed-by", "N, fresh"]
     capsys.readouterr()
     assert main(["--root", str(repo), "diff", base, "--json", *declare]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -454,10 +456,42 @@ def test_diff_declare_after_merging_the_base_into_the_branch(repo, capsys):
     assert r.parts[0].declaration.short() == "G0 H3 A0"  # main's line stays main's
 
 
-def test_a_commit_declaring_g0_with_a1_itself_is_an_error(repo):
+def test_a_hand_written_commit_can_have_any_ai_review(repo):
     edit_lines(repo, [2])
     commit(repo, "by hand", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A1\nAI-Reviewed-by: M")
     line = by_line(result(repo)[0])[2]
-    assert line.declaration.short() == "G0 H1 A1" and any("G0 has no generating AI session" in e for e in line.errors)
+    assert line.declaration.short() == "G0 H1 A1" and line.errors == []
+
+
+def test_commit_messages_follow_the_scale_of_signoff_toml(repo):
+    """With version = 3, a commit's AI review is of the scale before version 4 and taken over."""
+    toml = (repo / "SIGNOFF.toml").read_text()
+    edit_lines(repo, [2])
+    commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: J\n"
+                          "AI-Review: A1\nAI-Reviewed-by: M, self-check by the generating session")
+    edit_lines(repo, [3])
+    commit(repo, "reviewed", "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: J\n"
+                             "AI-Review: A2\nAI-Reviewed-by: M, new session")
+    lines = by_line(result(repo)[0])
+    assert "self-check" in lines[2].errors[0]  # read on today's scale, a self-check is no A1
+    assert "names only models that wrote it" in lines[3].errors[0]
+    (repo / "SIGNOFF.toml").write_text(toml.replace("version = 4", "version = 3"))
+    lines = by_line(result(repo)[0])
+    assert (lines[2].declaration.short(), lines[2].declaration.ai_reviewed_by, lines[2].errors) == ("G3 H1 A0", (), [])
+    assert (lines[3].declaration.short(), lines[3].errors) == ("G3 H1 A1", [])
+
+
+def test_an_attestation_never_lowers_a_review_of_the_file_level(repo):
+    """Lines whose commit declares nothing take the file level (G0 H2 A0 here): an attestation
+    raises a review of theirs, and a lower one changes nothing."""
+    edit_lines(repo, [2])
+    commit(repo, "undeclared")
+    blob = git(repo, "hash-object", "solver.py")
+    with open(repo / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[attestations]]\npath = "solver.py"\nblob = "{blob}"\nHuman-Review = "H1"\nReviewed-by = "Low"\n'
+                'AI-Review = "A2"\nAI-Reviewed-by = "N"\n')
+    line = by_line(result(repo)[0])[2]
+    assert line.declaration.short() == "G0 H2 A2" and line.kinds == ("file", "file", "attestation")
+    assert line.declaration.reviewed_by == ("Jane",) and line.errors == []
 
 

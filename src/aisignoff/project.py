@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import inline
 from .config import FILENAME, Config, load
-from .model import AXES, Declaration, validate
+from .model import AXES, Declaration, from_version_3, validate
 
 ALWAYS_SKIPPED = {FILENAME, "SIGNOFF.snapshot.json"}
 
@@ -133,6 +133,9 @@ def resolve(root: Path, config: Config, path: str) -> Declaration:
     if annotation is not None and annotation.precedence == "override":
         return annotation.declaration()
     found = inline.parse(root / path)
+    if found is not None and config.version_3 and found.ai is not None:
+        # inline tags follow the scale SIGNOFF.toml says
+        found.ai, found.ai_reviewed_by = from_version_3(found.ai, found.ai_reviewed_by)
     if found is not None:
         return _merge_closest(found, annotation.declaration() if annotation else None)
     if annotation is not None:

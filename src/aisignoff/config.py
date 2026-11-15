@@ -2,7 +2,7 @@
 
 Format::
 
-    version = 3
+    version = 4
     exclude = ["docs/build/**"]          # optional: files that need no declaration
 
     [policy]                             # optional: minimum review levels per generation level
@@ -42,7 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .globbing import compile_glob, matches
-from .model import AXES, KEYS, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key, parse_policy
+from .model import (AI_REVIEWED, AIR, AXES, KEYS, LEVELS, LIST_KEYS, TODO, Declaration, Policy, canonical_key,
+                    from_version_3, parse_policy, policy_from_version_3)
 
 FILENAME = "SIGNOFF.toml"
 # Converted by 'aisignoff migrate' up to 1.0.0rc1, and no longer read: say so instead of treating
@@ -50,7 +51,11 @@ FILENAME = "SIGNOFF.toml"
 OLD_FILENAME = "AIDECL.toml"
 OLD_RELEASE = "1.0.0rc1"  # the last release that converts old formats
 CONVERT = f"convert it once with 'uvx aisignoff=={OLD_RELEASE} migrate' (or pipx run)"
-VERSION = 3
+VERSION = 4
+# Version 3 had another AI review scale (A1 was the self-check of the generating session). It is
+# still read: its AI review levels, and those of the repository's commit messages and inline tags,
+# are taken over to today's scale (model.from_version_3) until the file says version = 4.
+VERSION_3 = 3
 PRECEDENCES = ("closest", "override")
 HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace",
                 "default-branch", "undeclared")
@@ -123,6 +128,9 @@ class Config:
     attestations: list[Attestation] = field(default_factory=list)
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # for the reader, never a failure
+    # version = 3: AI review levels here, in commit messages and in inline tags are of the scale before version 4
+    version_3: bool = False
 
     def is_excluded(self, path: str) -> bool:
         return any(matches(p, path) for p in self.exclude)
@@ -183,8 +191,9 @@ def parse(data: dict, path: Path) -> Config:
     if type(version) is int and version in (1, 2):
         old = "V0-V3 levels" if version == 1 else "the AI review scale A-, A0-A3"
         raise ConfigError(f"{name} uses version {version} ({old}), which is no longer read; {CONVERT}")
-    if type(version) is not int or version != VERSION:
+    if type(version) is not int or version not in (VERSION, VERSION_3):
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
+    old = version == VERSION_3
     warnings = []
     unknown = set(data) - {"version", "exclude", "policy", "annotations", "history", "commits", "attestations"}
     if unknown:
@@ -197,6 +206,8 @@ def parse(data: dict, path: Path) -> Config:
         policy = parse_policy(data.get("policy"), where=f"{name} [policy]")
     except ValueError as e:
         raise ConfigError(str(e)) from e
+    if old:
+        policy = Policy(policy_from_version_3(policy.rules))
 
     annotations = []
     raw = data.get("annotations", [])
@@ -212,7 +223,7 @@ def parse(data: dict, path: Path) -> Config:
         precedence = table.get("precedence", "closest")
         if precedence not in PRECEDENCES:
             raise ConfigError(f"{where}: precedence must be 'closest' or 'override'")
-        values = _parse_values(table, ("path", "precedence"), where)
+        values = _parse_values(table, ("path", "precedence"), where, old)
         annotations.append(Annotation(index=i, paths=paths, precedence=precedence, values=values, filename=name))
     history = _parse_history(data.get("history"), name, warnings)
     commits = []
@@ -221,7 +232,7 @@ def parse(data: dict, path: Path) -> Config:
         commit = table.get("commit")
         if not isinstance(commit, str) or not _is_hex(commit, 4):
             raise ConfigError(f"{where}: 'commit' must be a commit hash (at least 4 hex digits)")
-        values = _parse_values(table, ("commit",), where)
+        values = _parse_values(table, ("commit",), where, old)
         _check_axes(values, where)
         commits.append(CommitEntry(index=i, commit=commit.lower(), values=values, filename=name))
     attestations = []
@@ -233,12 +244,18 @@ def parse(data: dict, path: Path) -> Config:
         blob = table.get("blob")
         if not isinstance(blob, str) or not _is_hex(blob, 40) or len(blob) not in (40, 64):
             raise ConfigError(f"{where}: 'blob' must be the full git blob hash of the checked content")
-        values = _parse_values(table, ("path", "blob"), where)
+        values = _parse_values(table, ("path", "blob"), where, old)
         _check_axes(values, where)
         attestations.append(Attestation(index=i, path=apath.removeprefix("./"), blob=blob.lower(), values=values,
                                         filename=name))
+    notes = []
+    if old:
+        notes.append(f"{name} says version = {VERSION_3}: its AI review levels, and those of this repository's commit "
+                     "messages, pull request descriptions and inline tags, are read on the scale before version 4 "
+                     "and shown on today's (A1 self-check: A0, A2 new session: A1, A3 stays). To change over, run "
+                     "examples/convert-to-version-4.py (see 'Upgrading' in the documentation)")
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
-                  commits=commits, attestations=attestations, warnings=warnings)
+                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old)
 
 
 def _is_hex(s: str, minimum: int) -> bool:
@@ -252,8 +269,9 @@ def _tables(data: dict, key: str, name: str) -> list:
     return raw
 
 
-def _parse_values(table: dict, skip: tuple, where: str) -> dict:
-    """The declaration keys of a table, validated (level values, string lists)."""
+def _parse_values(table: dict, skip: tuple, where: str, old: bool = False) -> dict:
+    """The declaration keys of a table, validated (level values, string lists). old: the table is
+    of version 3, so its AI review is taken over to today's scale."""
     values = {}
     for k, v in table.items():
         if k in skip:
@@ -271,6 +289,13 @@ def _parse_values(table: dict, skip: tuple, where: str) -> dict:
             if v not in LEVELS[key] and v != TODO:  # TODO: placeholder, reported by lint
                 raise ConfigError(f"{where}: invalid {key} '{v}' (use {', '.join(LEVELS[key])})")
             values[key] = v
+    if old and AIR in values:
+        level, names = from_version_3(values[AIR], values.get(AI_REVIEWED, ()))
+        values[AIR] = level
+        if names:
+            values[AI_REVIEWED] = names
+        else:
+            values.pop(AI_REVIEWED, None)
     return values
 
 

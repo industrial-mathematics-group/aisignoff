@@ -357,13 +357,14 @@ Human review (at least H0 is required; the levels build on each other):
 read the important parts
 - [ ] **H2** I read every changed line
 
-AI review:
-- [ ] **A0** No AI review
-- [x] **A1** The AI that wrote the change checked its own work
-- [{a2}] **A2** A new AI session, without the generating conversation,
-reviewed the final change and ran the tests. Model, if not one of the
-above: {model}
-- [ ] **A3** A different model reviewed it. Model:
+AI review (independent of the session that wrote it; tick the highest):
+- [ ] **A0** No independent AI review
+- [x] **A1** A new AI session, without the generating conversation,
+checked the whole change. Model, if not one of the above:
+- [{a2}] **A2** A different, capable model did that check. Model:
+{model}
+- [ ] **A3** A different, capable model validated it with new evidence
+and left a record. Model, and where the record is:
 """
 
 
@@ -373,7 +374,20 @@ def test_parse_checkboxes():
     assert {i: p.level for i, p in pieces.items()} == {0: "G3", 1: "H1", 2: "A1"}
     assert pieces[0].names == ("Claude Opus (Anthropic)", "Some Model 2")
     assert pieces[1].names == ("Jane <j@x>",)
-    assert pieces[2].names[0] == "Claude Opus (Anthropic), self-check by the generating session"
+    assert pieces[2].names[0] == "Claude Opus (Anthropic), new session without the generating conversation"
+    # a different model has to be named: the models that wrote it can't be it
+    unnamed = parse_checkboxes(TEMPLATE.format(a2="x", model=""), "J", "c")
+    assert unnamed[2].level == "A2" and unnamed[2].names == ()
+    # the template before version 4: its A1 was the self-check, which is A0 now
+    old = TEMPLATE.replace("**A1** A new AI session", "**A1** The AI that wrote the change checked its own work.")
+    assert "template before version 4" in parse_checkboxes(old.format(a2=" ", model=""), "J", "c")[2].problems[0]
+    from aisignoff.history import parse_message
+    taken_over = parse_message(old.format(a2=" ", model=""), "J", "c", version_3=True)[0][2]
+    assert (taken_over.level, taken_over.names, taken_over.problems) == ("A0", (), ())
+    # a human review box ticked above an unticked one: only the check before the merge minds
+    gap = TEMPLATE.replace("- [x] **H0**", "- [ ] **H0**").format(a2=" ", model="")
+    assert parse_checkboxes(gap, "J", "c")[1].problems == ()
+    assert "ticks H1 but not H0" in parse_checkboxes(gap, "J", "c", gaps=True)[1].problems[0]
     pieces = parse_checkboxes(TEMPLATE.format(a2="x", model="GPT Sol (OpenAI), fresh session"), "J", "c")
     assert pieces[2].level == "A2" and pieces[2].names == ("GPT Sol (OpenAI), fresh session",)
     assert parse_checkboxes("Fix\n\n- [x] done\n- [ ] **Breaking change**\n", "J", "c") == {}

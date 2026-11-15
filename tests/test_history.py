@@ -12,10 +12,10 @@ from aisignoff.project import Project
 
 from test_aisignoff import write
 
-BASE_TOML = ('version = 3\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
+BASE_TOML = ('version = 4\n\n[history]\nenabled = true\n\n[[annotations]]\npath = "**"\n'
              'AI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\nReviewed-by = "Jane"\n')
 G3 = ("AI-Generation: G3\nHuman-Review: H1\nAI-Review: A1\nAssisted-by: Model A\n"
-      "AI-Reviewed-by: Model A, self-check\nReviewed-by: Jane\n")
+      "AI-Reviewed-by: Model A, new session\nReviewed-by: Jane\n")
 
 
 def git(root, *args):
@@ -240,7 +240,7 @@ def test_config_validation(tmp_path):
         '[[attestations]]\npath = "a.py"\nblob = "' + "a" * 40 + '"\nHuman-Review = "H9"\n': "invalid Human-Review",
     }
     for text, message in bad.items():
-        write(tmp_path, "SIGNOFF.toml", "version = 3\n" + text)
+        write(tmp_path, "SIGNOFF.toml", "version = 4\n" + text)
         with pytest.raises(ConfigError, match=message):
             load(tmp_path)
 

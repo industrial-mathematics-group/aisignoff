@@ -22,8 +22,8 @@ def write(root: Path, rel: str, text: str = "x\n") -> Path:
 
 TOML_G0 = 'AI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\nReviewed-by = "Jane"\n'
 TOML_G2 = ('AI-Generation = "G2"\nHuman-Review = "H1"\nAI-Review = "A2"\nAssisted-by = ["Model A"]\n'
-           'AI-Reviewed-by = "Model A, fresh session"\nReviewed-by = "Jane"\n')
-HEAD = f"version = 3\n"
+           'AI-Reviewed-by = "Model B, fresh session"\nReviewed-by = "Jane"\n')
+HEAD = f"version = 4\n"
 ARGS_G0 = ["-g", "G0", "-H", "H2", "-a", "A0", "--reviewed-by", "Jane"]
 VALS_G0 = {"AI-Generation": "G0", "Human-Review": "H2", "AI-Review": "A0", "Reviewed-by": ["J"]}
 INLINE_G0 = "# AI-Generation: G0\n# Human-Review: H2\n# AI-Review: A0\n# Reviewed-by: J\n"
@@ -60,8 +60,15 @@ def d(**kw):
     (d(g="G0", h="H3", a="A2", rev="J", airev="M"), True),                  # human code, AI-reviewed
     (d(g="G0", h="H2", a="A0"), False),                                     # Reviewed-by always needed
     (d(g="G0", h="H2", a="A0", rev="J", assisted="X"), False),              # G0 with Assisted-by
-    (d(g="G1", h="H1", a="A0", rev="J", assisted="X"), False),              # G1-G3 need >= A1
-    (d(g="G1", h="H1", a="A1", rev="J", assisted="X", airev="X"), True),
+    (d(g="G1", h="H1", a="A0", rev="J", assisted="X"), True),               # no independent AI review
+    (d(g="G3", h="H1", a="A0", rev="J", assisted="X"), True),
+    (d(g="G1", h="H1", a="A1", rev="J", assisted="X", airev="X"), True),    # a new session of the same model
+    (d(g="G0", h="H1", a="A1", rev="J", airev="M"), True),                  # for G0, any level of AI review
+    (d(g="G1", h="H1", a="A2", rev="J", assisted="X", airev="X"), False),   # A2: a different model
+    (d(g="G1", h="H1", a="A3", rev="J", assisted="X", airev="x, benchmark"), False),
+    (d(g="G1", h="H1", a="A2", rev="J", assisted="X", airev=["X", "Y"]), True),
+    (d(g="G1", h="H1", a="A2", rev="J", assisted="X", airev="X Pro, fresh"), True),  # another name
+    (d(g="G1", h="H1", a="A1", rev="J", assisted="X", airev="X, self-check"), False),  # a self-check is A0
     (d(g="G2", h="H1", a="A1", rev="J", assisted="X"), False),              # A1 needs AI-Reviewed-by
     (d(g="G2", h="H1", a="A0", rev="J", assisted="X", airev="X"), False),   # A0 with AI-Reviewed-by
     (d(g="G3", h="H2", a="A3", rev="J", assisted="X", airev="Y"), True),
@@ -82,9 +89,10 @@ def test_no_declaration():
 def test_policy_merge_and_floor():
     p = parse_policy({"*": {"human": "H1"}, "G3": {"human": "H2", "ai": "A2"}})
     assert p.minimum("G0") == ("H1", None)
-    assert p.minimum("G2") == ("H1", "A1")          # built-in floor for AI-written content
+    assert p.minimum("G2") == ("H1", None)          # no built-in minimum
     assert p.minimum("G3") == ("H2", "A2")
-    assert Policy().minimum("G1") == (None, "A1")
+    assert Policy().minimum("G1") == (None, None)
+    assert p.minimum(None) == ("H1", None)          # "*" alone, when the generation isn't known
 
 
 def test_policy_enforced():
@@ -97,14 +105,37 @@ def test_policy_enforced():
     assert "G3 requires at least A3" in validate(low_a, p)[0]
 
 
-def test_g0_has_no_self_check():
-    assert any("G0 has no generating AI session" in e
-               for e in validate(d(g="G0", h="H1", a="A1", rev="J", airev="M")))
-    assert validate(d(g="G0", h="H1", a="A2", rev="J", airev="M")) == []
-    # a policy minimum of A1 means A2 for human-written content
+def test_a_policy_minimum_means_the_same_for_every_generation():
     p = parse_policy({"*": {"ai": "A1"}})
-    assert p.minimum("G0") == (None, "A2")
-    assert validate(d(g="G0", h="H1", a="A0", rev="J"), p) == ["G0 requires at least A2 (by policy; declared A0)"]
+    assert p.minimum("G0") == p.minimum("G3") == (None, "A1")
+    assert validate(d(g="G0", h="H1", a="A0", rev="J"), p) == ["G0 requires at least A1 by policy (declared A0)"]
+    assert validate(d(g="G0", h="H1", a="A1", rev="J", airev="M"), p) == []
+    # the minimum for every generation level is also checked while the generation is missing or TODO
+    assert validate(d(g="TODO", h="H1", a="A0", rev="J"), p, allow_todo=True) == [
+        "every generation level requires at least A1 by policy (declared A0)"]
+
+
+def test_the_scale_of_version_3_is_taken_over(tmp_path):
+    from aisignoff.model import from_version_3, policy_from_version_3
+    assert from_version_3("A1", ("M, self-check",)) == ("A0", ())
+    assert from_version_3("A2", ("M, new session",)) == ("A1", ("M, new session",))
+    assert from_version_3("A3", ("N",)) == ("A3", ("N",)) and from_version_3("TODO") == ("TODO", ())
+    # there, G1-G3 always needed A1 (nothing now), and A1 for G0 meant A2 (A1 now)
+    assert policy_from_version_3({"*": {"human": "H1", "ai": "A1"}, "G3": {"ai": "A2"}}) == {
+        "*": {"human": "H1", "ai": "A0"}, "G3": {"ai": "A1"}, "G0": {"ai": "A1"}}
+    write(tmp_path, "SIGNOFF.toml", 'version = 3\n[policy]\nG3 = { ai = "A2" }\n[[annotations]]\npath = "**"\n'
+          'AI-Generation = "G2"\nHuman-Review = "H1"\nAI-Review = "A1"\nAssisted-by = "M"\n'
+          'AI-Reviewed-by = "M, self-check by the generating session"\nReviewed-by = "J"\n')
+    write(tmp_path, "a.py", "# AI-Review: A2\n# AI-Reviewed-by: M, new session\n")
+    write(tmp_path, "b.py")
+    config = load(tmp_path)
+    assert config.version_3 and "version = 3" in config.notes[0] and config.policy.minimum("G3") == (None, "A1")
+    res = {r.path: r for r in Project(tmp_path).results()}
+    assert (res["b.py"].declaration.short(), res["b.py"].declaration.ai_reviewed_by, res["b.py"].errors) == ("G2 H1 A0", (), [])
+    assert (res["a.py"].declaration.short(), res["a.py"].errors) == ("G2 H1 A1", [])  # inline tags follow the file
+    # commands that write levels take today's scale: the file is changed over first
+    assert main(["--root", str(tmp_path), "annotate", "b.py", "-g", "G0", "-H", "H1", "-a", "A0", "--reviewed-by", "J"]) == 2
+    assert main(["--root", str(tmp_path), "lint"]) == 0
 
 
 def test_old_none_level_is_invalid(tmp_path):
@@ -136,18 +167,18 @@ def test_policy_in_config(tmp_path):
 # ------------------------------------------------------------------ config
 def test_config_errors(tmp_path):
     bad = {
-        'version = 4\n': "version = 3",
-        'version = true\n': "version = 3",
-        'version = 3\n[[annotations]]\nAI-Generation = "G0"\n': "'path' is required",
-        'version = 3\n[[annotations]]\npath = "**"\nAI-Generation = "G7"\n': "invalid AI-Generation",
-        'version = 3\n[[annotations]]\npath = "**"\nAI-Review = "A5"\n': "invalid AI-Review",
-        'version = 3\n[[annotations]]\npath = "**"\nAI-Verification = "V0"\n': "unknown key",
-        'version = 3\n[[annotations]]\npath = "**"\nprecedence = "aggregate"\n': "precedence",
-        'version = 3\n[[annotations]\n': "invalid TOML",
-        'version = 3\nannotations = [1]\n': "annotations",
-        'version = 3\n[[annotations]]\npath = []\n': "must not be empty",
-        'version = 3\n[[annotations]]\npath = "**"\nHuman-Review = "H0"\nhuman-review = "H1"\n': "more than once",
-        'version = 3\n[policy]\nG7 = { human = "H1" }\n': "unknown key 'G7'",
+        'version = 5\n': "version = 4",
+        'version = true\n': "version = 4",
+        'version = 4\n[[annotations]]\nAI-Generation = "G0"\n': "'path' is required",
+        'version = 4\n[[annotations]]\npath = "**"\nAI-Generation = "G7"\n': "invalid AI-Generation",
+        'version = 4\n[[annotations]]\npath = "**"\nAI-Review = "A5"\n': "invalid AI-Review",
+        'version = 4\n[[annotations]]\npath = "**"\nAI-Verification = "V0"\n': "unknown key",
+        'version = 4\n[[annotations]]\npath = "**"\nprecedence = "aggregate"\n': "precedence",
+        'version = 4\n[[annotations]\n': "invalid TOML",
+        'version = 4\nannotations = [1]\n': "annotations",
+        'version = 4\n[[annotations]]\npath = []\n': "must not be empty",
+        'version = 4\n[[annotations]]\npath = "**"\nHuman-Review = "H0"\nhuman-review = "H1"\n': "more than once",
+        'version = 4\n[policy]\nG7 = { human = "H1" }\n': "unknown key 'G7'",
         'version = 2\n': "aisignoff==1.0.0rc1 migrate",
         'version = 1\n': "aisignoff==1.0.0rc1 migrate",
     }
@@ -159,7 +190,7 @@ def test_config_errors(tmp_path):
 
 def test_unknown_settings_are_warnings(tmp_path):
     # a later 1.x may add optional settings: an older install warns about them instead of failing
-    (tmp_path / "SIGNOFF.toml").write_text('version = 3\nfoo = 1\n[history]\nbar = 2\n')
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\nfoo = 1\n[history]\nbar = 2\n')
     config = load(tmp_path)
     assert len(config.warnings) == 2 and "foo" in config.warnings[0] and "bar" in config.warnings[1]
 
@@ -254,7 +285,7 @@ def test_inline_two_blocks(tmp_path):
 
 def test_inline_c_block_comment(tmp_path):
     p = write(tmp_path, "k.c", "/*\n * AI-Generation: G1\n * Human-Review: H1\n * AI-Review: A2\n"
-                               " * Assisted-by: X\n * AI-Reviewed-by: X, fresh session\n * Reviewed-by: J\n */\n")
+                               " * Assisted-by: X\n * AI-Reviewed-by: Y, fresh session\n * Reviewed-by: J\n */\n")
     dd = inline.parse(p)
     assert dd.short() == "G1 H1 A2" and validate(dd) == []
 
@@ -406,10 +437,11 @@ def test_cli_workflow(tmp_path, capsys):
 
     assert main(["--root", root, "annotate", "results/**", "-g", "G2", "-H", "H1", "-a", "A2",
                  "--reviewed-by", "Jane"]) == 2                                  # missing Assisted-by ...
-    assert main(["--root", root, "annotate", "results/**", "-g", "G2", "-H", "H1", "-a", "A0",
-                 "--assisted-by", "M", "--reviewed-by", "Jane"]) == 2           # G2 needs >= A1
     assert main(["--root", root, "annotate", "results/**", "-g", "G2", "-H", "H1", "-a", "A2",
                  "--assisted-by", "Model A", "--ai-reviewed-by", "Model A, fresh session",
+                 "--reviewed-by", "Jane"]) == 2                                  # A2: a different model
+    assert main(["--root", root, "annotate", "results/**", "-g", "G2", "-H", "H1", "-a", "A2",
+                 "--assisted-by", "Model A", "--ai-reviewed-by", "Model B, fresh session",
                  "--reviewed-by", "Jane"]) == 0
     capsys.readouterr()
     assert main(["--root", root, "report", "--json"]) == 0
@@ -557,7 +589,7 @@ def test_badge_small_share_shown():
 
 # ------------------------------------------------------------------ regressions from the G/H/A review
 def test_policy_array_is_a_clean_error(tmp_path):
-    (tmp_path / "SIGNOFF.toml").write_text('version = 3\n[policy]\n"*" = { human = ["H1"] }\n')
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[policy]\n"*" = { human = ["H1"] }\n')
     with pytest.raises(ConfigError, match="human must be one of"):
         load(tmp_path)
     write(tmp_path, "a.txt")
@@ -580,7 +612,7 @@ def test_annotate_inline_missing_file(tmp_path, capsys):
 
 def test_todo_placeholder_in_toml(tmp_path, capsys):
     (tmp_path / "SIGNOFF.toml").write_text(
-        'version = 3\n[[annotations]]\npath = "**"\nAI-Generation = "G3"\nHuman-Review = "TODO"\n'
+        'version = 4\n[[annotations]]\npath = "**"\nAI-Generation = "G3"\nHuman-Review = "TODO"\n'
         'AI-Review = "A2"\nAssisted-by = "M"\nAI-Reviewed-by = "M, fresh"\nReviewed-by = "TODO"\n')
     (tmp_path / "a.jl").write_text("x = 1\n")
     assert main(["--root", str(tmp_path), "lint"]) == 1
@@ -618,10 +650,10 @@ def test_annotate_todo_without_reviewed_by(tmp_path):
 def test_annotate_todo_still_checks_other_axes(tmp_path):
     write(tmp_path, "a.py")
     base = ["--root", str(tmp_path), "annotate", str(tmp_path / "a.py"), "-H", "TODO"]
-    # G2 without Assisted-by, G2 with A0, and G0 with A1 are still refused
+    # G2 without Assisted-by, A1 without a reviewer and A2 by the model that wrote it are still refused
     assert main([*base, "-g", "G2", "-a", "A1", "--ai-reviewed-by", "M"]) == 2
-    assert main([*base, "-g", "G2", "-a", "A0", "--assisted-by", "M"]) == 2
-    assert main([*base, "-g", "G0", "-a", "A1", "--ai-reviewed-by", "M"]) == 2
+    assert main([*base, "-g", "G2", "-a", "A1", "--assisted-by", "M"]) == 2
+    assert main([*base, "-g", "G2", "-a", "A2", "--assisted-by", "M", "--ai-reviewed-by", "M"]) == 2
     assert not (tmp_path / "SIGNOFF.toml").exists()
 
 

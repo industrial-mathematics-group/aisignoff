@@ -73,10 +73,10 @@ body:
     attributes:
       label: Did an AI review it?
       options:
-        - "A0: no AI review"
-        - "A1: the AI that wrote it checked its own work (not for G0)"
-        - "A2: a new AI session, without the original conversation, reviewed it"
-        - "A3: a different model reviewed it extensively or benchmarked it"
+        - "A0: no independent AI review (the checks of the session that wrote it don't count)"
+        - "A1: a new AI session, without the original conversation, checked it"
+        - "A2: a different, capable model did that check"
+        - "A3: a different, capable model validated it with new evidence and a committed record"
   - type: textarea
     id: ai-reviewer
     attributes:

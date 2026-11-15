@@ -18,7 +18,8 @@ FILLED = """Change things.
 - [ ] **Claude Opus** (Anthropic)
 - [x] **H0** I checked the result as a whole
 - [x] **H1** I ran the tests
-- [ ] **A2** A new AI session reviewed it. Model, if not one of the above:
+- [ ] **A1** A new AI session checked the whole change. Model, if not one of the above:
+- [ ] **A2** A different, capable model did that check. Model:
 """
 EMPTY = FILLED.replace("[x]", "[ ]")
 
@@ -56,8 +57,20 @@ def test_names_the_levels_need(branch, tmp_path, capsys):
     g3 = FILLED.replace("[x] **G0**", "[ ] **G0**").replace("[ ] **G3**", "[x] **G3**")
     code, out = lint(branch, tmp_path, g3, "--author", "jane", capsys=capsys)
     assert code == 1 and "G3 needs Assisted-by" in out
-    g3 = g3.replace("[ ] **Claude Opus**", "[x] **Claude Opus**").replace("[ ] **A2**", "[x] **A2**")
-    assert lint(branch, tmp_path, g3, "--author", "jane")[0] == 0   # A2 names the model that wrote it
+    g3 = g3.replace("[ ] **Claude Opus**", "[x] **Claude Opus**")
+    assert lint(branch, tmp_path, g3, "--author", "jane")[0] == 0   # no independent AI review: A0
+    a1 = g3.replace("[ ] **A1**", "[x] **A1**")
+    assert lint(branch, tmp_path, a1, "--author", "jane")[0] == 0   # A1 names the model that wrote it
+    code, out = lint(branch, tmp_path, g3.replace("[ ] **A2**", "[x] **A2**"), "--author", "jane", capsys=capsys)
+    assert code == 1 and "A2 needs AI-Reviewed-by" in out           # a different model has to be named
+    code, out = lint(branch, tmp_path, a1.replace("Model:", "Model: Claude Opus (Anthropic)")
+                     .replace("[ ] **A2**", "[x] **A2**"), "--author", "jane", capsys=capsys)
+    assert code == 1 and "names only models that wrote it" in out
+    assert lint(branch, tmp_path, g3.replace("Model:", "Model: GPT Sol (OpenAI)").replace("[ ] **A2**", "[x] **A2**"),
+                "--author", "jane")[0] == 0
+    # the levels of human review build on each other: H1 without H0 is refused before the merge
+    code, out = lint(branch, tmp_path, FILLED.replace("[x] **H0**", "[ ] **H0**"), "--author", "jane", capsys=capsys)
+    assert code == 1 and "ticks H1 but not H0" in out
     code, out = lint(branch, tmp_path, FILLED, capsys=capsys)  # no --author: nobody is responsible
     assert code == 1 and "Human-Review needs Reviewed-by" in out
 
@@ -120,7 +133,7 @@ def test_the_base_branch_sets_the_rules(branch, tmp_path, capsys):
     (None, "[history]"),
 ])
 def test_exclude_and_history_are_protected(branch, tmp_path, capsys, change, what):
-    toml = BASE_TOML.replace("version = 3\n", "version = 3\n" + change) if change else \
+    toml = BASE_TOML.replace("version = 4\n", "version = 4\n" + change) if change else \
         BASE_TOML.replace("enabled = true\n", 'enabled = true\nundeclared = "error"\n')
     write(branch, "SIGNOFF.toml", toml)
     commit(branch, "change settings")
@@ -208,7 +221,7 @@ COMMIT_ENTRY = ('\n[[commits]]\ncommit = "{c}"\nAI-Generation = "G3"\nAssisted-b
 
 def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, tmp_path, capsys):
     """A correction for a commit that owns no checked line (it changed only SIGNOFF.toml) still has to
-    meet the rules: playground PR #9 recorded G3/H0/A1 under a policy that needs H1 and A2 for G3."""
+    meet the rules: playground PR #9 recorded a G3 with less review than its policy needs for G3."""
     write(repo, "SIGNOFF.toml", BASE_TOML + '\n[policy]\nG3 = { human = "H1", ai = "A2" }\n')
     target = commit(repo, "policy", "AI-Generation: G0\nHuman-Review: H2\nAI-Review: A0\nReviewed-by: Jane")
     git(repo, "checkout", "-q", "-b", "feature")
@@ -222,9 +235,8 @@ def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, 
     write(repo, "SIGNOFF.toml", BASE_TOML + '\n[policy]\nG3 = { human = "H1", ai = "A2" }\n' + good.format(c=target[:7]))
     commit(repo, "a valid correction")
     assert lint(repo, tmp_path, FILLED, "--author", "jane")[0] == 0
-    # a partial entry is checked together with the commit's own message: G1 over its A0 breaks a built-in rule
-    write(repo, "SIGNOFF.toml", BASE_TOML + f'\n[[commits]]\ncommit = "{target[:7]}"\nAI-Generation = "G1"\n'
-          'Assisted-by = ["Model A"]\n')
+    # a partial entry is checked together with the commit's own message: G1 without a model breaks a built-in rule
+    write(repo, "SIGNOFF.toml", BASE_TOML + f'\n[[commits]]\ncommit = "{target[:7]}"\nAI-Generation = "G1"\n')
     commit(repo, "partial")
     capsys.readouterr()
     code, out = main(["--root", str(repo), "lint"]), capsys.readouterr().out

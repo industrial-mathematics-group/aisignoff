@@ -38,7 +38,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc5"       # keep it at signoff-request.yml's
+  AISIGNOFF_VERSION: "1.0.0rc6"       # keep it at signoff-request.yml's
   ANTHROPIC_VERSION: "2.8.0"          # the Anthropic Python SDK
   MODEL: claude-sonnet-5-5            # e.g. claude-opus-5-5 for harder conversations
   MODEL_NAME: Claude Sonnet 5.5 (Anthropic)   # as it is declared in the pull request; change it with MODEL
@@ -131,9 +131,10 @@ jobs:
               "H1": "H1: ran it or reproduced the key results, and read the important parts",
               "H2": "H2: read every line, understood it, checked edge cases",
               "H3": "H3: validated it independently: new tests, a reference solution or method, or a second person's review",
-              "A0": "A0: no AI review", "A1": "A1: the AI that wrote it checked its own work (not for G0)",
-              "A2": "A2: a new AI session, without the original conversation, reviewed it",
-              "A3": "A3: a different model reviewed it extensively or benchmarked it",
+              "A0": "A0: no independent AI review (the checks of the session that wrote it don't count)",
+              "A1": "A1: a new AI session, without the original conversation, checked it",
+              "A2": "A2: a different, capable model did that check",
+              "A3": "A3: a different, capable model validated it with new evidence and a committed record",
           }
 
 
@@ -273,11 +274,11 @@ jobs:
           Levels (each axis has one level; human and ai levels build on each other, declare the highest completed):
           - generation: G0 a human wrote it without AI; G1 a human wrote it, AI suggested or edited parts; G2 AI wrote substantial parts, a human directed the work and edited the result; G3 an AI agent produced it largely end to end. The highest level of any substantial part.
           - human: H0 checked the result as a whole: it does what was asked and the output is plausible; H1 ran it or reproduced the key results, and read the important parts; H2 read every line, understood it, checked edge cases; H3 validated it independently: new tests, a reference solution or method, or a second person's review.
-          - ai_review: A0 no AI review; A1 the AI that wrote it checked its own work (not for G0); A2 a new AI session, without the original conversation, reviewed it; A3 a different model reviewed it extensively or benchmarked it.
+          - ai_review: A0 no independent AI review (what the session that wrote it checked itself is part of writing it and doesn't count); A1 a new AI session, without the original conversation, checked it; A2 a different, capable model did that check (a model that didn't write it; another model of the same vendor counts, another version of the same model doesn't); A3 a different, capable model validated it with new evidence (new tests or benchmarks, a second method, counterexamples) and a committed record.
 
           Rules the answers must meet:
           - G1-G3 need "models": the AI tools and models that wrote parts, as precisely as known, e.g. "Claude Opus 5.5 (Anthropic)". G0 has none.
-          - G1-G3 need at least A1. A1-A3 need "ai_reviewers": the reviewing model and how, e.g. "Claude Opus 5.5 (Anthropic), self-check by the generating session". A0 has none.
+          - A1-A3 need "ai_reviewers": the reviewing model and how, e.g. "Claude Opus 5.5 (Anthropic), new session without the original conversation". For A2 and A3 it must not be a model named in "models". A self-check by the session that wrote it is A0. A0 has none.
           - A human level needs "responsible": the full name of the person who did the human check (it is recorded as Reviewed-by). Without a human level, leave it empty.
           - Paths are relative to the repository root and must exist in the file list below; a folder ends with "/" and covers everything in it; globs like "notebooks/*.ipynb" are allowed.
           - The [policy] of SIGNOFF.toml may require minimum levels for some paths.

@@ -7,7 +7,7 @@ A file's declaration comes from `SIGNOFF.toml`, from tags in the file itself, or
 `SIGNOFF.toml` in the repository root maps paths to declarations:
 
 ```toml
-version = 3
+version = 4
 exclude = ["reviews/**"]
 
 [[annotations]]
@@ -23,7 +23,7 @@ AI-Generation = "G2"
 Human-Review = "H1"
 AI-Review = "A1"
 Assisted-by = "Claude Opus 5.5 (Anthropic)"
-AI-Reviewed-by = "Claude Opus 5.5 (Anthropic), self-check by the generating session"
+AI-Reviewed-by = "Claude Opus 5.5 (Anthropic), new session without the generating conversation"
 Reviewed-by = "Jane Doe"
 ```
 
@@ -37,7 +37,7 @@ Write annotations by hand or with `aisignoff annotate`:
 ```bash
 aisignoff annotate results/ -g G2 -H H1 -a A1 \
     --assisted-by "Claude Opus 5.5 (Anthropic)" \
-    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), self-check by the generating session" \
+    --ai-reviewed-by "Claude Opus 5.5 (Anthropic), new session without the generating conversation" \
     --reviewed-by "Jane Doe"
 ```
 
@@ -52,7 +52,7 @@ Text files can declare themselves in a comment within their first 30 lines:
 # Human-Review: H2
 # AI-Review: A2
 # Assisted-by: Claude Opus 5.5 (Anthropic)
-# AI-Reviewed-by: GPT-5 (OpenAI), fresh review session
+# AI-Reviewed-by: GPT Sol (OpenAI), new session without the generating conversation
 # Reviewed-by: Jane Doe
 ```
 

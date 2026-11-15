@@ -24,10 +24,10 @@ Every file or line gets one level on each of three axes:
 
 | | Generation | Human review | AI review |
 |---|---|---|---|
-| **0** | **G0** Human | **H0** Plausibility check | **A0** None |
-| **1** | **G1** AI-assisted | **H1** Tested | **A1** Self-check by the generating session |
-| **2** | **G2** AI-generated | **H2** Reviewed line by line | **A2** Review by a new session |
-| **3** | **G3** AI-autonomous | **H3** Independently validated | **A3** Extensive review or benchmark by a different model |
+| **0** | **G0** Human | **H0** Plausibility check | **A0** No independent AI review |
+| **1** | **G1** AI-assisted | **H1** Tested | **A1** Context-free check (a new session) |
+| **2** | **G2** AI-generated | **H2** Reviewed line by line | **A2** Check by a different model |
+| **3** | **G3** AI-autonomous | **H3** Independently validated | **A3** Validated by a different model |
 
 The rules that go with them are on [Levels and rules](levels.md).
 

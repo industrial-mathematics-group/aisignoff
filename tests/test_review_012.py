@@ -179,14 +179,14 @@ def test_a_commit_inside_a_pull_request_can_raise_the_generation_but_not_lower_i
     commit(repo, "agent", "AI-Generation: G3\nAssisted-by: M")
     edit_lines(repo, [3], text="hand")
     hand = commit(repo, "claims to be by hand", "AI-Generation: G0")
-    merge(repo, "pr", "Merge pr\n\n" + D("G1", "H2", "A1", ai="M, self-check"))
+    merge(repo, "pr", "Merge pr\n\n" + D("G1", "H2", "A1"))
     lines = by_line(result(repo)[0])
     assert lines[2].declaration.short() == "G3 H2 A1" and lines[2].kinds[0] == "branch"
-    assert lines[3].declaration.short() == "G1 H2 A1"  # the AI review requirement stays with the line
+    assert lines[3].declaration.short() == "G1 H2 A1"  # a policy for AI-written content stays with the line
     with open(repo / "SIGNOFF.toml", "a") as f:
         f.write(f'\n[[commits]]\ncommit = "{hand}"\nAI-Generation = "G0"\n')
     line = by_line(result(repo)[0])[3]
-    assert line.declaration.short() == "G0 H2 A0" and line.errors == []  # a self-check doesn't reach G0
+    assert line.declaration.short() == "G0 H2 A1" and line.errors == []  # the review was of the whole change
 
 
 # ------------------------------------------------------------------ L1
@@ -254,9 +254,9 @@ def test_a_snapshot_whose_runs_dont_cover_a_file_is_reported(repo, capsys):
 
 def test_freeze_shows_the_errors_and_refuses_warnings(repo, capsys):
     edit_lines(repo, [2])
-    bad = commit(repo, "a change to revert", D("G3", "H1", "A0"))
+    bad = commit(repo, "a change to revert", D("G3", "H1", "A0").replace("AI-Review: A0", "AI-Review: A1"))
     code, out = freeze(repo, capsys)
-    assert code == 2 and "G3 requires at least A1" in out and "solver.py" in out
+    assert code == 2 and "A1 needs AI-Reviewed-by" in out and "solver.py" in out
     with open(repo / "SIGNOFF.toml", "a") as f:
         f.write(f'\n[[commits]]\ncommit = "{bad}"\nAI-Review = "A1"\nAI-Reviewed-by = "M"\n')
     commit(repo, "correct it", D("G0", "H2", "A0"))
@@ -290,10 +290,10 @@ def test_attest_refuses_a_file_declared_as_a_whole(repo, capsys):
      {"AI-Generation"}),
     ({"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "TODO", "AI-Review": "A1", "AI-Reviewed-by": ["M"]},
      {"Human-Review"}),
-    ({"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H1", "Reviewed-by": ["J"], "AI-Review": "A0"},
-     {"AI-Review"}),  # policy: AI-written content must be self-checked
-    ({"AI-Generation": "G0", "Human-Review": "H1", "Reviewed-by": ["J"], "AI-Review": "A1", "AI-Reviewed-by": ["M"]},
-     {"AI-Review"}),
+    ({"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H1", "Reviewed-by": ["J"], "AI-Review": "A1",
+      "AI-Reviewed-by": ["M, self-check"]}, {"AI-Review"}),  # a self-check is no AI review
+    ({"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H1", "Reviewed-by": ["J"], "AI-Review": "A3",
+      "AI-Reviewed-by": ["M, benchmark"]}, {"AI-Review"}),  # not a different model
     ({"AI-Generation": "G0", "Human-Review": "H1", "AI-Review": "A0"}, {"Human-Review"}),
     ({"AI-Generation": "G7", "Human-Review": "H1", "Reviewed-by": ["J"], "AI-Review": "A0"}, {"AI-Generation"}),
 ])

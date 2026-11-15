@@ -58,9 +58,19 @@ def _values(args) -> dict:
 
 def _policy(root: Path) -> Policy:
     try:
-        return load(root).policy
+        config = load(root)
     except ConfigError as e:
         raise UsageError(str(e))
+    _refuse_version_3(config)
+    return config.policy
+
+
+def _refuse_version_3(config) -> None:
+    """Commands that write levels into SIGNOFF.toml (or inline tags) take them on today's scale."""
+    if config.version_3:
+        raise UsageError(f"{config.path.name} says version = 3, the AI review scale before version 4, and this "
+                         "command writes levels of today's scale: change the file over first (see 'Upgrading' in "
+                         "the documentation)")
 
 
 def _check_complete(values: dict, policy: Policy) -> None:
@@ -106,10 +116,10 @@ def cmd_init(args) -> int:
         '# exclude = ["reviews/**", "docs/build/**"]   # files that need no declaration,',
         "# such as the committed AI reviews in reviews/ (CONTRIBUTING.md)",
         "",
-        "# Minimum review levels (optional). G1-G3 always need at least A1.",
+        "# Minimum review levels (optional).",
         "# [policy]",
         '# "*" = { human = "H1" }',
-        '# G3  = { human = "H2", ai = "A2" }',
+        '# G3  = { human = "H2", ai = "A1" }',
         "",
     ]
     given = [args.generation, args.human, args.ai]
@@ -136,7 +146,7 @@ def cmd_init(args) -> int:
 
 
 # ---------------------------------------------------------------- lint
-def _declared(args):
+def _declared(args, version_3: bool = False):
     """The declaration of the change that isn't on the default branch yet, from --declare-from
     (a pull request description, read as its merge or squash commit's message will be) or from
     the level options. None: there is none."""
@@ -155,7 +165,9 @@ def _declared(args):
     from .pullrequest import reviewer
     text = text.replace("\r\n", "\n")
     name, problems, notes = reviewer(text, args.author or "")
-    pieces, both = parse_message(text, name, "the pull request description")
+    # the check before the merge: on the scale the repository's SIGNOFF.toml says, and strict about
+    # human review boxes ticked above an unticked one
+    pieces, both = parse_message(text, name, "the pull request description", version_3, gaps=not version_3)
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}
     args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
@@ -165,7 +177,7 @@ def _declared(args):
 def _history_results(project: Project, args):
     """The results as lint and report see them: with the change that hasn't landed declared from
     --declare-from (from --base on), or with HEAD as a commit of the default branch (--landed)."""
-    declared = _declared(args)
+    declared = _declared(args, project.config.version_3)
     base = None
     if args.landed and declared is not None:
         raise UsageError("--landed says that nothing is waiting for a pull request: it can't go with --declare-from")
@@ -227,7 +239,7 @@ def _pull_request(project: Project, args) -> dict | None:
     from .history import combine
     from .pullrequest import description_problems
     if not hasattr(args, "pr_pieces"):
-        _declared(args)
+        _declared(args, project.config.version_3)
     rules = getattr(args, "pr_rules", None)
     declaration = combine([args.pr_pieces.get(i) for i in range(3)])
     out = {"applies": True, "declaration": declaration, "problems": [], "notes": list(args.pr_notes)}
@@ -299,7 +311,7 @@ def cmd_lint(args) -> int:
     for warning in project.config.warnings + project.history_warnings:
         print(f"{'✗' if args.strict else '!'} {printable(warning)}")
 
-    for note in project.history_notes + pr_notes:
+    for note in project.config.notes + project.history_notes + pr_notes:
         print(f"! {printable(note)}")
     waiting = _waiting(results)
     if waiting:
@@ -558,6 +570,7 @@ def _git_out(root: Path, *args: str, strip: bool = True) -> str | None:
 
 def cmd_attest(args) -> int:
     project = _open(args.root)
+    _refuse_version_3(project.config)
     root = project.root
     if _git_out(root, "rev-parse", "--is-inside-work-tree") != "true":
         raise UsageError("attestations need a git repository")
@@ -785,7 +798,7 @@ def cmd_diff(args) -> int:
     if args.depth < 0:
         raise UsageError("--depth must be 0 or more")
     project = _open(args.root)
-    declared = _declared(args)
+    declared = _declared(args, project.config.version_3)
     try:
         data = diff.compute(project, args.base, declared, depth=args.depth, by_file=args.files)
     except (diff.DiffError, ProjectError) as e:

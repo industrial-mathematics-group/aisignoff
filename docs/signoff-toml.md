@@ -3,12 +3,12 @@
 `SIGNOFF.toml` sits in the repository root. Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
 
 ```toml
-version = 3
+version = 4
 exclude = ["reviews/**"]
 
 [policy]
 "*" = { human = "H1" }
-G3  = { human = "H2", ai = "A2" }
+G3  = { human = "H2", ai = "A1" }
 
 [[annotations]]
 path = "**"
@@ -43,7 +43,7 @@ Reviewed-by = "Jane Doe"
 
 | Key | Value |
 |---|---|
-| `version` | `3`, required. Versions 1 and 2 are no longer read; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2) |
+| `version` | `4`, required. `3` is still read, as the AI review scale before 1.0.0rc6 taken over to today's, with a note from `lint`: see [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6). Versions 1 and 2 are no longer read |
 | `exclude` | a glob or list of globs: files that need no declaration |
 
 ## Declaration keys
@@ -96,7 +96,7 @@ Declares or corrects the declaration of one commit, axis by axis. See [Correctin
 | `commit` | a commit hash, at least 4 hex digits, required |
 | declaration keys | at least one level; a name only next to its level |
 
-`lint` checks each entry as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't fall below the policy by themselves.)
+`lint` checks each entry as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't bring a line below the policy.)
 
 ## `[[attestations]]`
 
