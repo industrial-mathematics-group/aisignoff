@@ -13,7 +13,7 @@ from pathlib import Path
 from . import __version__, inline
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
-from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, REVIEWED, TODO, Declaration,
+from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, RECHECK, REVIEWED, TODO, Declaration,
                     Policy, counted_level, counted_short, printable, validate)
 from .project import Project, ProjectError, weighted_parts
 
@@ -120,6 +120,11 @@ def cmd_init(args) -> int:
         "# [policy]",
         '# "*" = { human = "H1" }',
         '# G3  = { human = "H2", ai = "A1" }',
+        "",
+        "# An AI review counts once its findings are fixed or listed as open. A fix for a finding of",
+        "# this severity or above (trivial, minor, major, critical) needs a new review (optional).",
+        "# [review]",
+        f'# recheck = "{RECHECK}"',
         "",
     ]
     given = [args.generation, args.human, args.ai]

@@ -133,8 +133,8 @@ jobs:
               "H3": "H3: validated it independently: new tests, a reference solution or method, or a second person's review",
               "A0": "A0: no independent AI review (the checks of the session that wrote it don't count)",
               "A1": "A1: a new AI session, without the original conversation, checked it",
-              "A2": "A2: a different, capable model did that check",
-              "A3": "A3: a different, capable model validated it with new evidence and a committed record",
+              "A2": "A2: a different, capable model did that check and committed a review report",
+              "A3": "A3: a different, capable model validated it with new evidence, committed with the report",
           }
 
 
@@ -274,7 +274,7 @@ jobs:
           Levels (each axis has one level; human and ai levels build on each other, declare the highest completed):
           - generation: G0 a human wrote it without AI; G1 a human wrote it, AI suggested or edited parts; G2 AI wrote substantial parts, a human directed the work and edited the result; G3 an AI agent produced it largely end to end. The highest level of any substantial part.
           - human: H0 checked the result as a whole: it does what was asked and the output is plausible; H1 ran it or reproduced the key results, and read the important parts; H2 read every line, understood it, checked edge cases; H3 validated it independently: new tests, a reference solution or method, or a second person's review.
-          - ai_review: A0 no independent AI review (what the session that wrote it checked itself is part of writing it and doesn't count); A1 a new AI session, without the original conversation, checked it; A2 a different, capable model did that check (a model that didn't write it; another model of the same vendor counts, another version of the same model doesn't); A3 a different, capable model validated it with new evidence (new tests or benchmarks, a second method, counterexamples) and a committed record.
+          - ai_review: A0 no independent AI review (what the session that wrote it checked itself is part of writing it and doesn't count); A1 a new AI session, without the original conversation, checked it; A2 a different, capable model did that check (a model that didn't write it; another model of the same vendor counts, another version of the same model doesn't); A2 also needs one committed review report; A3 a different, capable model validated it with new evidence (new tests or benchmarks, a second method, counterexamples), committed with the report.
 
           Rules the answers must meet:
           - G1-G3 need "models": the AI tools and models that wrote parts, as precisely as known, e.g. "Claude Opus 5.5 (Anthropic)". G0 has none.

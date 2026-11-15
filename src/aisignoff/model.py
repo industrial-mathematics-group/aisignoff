@@ -57,6 +57,12 @@ def at_least(level: str, minimum: str) -> bool:
     return ORDER[level] >= ORDER[minimum]
 
 
+# How severe a review's finding is, lowest first (docs/levels.md, after IEEE Std 1044-2009). A fix
+# for a finding from [review] recheck on (RECHECK by default) needs a new review before the level counts.
+SEVERITIES = ("trivial", "minor", "major", "critical")
+RECHECK = "major"
+
+
 # ------------------------------------------------------------------ the AI review scale of version 3
 def from_version_3(level, names=()):
     """An AI review level (with its names) of the scale before SIGNOFF.toml version 4, on today's

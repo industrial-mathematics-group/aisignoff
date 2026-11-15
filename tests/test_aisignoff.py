@@ -188,6 +188,18 @@ def test_config_errors(tmp_path):
             load(tmp_path)
 
 
+def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n')
+    assert load(tmp_path).recheck == "major"
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[review]\nrecheck = "minor"\nlater = 1\n')
+    config = load(tmp_path)
+    assert config.recheck == "minor" and "[review]: unknown key(s) later" in config.warnings[0]
+    for bad in ('[review]\nrecheck = "high"\n', '[review]\nrecheck = 2\n', 'review = "major"\n'):
+        (tmp_path / "SIGNOFF.toml").write_text('version = 4\n' + bad)
+        with pytest.raises(ConfigError, match="review"):
+            load(tmp_path)
+
+
 def test_unknown_settings_are_warnings(tmp_path):
     # a later 1.x may add optional settings: an older install warns about them instead of failing
     (tmp_path / "SIGNOFF.toml").write_text('version = 4\nfoo = 1\n[history]\nbar = 2\n')

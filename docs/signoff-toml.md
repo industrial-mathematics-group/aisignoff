@@ -63,6 +63,12 @@ What a complete declaration needs is on [Levels and rules](levels.md#what-a-vali
 
 Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overriding `"*"` key by key). Each value is a table with `human` (H0–H3) and/or `ai` (A0–A3). See [Minimum levels](levels.md#minimum-levels).
 
+## `[review]`
+
+| Key | Default | Value |
+|---|---|---|
+| `recheck` | `"major"` | `"trivial"`, `"minor"`, `"major"` or `"critical"`: a fix for a finding of this severity or above needs a new AI review before the level counts. See [When a review counts](levels.md#when-a-review-counts). A rule for reviewers, which aisignoff doesn't check |
+
 ## `[[annotations]]`
 
 | Key | Value |

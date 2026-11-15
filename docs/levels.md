@@ -36,21 +36,50 @@ From G2 on, the generating AI is expected to check its own work: run the tests, 
 
 ## AI review: A0 to A3
 
-The AI review axis counts only review that is independent of the session that wrote the content. Each level is the one below it plus one more kind of independence. `AI-Reviewed-by` names the reviewing model and how it reviewed; for A3 also where the record is.
+The AI review axis counts only review that is independent of the session that wrote the content. Each level is the one below it plus one more kind of independence. `AI-Reviewed-by` names the reviewing model and how it reviewed; for A2 and A3 also where the record is.
 
 | Level | Meaning | Code | Research and writing |
 |---|---|---|---|
 | **A0** No independent AI review | Nothing, or only the generating session's own checks | The agent ran its own tests; or no AI looked at it | The session reread its own draft; or no AI looked at it |
 | **A1** Context-free check | A new session reviewed the whole change without the generating conversation | Reads the full diff against the task; looks for bugs, missed cases and unclear code; runs the existing tests | Reads the full text; checks each step of the argument, that numbers agree between text, tables and figures, and that references exist |
-| **A2** Check by a different model | A1, done by a different, capable model | As A1 | As A1 |
-| **A3** Validated by a different model | A2, and the reviewer produced new evidence and left a record | Writes and runs new tests, edge cases or benchmarks, or compares with a reference implementation. The report or the tests are committed | Recomputes or derives the result another way, recreates plots with another method, proves it with a different ansatz, or searches for counterexamples. The report is committed |
+| **A2** Check by a different model | A1, done by a different, capable model, which commits a review report | As A1, and the report | As A1, and the report |
+| **A3** Validated by a different model | A2, and the reviewer produced new evidence and commits it with the report | Writes and runs new tests, edge cases or benchmarks, or compares with a reference implementation. The new tests and scripts are committed | Recomputes or derives the result another way, recreates plots with another method, proves it with a different ansatz, or searches for counterexamples. The scripts and derivations are committed |
 
 The terms:
 
 - **Context-free:** the reviewer gets the content and the task, not the generating conversation and not the author's conclusions. A subagent with a fresh context counts. A second model that reviews inside the generating conversation, with its context, doesn't: that is A0.
 - **Different model:** a model that is not named in `Assisted-by`. Another model of the same vendor counts (Fable reviewing Opus); another version of the same model doesn't. For G0 content, every model is a different one.
 - **Capable:** in the same tier as the model that wrote the content, or above; for G0 content, in the two top tiers ([Model tiers](#model-tiers)). A check by a weaker model counts as A1.
-- **When a level counts:** a review that finds problems counts once they are fixed or listed as open in its record. Small fixes for its findings need no second round.
+
+### The record of a review
+
+- **A2: one report.** Exactly one Markdown file, committed with the change (for example `reviews/2026-11-15-solver.md`), with only the results: what was reviewed and how, the findings with their severity, the fixes made for them, and the problems left open. No other files.
+- **A3: everything.** The same report, and with it what the reviewer produced: the new tests, benchmarks, scripts or derivations.
+- **A1** needs no record.
+
+`AI-Reviewed-by` names the report, such as `GPT Sol (OpenAI), new session, reviews/2026-11-15-solver.md`. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
+
+### When a review counts
+
+A review counts once each of its findings is fixed or listed as open in its record. Whether a fix needs a review of its own depends on the severity of the finding:
+
+| Severity | Meaning | Code | Research and writing |
+|---|---|---|---|
+| **critical** | The work fails its purpose, or does harm | Data loss or corruption, a security hole, a crash or wrong results in the main use case | A central result or conclusion is wrong; a proof fails; data are misused |
+| **major** | A wrong result or behaviour in a case that matters, with no easy way around it | A wrong result for a supported input; a broken feature; a missing check that lets invalid input through | A wrong number, formula or figure that a reader would rely on; a gap in an argument; a reference that doesn't say what is claimed |
+| **minor** | A limited effect, or an easy way around it | A wrong result in a rare edge case; a misleading error message; a missing test | An imprecise statement; an inconsistency between text and table that doesn't change a result |
+| **trivial** | No effect on results or behaviour | Naming, style, comments, typos | Wording, layout, typos |
+
+The four levels follow the severity of IEEE Std 1044-2009, the standard classification for software anomalies (critical, major, minor, inconsequential; its "blocking" counts as critical here) and of bug trackers such as Bugzilla. A security finding takes its level from its [CVSS](https://www.first.org/cvss/) rating: critical and high are critical, medium is major, low is minor.
+
+A fix for a **major** or **critical** finding needs a new review, at the level that is declared: a context-free check of the fix and of what it touches, added to the report. Fixes for minor and trivial findings need none. A repository can move that threshold:
+
+```toml
+[review]
+recheck = "major"   # trivial, minor, major (the default) or critical: fixes for findings from here on need a new review
+```
+
+aisignoff records this setting for the people and models that review, and can't check it: it doesn't read the reports.
 
 ### Model tiers
 
