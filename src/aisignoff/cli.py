@@ -163,7 +163,7 @@ def _declared(args, version_3: bool = False):
         return Declaration.from_mapping(values, "declared for this change") if values else None
     if values:
         raise UsageError("give --declare-from or the level options, not both")
-    from .history import findings_line, parse_message
+    from .history import findings_line, old_template, parse_message, parse_trailers
     try:
         text = sys.stdin.read() if args.declare_from == "-" else Path(args.declare_from).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
@@ -173,18 +173,47 @@ def _declared(args, version_3: bool = False):
     name, problems, notes = reviewer(text, args.author or "")
     # the check before the merge: on the scale the repository's SIGNOFF.toml says. Its "AI-Review-Findings:" line is checked with
     # the review report, under the base branch's [review] (_pull_request)
-    pieces, both = parse_message(text, name, "the pull request description", version_3, recheck=None)
+    pieces, both = parse_message(text, name, "the pull request description", version_3)
     args.pr_findings = findings_line(text)
+    # whether its AI review is on today's scale, where A2 and A3 give their findings and report: in
+    # version 4, and in version 3 for the ticked boxes of today's template (parse_message)
+    args.pr_today = not version_3 or (old_template(text) is False and 2 not in parse_trailers(text, ""))
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}
     args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
     return pieces
 
 
+def _load_base_rules(project: Project, args) -> None:
+    """The rules of the branch the change goes into (--base): its [policy] and [review] apply to the
+    change, which can't lower them itself, not even with --allow-policy-change, which lets it change
+    them for the pull requests after it."""
+    from .pullrequest import base_rules
+    try:
+        args.pr_rules = base_rules(project.root, args.base, project.config)
+    except ConfigError as e:
+        raise UsageError(str(e))
+    if args.pr_rules.config is not None:
+        project.config.policy = args.pr_rules.config.policy
+        project.config.recheck = args.pr_rules.config.recheck
+
+
+def _description_scale(project: Project, args) -> bool:
+    """Whether the pull request description is read on the AI review scale of version 3: the base
+    branch's version, as for its other rules, so a change of version doesn't change how the pull
+    request that makes it is read (ticked boxes of today's template are today's scale either way)."""
+    rules = getattr(args, "pr_rules", None)
+    if rules is not None and rules.config is not None:
+        return rules.config.version_3
+    return project.config.version_3
+
+
 def _history_results(project: Project, args):
     """The results as lint and report see them: with the change that hasn't landed declared from
     --declare-from (from --base on), or with HEAD as a commit of the default branch (--landed)."""
-    declared = _declared(args, project.config.version_3)
+    if args.base and args.declare_from is not None:
+        _load_base_rules(project, args)
+    declared = _declared(args, _description_scale(project, args))
     base = None
     if args.landed and declared is not None:
         raise UsageError("--landed says that nothing is waiting for a pull request: it can't go with --declare-from")
@@ -196,16 +225,11 @@ def _history_results(project: Project, args):
             base = merge_base(project.root, args.base)
         except DiffError as e:
             raise UsageError(str(e))
+        args.pr_merge_base = base
         # the rules of the branch the change goes into apply to it: it can't lower them itself, not even
         # with --allow-policy-change, which lets it change them for the pull requests after it
-        from .pullrequest import base_rules
-        try:
-            args.pr_rules = base_rules(project.root, args.base, project.config)
-        except ConfigError as e:
-            raise UsageError(str(e))
-        if args.pr_rules.config is not None:
-            project.config.policy = args.pr_rules.config.policy
-            project.config.recheck = args.pr_rules.config.recheck
+        if not hasattr(args, "pr_rules"):
+            _load_base_rules(project, args)
     elif getattr(args, "allow_policy_change", False):
         raise UsageError("--allow-policy-change needs --base")
     project.landed = args.landed
@@ -245,9 +269,9 @@ def _pull_request(project: Project, args) -> dict | None:
     if args.declare_from is None:
         return None
     from .history import combine
-    from .pullrequest import description_problems, review_problems
+    from .pullrequest import change_files, description_problems, review_problems
     if not hasattr(args, "pr_pieces"):
-        _declared(args, project.config.version_3)
+        _declared(args, _description_scale(project, args))
     rules = getattr(args, "pr_rules", None)
     declaration = combine([args.pr_pieces.get(i) for i in range(3)])
     out = {"applies": True, "declaration": declaration, "problems": [], "notes": list(args.pr_notes)}
@@ -258,12 +282,18 @@ def _pull_request(project: Project, args) -> dict | None:
     if not (project.history_used and project.config.history.merge_method == "rebase"):
         problems += [f"the pull request description: {p}"
                      for p in description_problems(args.pr_pieces, project.config.policy) if p not in problems]
-        if not project.config.version_3:
+        if getattr(args, "pr_today", True):
+            base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
             problems += [f"the pull request description: {p}" for p in
-                         review_problems(project.root, args.pr_pieces.get(2), args.pr_findings, project.config.recheck)]
+                         review_problems(project.root, args.pr_pieces.get(2), args.pr_findings, project.config.recheck,
+                                         change_files(project.root, base))]
     if rules is not None and rules.config is not None:
         what = (f"removes {FILENAME}" if project.config.path is None
                 else f"alters {', '.join(rules.changed)} in {FILENAME}" if rules.changed else None)
+        if rules.ignore_revs and project.config.path is not None:
+            # its entries give lines back to the commits before them, as [history] steers resolution
+            ignore = f"edits the entries of {rules.ignore_revs}"
+            what = f"{what} and {ignore}" if what else ignore
         problems += rules.unconverted
         if what and getattr(args, "allow_policy_change", False):
             # allowed, but said out loud, and it doesn't lower the bar for this pull request itself
@@ -280,14 +310,7 @@ def _pull_request(project: Project, args) -> dict | None:
 def _description_only(project: Project, args) -> int:
     """lint --declare-from in a repository without SIGNOFF.toml: only the description is checked."""
     if args.base:
-        from .pullrequest import base_rules
-        try:
-            args.pr_rules = base_rules(project.root, args.base, project.config)
-        except ConfigError as e:
-            raise UsageError(str(e))
-        if args.pr_rules.config is not None:
-            project.config.policy = args.pr_rules.config.policy
-            project.config.recheck = args.pr_rules.config.recheck
+        _load_base_rules(project, args)
     pr = _pull_request(project, args)
     for problem in pr["problems"]:
         print(f"✗ {printable(problem)}")

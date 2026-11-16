@@ -56,6 +56,7 @@ class BaseRules:
     changed: list[str] = field(default_factory=list)  # protected settings the pull request changes
     # declarations that read differently only because the pull request changes 'version' to 4
     unconverted: list[str] = field(default_factory=list)
+    ignore_revs: str | None = None  # the blame ignore file, when the pull request changes its entries
 
 
 def _show(root: Path, rev: str, name: str) -> str | None:
@@ -64,10 +65,60 @@ def _show(root: Path, rev: str, name: str) -> str | None:
     return _git(root, "show", f"{rev}:./{name}", check=False)
 
 
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _revs(text: str | None) -> set[str]:
+    """The entries of a .git-blame-ignore-revs file, without comments and blank lines."""
+    return {line.split("#", 1)[0].strip() for line in (text or "").splitlines()} - {""}
+
+
+def _unconverted_annotations(root: Path, base: Config, head: Config) -> list[str]:
+    """The annotations of HEAD that read differently only because HEAD changes 'version': for each
+    file, the AI review its annotation gives now, and the one the same text gives on the base
+    branch's scale. Comparing what files get, not entries by their spelling, finds an entry whose
+    path is written another way (\"src/**\" for \"**\") as well."""
+    import re as _re
+    from .history import _git
+    if head.path is None:
+        return []
+    text = _read(head.path)
+    if text is None:
+        return []
+    old = 3 if base.version_3 else 4
+    respelled, n = _re.subn(r"(?m)^(\s*version\s*=\s*)[34]\b", rf"\g<1>{old}", text, count=1)
+    if n != 1:
+        return []
+    try:
+        as_before = load_text(respelled, head.path)
+    except ConfigError:
+        return []
+    out: dict[int, str] = {}
+    files = (_git(root, "ls-files", "-z", check=False) or "").split("\0")
+    for f in filter(None, files):
+        if f == FILENAME or head.is_excluded(f):
+            continue
+        now, same, was = head.match(f), as_before.match(f), base.match(f)
+        if now is None or same is None or was is None or now.index in out:
+            continue
+        a_now, a_same, a_was = now.values.get(AIR), same.values.get(AIR), was.values.get(AIR)
+        if a_now and a_now != a_was and a_same == a_was:
+            out[now.index] = (f"{FILENAME} changes to version {4 if base.version_3 else 3} without converting its "
+                              f"levels: the entry for {', '.join(now.paths)} gives {f} {AIR} {a_now} now, and "
+                              f"{a_was} before. Convert the file with examples/convert-to-version-4.py, and raise "
+                              "levels in another change")
+    return [out[i] for i in sorted(out)]
+
+
 def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     """The rules of the base branch BASE, and which protected settings HEAD's SIGNOFF.toml changes:
     [policy], [review], exclude, [history] and version (which decides the scale the AI review levels
-    are read on). A repository's first SIGNOFF.toml changes nothing."""
+    are read on), and the entries of .git-blame-ignore-revs (or [history] ignore-revs-file), which
+    give lines back to other commits. A repository's first SIGNOFF.toml changes nothing."""
     text = _show(root, base, FILENAME)
     if text is None:
         return BaseRules(None)
@@ -81,15 +132,25 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
         changed.append("[history]")
     if config.recheck != head.recheck:
         changed.append("[review]")
+    ignore, ignored = head.history.ignore_revs_file or ".git-blame-ignore-revs", None
+    if _revs(_show(root, base, ignore)) != _revs(_read(root / ignore)):
+        # its entries give lines back to the commits before them: they steer resolution as [history] does
+        ignored = ignore
     unconverted = []
     if config.version_3 != head.version_3:
         changed.append("version")
         # the change to version 4 rewrites the levels (examples/convert-to-version-4.py): an entry that
         # is still there must read as before, or the change would raise its AI review by itself
-        for what, key in (("annotations", "paths"), ("commits", "commit"), ("attestations", "blob")):
-            before = {getattr(e, key): e.values.get(AIR) for e in getattr(config, what)}
+        from .history import _git
+
+        def commit(rev: str) -> str:  # "3f1c9e0" and its full hash are the same entry
+            return (_git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False) or rev).strip()
+        unconverted += _unconverted_annotations(root, config, head)
+        for what, key in (("commits", "commit"), ("attestations", "blob")):
+            spell = commit if what == "commits" else (lambda v: v)
+            before = {spell(getattr(e, key)): e.values.get(AIR) for e in getattr(config, what)}
             for e in getattr(head, what):
-                was = before.get(getattr(e, key))
+                was = before.get(spell(getattr(e, key)))
                 now = e.values.get(AIR)
                 if was and now and was != now:
                     name = ", ".join(e.paths) if what == "annotations" else getattr(e, key)[:12]
@@ -97,30 +158,78 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
                                        f"its levels: the entry for {name} read {AIR} {was} before and reads {now} now. "
                                        "Convert the file with examples/convert-to-version-4.py, and raise levels "
                                        "in another change")
-    return BaseRules(config, changed, unconverted)
+    return BaseRules(config, changed, unconverted, ignored)
 
 
 _REPORT_LINK = re.compile(r"https?://[^\s,;()<>]+", re.I)
 _REPORT_PATH = re.compile(r"[\w./@+-]*[\w@+-]\.[A-Za-z][\w]*|[\w.@+-]+(?:/[\w.@+-]+)+")
+_REPORT_SUFFIXES = (".md", ".txt", ".pdf", ".rst", ".html", ".ipynb", ".tex", ".org", ".adoc")
 
 
-def review_problems(root: Path, piece, findings: str | None, recheck: str) -> list[str]:
+def change_files(root: Path, base: str | None) -> set[str] | None:
+    """The files a change adds or modifies since BASE (paths from the top of the repository): its
+    commits, what isn't committed yet and new files that aren't ignored. None: no base is known."""
+    from .history import _git
+    if not base:
+        return None
+    changed = _git(root, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=d", base, "--", check=False)
+    if changed is None:
+        return None
+    new = _git(root, "ls-files", "--others", "--exclude-standard", "--full-name", "-z", check=False) or ""
+    return {f for f in (changed + "\0" + new).split("\0") if f}
+
+
+def _report_paths(root: Path, item: str) -> list[str]:
+    """The paths an item of AI-Reviewed-by names: the whole item when it is a file ("reviews/pull
+    7.md"), else its words that look like paths."""
+    item = item.strip()
+    if item and (root / item).is_file():
+        return [item]
+    return [m.group(0) for m in _REPORT_PATH.finditer(item)]
+
+
+def review_problems(root: Path, piece, findings: str | None, recheck: str, changed: set[str] | None = None) -> list[str]:
     """The check before the merge of a pull request that declares A2 or A3 (PIECE, its AI review):
-    the "AI-Review-Findings:" line FINDINGS, and that AI-Reviewed-by names the review's report, a
-    file of the change or a link. What the report says is never read: its form is the
-    repository's business."""
+    the "AI-Review-Findings:" line FINDINGS, and that AI-Reviewed-by names the reviewing model and
+    the review's report: a link, or a file inside the repository that the change adds or modifies
+    (CHANGED, from change_files; None: any file of the repository). What the report says is never
+    read: its form is the repository's business."""
+    from .history import _git
     from .model import findings_problems
     level = piece.level if piece else None
     problems = findings_problems(level, findings, recheck, required=True)
     if level not in ("A2", "A3"):
         return problems
-    text = " ".join(piece.names)
-    if _REPORT_LINK.search(text):
+    items = [i.strip() for n in piece.names for i in n.split(",") if i.strip()]
+    if items and (_REPORT_LINK.match(items[0]) or _report_paths(root, items[0]) == [items[0]]
+                  and ("/" in items[0] or items[0].lower().endswith(_REPORT_SUFFIXES))):
+        problems.append(f"{AI_REVIEWED} names the report, but not the reviewing model before it "
+                        "(\"GPT Sol (OpenAI), reviews/pull12.md\")")
+    if any(_REPORT_LINK.search(i) for i in items):
         return problems
-    paths = [m.group(0).removeprefix("./") for m in _REPORT_PATH.finditer(_REPORT_LINK.sub(" ", text))]
-    if any((root / p).is_file() for p in paths):
+    top = Path((_git(root, "rev-parse", "--show-toplevel", check=False) or str(root)).strip()).resolve()
+    found, outside, old = False, None, None
+    paths = [p for i in items for p in _report_paths(root, i)]
+    for p in paths:
+        full = (root / p).resolve()
+        if not full.is_relative_to(top):
+            outside = outside or p
+            continue
+        if not full.is_file():
+            continue
+        if changed is None or full.relative_to(top).as_posix() in changed:
+            found = True
+            break
+        old = old or p
+    if found:
         return problems
-    named = [p for p in paths if "/" in p or p.lower().endswith((".md", ".txt", ".pdf", ".rst", ".html"))]
+    if outside:
+        return problems + [f"the review report {outside} is outside the repository: commit this review's report "
+                           "with the pull request, or link it"]
+    if old:
+        return problems + [f"the review report {old} isn't part of this change: it was there before, so it is "
+                           "an earlier review's. Commit this review's report with the pull request"]
+    named = [p for p in paths if p.lower().endswith(_REPORT_SUFFIXES)]
     if named:
         return problems + [f"the review report {named[0]} isn't in this change: commit it with the pull request"]
     return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of a file in this change, or a "

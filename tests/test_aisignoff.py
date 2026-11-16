@@ -195,12 +195,19 @@ def test_the_findings_line_of_a_review():
     assert "A2 needs a line 'AI-Review-Findings:'" in findings_problems("A2", "", required=True)[0]
     assert "invalid AI-Review-Findings 'high'" in findings_problems("A2", "high")[0]
     assert "needs a new review" in findings_problems("A2", "Major")[0] and findings_problems("A2", "major", "critical") == []
-    assert "needs a new review" in findings_problems("A1", "minor", "minor")[0]
-    # a landed commit: the line is checked where it is given, and isn't required
+    # the line belongs to A2 and A3: below that it isn't read, so a template's "n/a" does no harm
+    assert findings_problems("A1", "minor", "minor") == [] and findings_problems("A0", "n/a", required=True) == []
+    assert findings_problems("A2", "None.") == [] and findings_problems("A2", "**minor**") == []
+    # several lines: the most severe counts, and an empty one only when none is filled in
+    assert findings_line("AI-Review-Findings: critical\nAI-Review-Findings: none\n") == "critical"
+    assert findings_line("AI-Review-Findings: none\nAI-Review-Findings: critical\n") == "critical"
+    assert findings_line("AI-Review-Findings: minor\nAI-Review-Findings:\n") == "minor"
+    assert findings_line("AI-Review-Findings: high\nAI-Review-Findings: critical\n") == "high"
+    # the key in bold or in a list item, as templates are often filled in
+    assert findings_line("**AI-Review-Findings:** none\n") == "none" and findings_line("- AI-Review-Findings: minor\n") == "minor"
+    # parse_message leaves the line to its caller (History judges a landed commit by the rules it landed under)
     body = "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A2\nAI-Reviewed-by: N, r.md\n"
-    assert parse_message(body, "J", "c")[0][2].problems == ()
-    assert "found a critical problem" in parse_message(body + "AI-Review-Findings: critical\n", "J", "c")[0][2].problems[0]
-    assert parse_message(body + "AI-Review-Findings: critical\n", "J", "c", version_3=True)[0][2].problems == ()
+    assert parse_message(body + "AI-Review-Findings: critical\n", "J", "c")[0][2].problems == ()
 
 
 def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):

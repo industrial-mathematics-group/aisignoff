@@ -12,7 +12,7 @@ aisignoff lint
 
 Research code, analysis scripts, papers and data are increasingly written with AI help. Readers, reviewers and co-authors need to know which parts were, and what was done to check them. aisignoff makes that a property of the repository, kept next to the code:
 
-- **Declare** each file once in [`SIGNOFF.toml`](files.md) or in a header comment, and let each pull request [declare its own lines](history.md) through its description.
+- **Declare** each file once in [`SIGNOFF.toml`](files.md), and let each pull request [declare its own lines](history.md) through its description.
 - **Check** in CI that nothing is undeclared, incomplete or below the repository's [minimum levels](levels.md#minimum-levels).
 - **Show** the result: README [badges](report.md#badges), a [folder report](report.md#the-interactive-report) like a coverage report, and the levels of just the lines a pull request changes ([`aisignoff diff`](report.md#the-lines-of-a-change-aisignoff-diff)).
 
@@ -35,7 +35,7 @@ The rules that go with them are on [Levels and rules](levels.md).
 
 aisignoff works at two depths, and you can start with the first:
 
-- **File level.** `SIGNOFF.toml` maps paths to levels: a default for `**`, exceptions for folders and globs. Files can also carry the levels in a header comment. This needs nothing but the file, and suits results, data, notebooks and papers. See [Declaring files](files.md).
+- **File level.** `SIGNOFF.toml` maps paths to levels: a default for `**`, exceptions for folders and globs. This needs nothing but `SIGNOFF.toml`, and suits results, data, notebooks and papers. See [Declaring files](files.md).
 - **Line level.** With `[history]` in `SIGNOFF.toml`, each line takes the declaration of the commit that landed it on the default branch, which for a pull request is its description. A pull request that changes 35 lines of an 800-line file changes the levels of those 35 lines. The file-level declarations stay as the fallback. See [Declaring lines](history.md).
 
 ## Where to go next

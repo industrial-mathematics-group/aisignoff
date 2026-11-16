@@ -194,6 +194,7 @@ Reviewed-by = "Jane Doe"
 - For a commit inside a merged pull request, only `AI-Generation` counts, and it may be lower than the pull request's. `lint` warns about review levels there.
 - An entry for a commit that isn't in the history of `HEAD` (rebased or squashed away) declares nothing, and `lint` says so.
 - Entries don't change lines a [snapshot](snapshots.md) has frozen; `aisignoff freeze --reset FILE` applies them there.
+- A commit that landed with a severe `AI-Review-Findings:` ([When a review counts](levels.md#when-a-review-counts)) needs no entry when the problem is fixed: the fix, with a new review of A2 or A3 and a lower finding, clears it. An entry that gives its `AI-Review` replaces the commit's review, findings line included.
 
 ## Raising a review: attestations
 
@@ -239,5 +240,5 @@ aisignoff finds the default branch as `origin`'s default branch, else the one Gi
 - **Binary and empty files and symlinks** are one unit, counted as one line: the commit that last changed the file declares it.
 - **Moved lines** belong to the commit that moved them: a line moved to another file is a new line there.
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.
-- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported. An ignored commit's lines go back to the commits before it, with their levels, so `lint` warns about an entry that declares levels, is a merge, or looks like a pull request.
+- **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported. An ignored commit's lines go back to the commits before it, with their levels, so `lint` warns about an entry that declares levels, is a merge, or looks like a pull request. For the same reason, a pull request can't change the entries of that file, as it can't change `[history]` ([Checking the pull request description](ci.md#checking-the-pull-request-description)).
 - **Without history**, outside git or in a shallow clone, aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails instead.
