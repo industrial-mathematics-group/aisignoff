@@ -2,6 +2,22 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 1.0.0rc8
+
+Fixes from two independent reviews of 1.0.0rc7, mostly in the record of an A2 or A3 review. See [Upgrading](migrating.md#to-100rc8).
+
+- **Breaking:** in the check before the merge, the report that `AI-Reviewed-by` names must be a file that the pull request adds or modifies, inside the repository, or a link. Before, any file that existed passed: an earlier review's report, `README.md`, or a path outside the repository. A report path may contain spaces, and A2 or A3 that names a report but no model before it fails.
+- A severe `AI-Review-Findings:` in a landed commit no longer needs a `[[commits]]` entry to clear it: a later change that modifies one of that commit's files and declares a new review of A2 or A3, with a lower finding, clears it, and so does an attestation for the lines it covers. The error says so.
+- A landed commit's `AI-Review-Findings:` is judged by the `[review]` `recheck` of the `SIGNOFF.toml` it landed on (its first parent's). Tightening the threshold on the default branch, also in the pull request that does it, no longer fails earlier commits.
+- `AI-Review-Findings:` is read only next to A2 and A3, so a template's line filled in with `n/a` or `-` no longer fails an A0 or A1 pull request. With several lines, the most severe value counts (before, the last one did, so `critical` and then `none` passed). A trailing full stop and a key in bold or in a list item are accepted.
+- `examples/inline-tags-to-toml.py` runs on `SIGNOFF.toml` version 3 and writes the tags on that scale, so that tags are moved first and `convert-to-version-4.py` converts them with the rest. The documented order of 1.0.0rc7 (convert first) raised A1 and A2 tags of version 3 by one level.
+- **Breaking:** a pull request can't change the entries of `.git-blame-ignore-revs` (or `[history]` `ignore-revs-file`) without `--allow-policy-change`: they give lines back to other commits, as `[history]` does.
+- The different-model check splits names at hyphens and slashes and ignores vendors, tools and modes, so `claude-opus-5-5`, `anthropic/claude-opus-5.5`, `Claude Code (Opus 5.5)` and `Claude Opus 5.5 Thinking` are the model that `Claude Opus (Anthropic)` wrote with, and an `Assisted-by` value can list several models. A family name alone (`Claude`) doesn't make a reviewer the same model.
+- Fixed: "independent of the generating session", "not the same session" and similar words counted as a self-check, in `AI-Reviewed-by` and in a customised A1 box.
+- The check that a change to version 4 converts its entries also finds a `[[commits]]` entry whose hash is written with another number of digits.
+- In a repository still on `version = 3`, A2 and A3 from the ticked boxes of today's template give their findings line and report before the merge.
+- The README and the front page of the documentation no longer mention declarations in header comments.
+
 ## 1.0.0rc7
 
 aisignoff now takes everything it knows from `SIGNOFF.toml` and from git (commit messages, pull request descriptions, blame), and never from the content of a file. That ends two things: the report check of 1.0.0rc6, which read the findings out of review reports, and inline tags. See [Upgrading](migrating.md#to-100rc7-no-declarations-in-files).

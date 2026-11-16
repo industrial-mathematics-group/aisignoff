@@ -10,7 +10,7 @@
 
 **aisignoff records how each file, and each line, of a repository was made and checked:** how much an AI generated (G0–G3), how thoroughly a human reviewed it (H0–H3), and how thoroughly an AI reviewed it (A0–A3). `aisignoff lint` checks those declarations in CI.
 
-It works like [REUSE](https://reuse.software) does for licences: a path-based `SIGNOFF.toml`, optional tags in file headers, and a `lint` command. With `[history]`, each pull request declares exactly the lines it changes, with its description. The name is meant both ways: the AI signs off, and so does the human ("ai", said in German, sounds like "I"). It's a declaration, not a cryptographic signature.
+It works like [REUSE](https://reuse.software) does for licences: a path-based `SIGNOFF.toml`, declarations in commit messages and pull request descriptions, and a `lint` command. With `[history]`, each pull request declares exactly the lines it changes, with its description. The name is meant both ways: the AI signs off, and so does the human ("ai", said in German, sounds like "I"). It's a declaration, not a cryptographic signature.
 
 ## Install
 

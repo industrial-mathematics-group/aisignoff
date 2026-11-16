@@ -67,24 +67,48 @@ FINDINGS = "AI-Review-Findings"
 NO_FINDINGS = "none"
 
 
+def findings_value(value: str) -> str:
+    """A findings value as written, the way it is compared: "**None.**" is "none"."""
+    return value.strip().strip("*_`").strip().rstrip(".!").strip().lower()
+
+
 def findings_problems(level: str | None, value: str | None, recheck: str = RECHECK, required: bool = False) -> list[str]:
     """What is wrong with the AI-Review-Findings line VALUE (None: there is none) next to the AI
-    review LEVEL. required: A2 and A3 must give it (the check before the merge)."""
+    review LEVEL. The line belongs to a review of A2 or A3: next to a lower level it isn't read, so
+    a template's line filled in with "n/a" does no harm. required: A2 and A3 must give it (the
+    check before the merge)."""
+    if level not in ("A2", "A3"):
+        return []
     if not value:
-        if required and level in ("A2", "A3"):
+        if required:
             return [f"{level} needs a line '{FINDINGS}:' with the highest severity the review found in this change "
                     f"({NO_FINDINGS}, {', '.join(SEVERITIES)})"]
         return []
-    v = value.strip().lower()
+    v = findings_value(value)
     if v == NO_FINDINGS:
         return []
     if v not in SEVERITIES:
         return [f"invalid {FINDINGS} {value!r}: must be one of {NO_FINDINGS}, {', '.join(SEVERITIES)}"]
-    if SEVERITIES.index(v) >= SEVERITIES.index(recheck):
+    if severe(v, recheck):
         return [f"{FINDINGS}: {v} says that the AI review found a {v} problem in this change, and a finding from "
                 f"{recheck} on needs a new review ([review] recheck): fix it, have the change reviewed again, "
                 "and declare that review"]
     return []
+
+
+def severe(value: str, recheck: str = RECHECK) -> bool:
+    """Whether a findings value (as findings_value gives it) needs a new review."""
+    return value in SEVERITIES and SEVERITIES.index(value) >= SEVERITIES.index(recheck)
+
+
+def worst_findings(values: list[str]) -> str:
+    """The value that counts among several findings lines: an invalid one (so that it is reported),
+    else the most severe. A line left empty counts only when no line is filled in."""
+    filled = [v for v in values if v.strip()]
+    if not filled:
+        return values[-1] if values else ""
+    rank = {NO_FINDINGS: 0, **{s: i + 1 for i, s in enumerate(SEVERITIES)}}
+    return max(filled, key=lambda v: rank.get(findings_value(v), len(rank) + 1))
 
 
 # ------------------------------------------------------------------ the AI review scale of version 3
@@ -236,7 +260,7 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
     if a == "A0" and d.ai_reviewed_by:
         errors.append(f"A0 means no AI review, but {AI_REVIEWED} is set")
     reviewers = [n for n in d.ai_reviewed_by if n != TODO]
-    if a in ("A1", "A2", "A3") and reviewers and all(_SELF_CHECK.search(n) for n in reviewers):
+    if a in ("A1", "A2", "A3") and reviewers and all(mentions_self_check(n) for n in reviewers):
         errors.append(f"{a} names only a self-check in {AI_REVIEWED}: what the generating session checks itself "
                       "is no AI review (A0, the scale before version 4 called it A1)")
     elif a in ("A2", "A3") and reviewers and all(_same_model(n, d.assisted_by) for n in reviewers):
@@ -256,28 +280,52 @@ def validate(d: Declaration, policy: Policy | None = None, allow_todo: bool = Fa
     return errors
 
 
-_SELF_CHECK = re.compile(r"self[- ]?check|same session|(?<!without the )generating session", re.I)
-_VERSION = re.compile(r"^v?\d[\w.-]*$", re.I)
+_SELF_CHECK = re.compile(r"self[- ]?check|same session|generating session", re.I)
+# "not the same session", "independent of the generating session", "without access to the ...": the
+# words that say a review was *not* a self-check
+_NEGATED = re.compile(r"\b(?:not|no|never|without|independent(?:ly)?\s+of|outside(?:\s+of)?|other\s+than|separate(?:ly)?\s+from|"
+                      r"different\s+from|apart\s+from|instead\s+of|isn't|wasn't|rather\s+than)\b"
+                      r"(?:\s+(?:the|a|an|any|that|of|to|from|access|its|their|in|with|by))*\s*$", re.I)
 
 
-def _model_words(name: str) -> list[str]:
+def mentions_self_check(text: str, pattern: re.Pattern = _SELF_CHECK) -> bool:
+    """Whether TEXT says it is a self-check: the words of PATTERN, not negated."""
+    return any(not _NEGATED.search(text[:m.start()]) for m in pattern.finditer(text))
+
+
+_VERSION = re.compile(r"^v?\d[\w.]*$", re.I)
+# words that don't tell models apart: vendors, tools, modes ("Claude Code (Claude Opus 5.5), thinking")
+_FILLER = frozenset("""anthropic openai google deepmind meta microsoft github xai mistralai ai inc
+    code cli app desktop web api via with using in on by and the model agent mode thinking extended reasoning
+    high medium low max effort preview latest""".split())
+# a family name alone doesn't name one model: "Claude" may be any of them
+_FAMILY = frozenset("claude gpt chatgpt gemini llama mistral grok deepseek qwen".split())
+
+
+def _model_words(name: str) -> set[str]:
     """The words that name a model in "Claude Opus 5.5 (Anthropic), new session": what comes before
-    the first comma, without the vendor in brackets and without version numbers."""
-    name = re.sub(r"\([^()]*\)", " ", name.split(",")[0])
-    return [w for w in re.findall(r"[^\W_]+(?:[.-][^\W_]+)*", name.casefold()) if not _VERSION.match(w)]
+    the first comma, split at spaces, hyphens and slashes, without vendors, tools and version
+    numbers. "claude-opus-5-5" and "anthropic/claude-opus-5.5" are "claude opus" as well."""
+    name = name.split(",")[0].casefold()
+    return {w for w in re.findall(r"[^\W_]+(?:\.[^\W_]+)*", name) if not _VERSION.match(w) and w not in _FILLER}
 
 
 def _same_model(reviewer: str, assisted: tuple[str, ...]) -> bool:
     """Whether an AI-Reviewed-by entry names a model of Assisted-by. Names are compared by their
-    words, without vendor and version: "Claude Opus (Anthropic)" wrote it, so "Claude Opus 5.5
-    (Anthropic), new session" and "Opus 5.5, new session" review it as the same model, and "Claude
-    Fable" as a different one. Another version of a model is the same model."""
+    words, without vendor, tool and version: "Claude Opus (Anthropic)" wrote it, so "Claude Opus 5.5
+    (Anthropic), new session", "Opus 5.5, new session", "claude-opus-5-5" and "Claude Opus 5.5
+    Thinking" review it as the same model, and "Claude Fable" or "Claude Opus Pro" as a different one. Another version
+    of a model is the same model. An Assisted-by value can list several models, separated by commas."""
     r = _model_words(reviewer)
-    for m in assisted:
+    if not r:
+        return False
+    for m in (part for value in assisted for part in value.split(",")):
         words = _model_words(m)
-        if not words or not r:
+        if not words:
             continue
-        if all(w in words for w in r):  # the same words, or a short form of them ("Opus")
+        if r <= words:  # the same words, or a short form of them ("Opus")
+            return True
+        if words <= r and r - words <= _FAMILY and words - _FAMILY:  # "Opus" wrote it, "Claude Opus" reviews
             return True
     return False
 

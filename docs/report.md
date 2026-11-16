@@ -154,7 +154,7 @@ raw.githubusercontent.com only serves public repositories.
 
 Each part has the six level and name keys above, `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `frozen`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
 
-With `--declare-from`, `report --json` also has `pull_request`: `applies` (`false` for a pull request into another branch than the default one, whose description declares nothing), the six level and name keys of what the description declares, `source` and `errors` (what [`lint`](ci.md#checking-the-pull-request-description) would report about the description).
+With `--declare-from`, `report --json` also has `pull_request`: `applies` (`false` for a pull request into another branch than the default one, whose description declares nothing), the six level and name keys of what the description declares, `AI-Review-Findings` (its findings line as written, `null` without one), `source` and `errors` (what [`lint`](ci.md#checking-the-pull-request-description) would report about the description).
 
 **`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` (shares, 0 to 1) and `lines` (numbers), by level and `undeclared`.
 
