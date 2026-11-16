@@ -14,7 +14,7 @@ from . import __version__
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, RECHECK, REVIEWED, TODO, Declaration,
-                    Policy, counted_level, counted_short, printable, validate)
+                    Policy, SEVERITIES, counted_level, counted_short, printable, validate)
 from .project import Project, ProjectError, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
@@ -124,10 +124,23 @@ def cmd_init(args) -> int:
         "# A commit or pull request that declares A2 or A3 says the highest severity its review found in",
         '# the change, in a line "AI-Review-Findings: minor". From this severity on (trivial, minor, major,',
         "# critical), the finding needs a new review, and lint fails (optional).",
-        "# [review]",
-        f'# recheck = "{RECHECK}"',
-        "",
     ]
+    if args.recheck:
+        lines += ["[review]", f"recheck = {_toml_str(args.recheck)}", ""]
+    else:
+        lines += ["# [review]", f'# recheck = "{RECHECK}"', ""]
+    if args.history:
+        lines += [
+            "# Line-level declarations from git history: each line takes the levels of the commit that",
+            '# wrote it (its "AI-Generation:" ... lines, or its pull request\'s template), and the',
+            "# annotations below are the baseline for lines whose commit declares nothing.",
+            "[history]",
+            "enabled = true",
+            '# undeclared = "error"                 # every commit on the default branch must declare its lines',
+            '# require-trailers-since = "<commit>"  # ... from this commit on',
+            '# merge-method = "merge"               # how pull requests land: merge, squash or rebase',
+            "",
+        ]
     given = [args.generation, args.human, args.ai]
     if any(given):
         if not all(given):
@@ -913,6 +926,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("init", help=f"create {FILENAME}")
     _add_values(p, required=False)
+    p.add_argument("--recheck", choices=SEVERITIES, help="turn on [review] with this threshold: an A2 or A3 "
+                   "review that found a finding this severe needs a new review")
+    p.add_argument("--history", action="store_true", help="turn on [history]: line-level declarations from git history")
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("lint", help="check that every file has a valid declaration")

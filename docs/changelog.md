@@ -2,6 +2,10 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## Unreleased
+
+- `init --recheck SEVERITY` turns on `[review]` with that threshold and `init --history` turns on `[history]`, so that a workflow can set up a repository with its organisation's defaults in one command (with the levels left `TODO`).
+
 ## 1.0.0rc8
 
 Fixes from two independent reviews of 1.0.0rc7, mostly in the record of an A2 or A3 review. See [Upgrading](migrating.md#to-100rc8).
