@@ -184,10 +184,36 @@ def _declared(args, version_3: bool = False):
     return pieces
 
 
+def _load_base_rules(project: Project, args) -> None:
+    """The rules of the branch the change goes into (--base): its [policy] and [review] apply to the
+    change, which can't lower them itself, not even with --allow-policy-change, which lets it change
+    them for the pull requests after it."""
+    from .pullrequest import base_rules
+    try:
+        args.pr_rules = base_rules(project.root, args.base, project.config)
+    except ConfigError as e:
+        raise UsageError(str(e))
+    if args.pr_rules.config is not None:
+        project.config.policy = args.pr_rules.config.policy
+        project.config.recheck = args.pr_rules.config.recheck
+
+
+def _description_scale(project: Project, args) -> bool:
+    """Whether the pull request description is read on the AI review scale of version 3: the base
+    branch's version, as for its other rules, so a change of version doesn't change how the pull
+    request that makes it is read (ticked boxes of today's template are today's scale either way)."""
+    rules = getattr(args, "pr_rules", None)
+    if rules is not None and rules.config is not None:
+        return rules.config.version_3
+    return project.config.version_3
+
+
 def _history_results(project: Project, args):
     """The results as lint and report see them: with the change that hasn't landed declared from
     --declare-from (from --base on), or with HEAD as a commit of the default branch (--landed)."""
-    declared = _declared(args, project.config.version_3)
+    if args.base and args.declare_from is not None:
+        _load_base_rules(project, args)
+    declared = _declared(args, _description_scale(project, args))
     base = None
     if args.landed and declared is not None:
         raise UsageError("--landed says that nothing is waiting for a pull request: it can't go with --declare-from")
@@ -202,14 +228,8 @@ def _history_results(project: Project, args):
         args.pr_merge_base = base
         # the rules of the branch the change goes into apply to it: it can't lower them itself, not even
         # with --allow-policy-change, which lets it change them for the pull requests after it
-        from .pullrequest import base_rules
-        try:
-            args.pr_rules = base_rules(project.root, args.base, project.config)
-        except ConfigError as e:
-            raise UsageError(str(e))
-        if args.pr_rules.config is not None:
-            project.config.policy = args.pr_rules.config.policy
-            project.config.recheck = args.pr_rules.config.recheck
+        if not hasattr(args, "pr_rules"):
+            _load_base_rules(project, args)
     elif getattr(args, "allow_policy_change", False):
         raise UsageError("--allow-policy-change needs --base")
     project.landed = args.landed
@@ -251,7 +271,7 @@ def _pull_request(project: Project, args) -> dict | None:
     from .history import combine
     from .pullrequest import change_files, description_problems, review_problems
     if not hasattr(args, "pr_pieces"):
-        _declared(args, project.config.version_3)
+        _declared(args, _description_scale(project, args))
     rules = getattr(args, "pr_rules", None)
     declaration = combine([args.pr_pieces.get(i) for i in range(3)])
     out = {"applies": True, "declaration": declaration, "problems": [], "notes": list(args.pr_notes)}
@@ -290,14 +310,7 @@ def _pull_request(project: Project, args) -> dict | None:
 def _description_only(project: Project, args) -> int:
     """lint --declare-from in a repository without SIGNOFF.toml: only the description is checked."""
     if args.base:
-        from .pullrequest import base_rules
-        try:
-            args.pr_rules = base_rules(project.root, args.base, project.config)
-        except ConfigError as e:
-            raise UsageError(str(e))
-        if args.pr_rules.config is not None:
-            project.config.policy = args.pr_rules.config.policy
-            project.config.recheck = args.pr_rules.config.recheck
+        _load_base_rules(project, args)
     pr = _pull_request(project, args)
     for problem in pr["problems"]:
         print(f"✗ {printable(problem)}")

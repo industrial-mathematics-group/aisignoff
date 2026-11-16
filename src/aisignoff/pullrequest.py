@@ -77,6 +77,43 @@ def _revs(text: str | None) -> set[str]:
     return {line.split("#", 1)[0].strip() for line in (text or "").splitlines()} - {""}
 
 
+def _unconverted_annotations(root: Path, base: Config, head: Config) -> list[str]:
+    """The annotations of HEAD that read differently only because HEAD changes 'version': for each
+    file, the AI review its annotation gives now, and the one the same text gives on the base
+    branch's scale. Comparing what files get, not entries by their spelling, finds an entry whose
+    path is written another way (\"src/**\" for \"**\") as well."""
+    import re as _re
+    from .history import _git
+    if head.path is None:
+        return []
+    text = _read(head.path)
+    if text is None:
+        return []
+    old = 3 if base.version_3 else 4
+    respelled, n = _re.subn(r"(?m)^(\s*version\s*=\s*)[34]\b", rf"\g<1>{old}", text, count=1)
+    if n != 1:
+        return []
+    try:
+        as_before = load_text(respelled, head.path)
+    except ConfigError:
+        return []
+    out: dict[int, str] = {}
+    files = (_git(root, "ls-files", "-z", check=False) or "").split("\0")
+    for f in filter(None, files):
+        if f == FILENAME or head.is_excluded(f):
+            continue
+        now, same, was = head.match(f), as_before.match(f), base.match(f)
+        if now is None or same is None or was is None or now.index in out:
+            continue
+        a_now, a_same, a_was = now.values.get(AIR), same.values.get(AIR), was.values.get(AIR)
+        if a_now and a_now != a_was and a_same == a_was:
+            out[now.index] = (f"{FILENAME} changes to version {4 if base.version_3 else 3} without converting its "
+                              f"levels: the entry for {', '.join(now.paths)} gives {f} {AIR} {a_now} now, and "
+                              f"{a_was} before. Convert the file with examples/convert-to-version-4.py, and raise "
+                              "levels in another change")
+    return [out[i] for i in sorted(out)]
+
+
 def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     """The rules of the base branch BASE, and which protected settings HEAD's SIGNOFF.toml changes:
     [policy], [review], exclude, [history] and version (which decides the scale the AI review levels
@@ -108,7 +145,8 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
 
         def commit(rev: str) -> str:  # "3f1c9e0" and its full hash are the same entry
             return (_git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False) or rev).strip()
-        for what, key in (("annotations", "paths"), ("commits", "commit"), ("attestations", "blob")):
+        unconverted += _unconverted_annotations(root, config, head)
+        for what, key in (("commits", "commit"), ("attestations", "blob")):
             spell = commit if what == "commits" else (lambda v: v)
             before = {spell(getattr(e, key)): e.values.get(AIR) for e in getattr(config, what)}
             for e in getattr(head, what):

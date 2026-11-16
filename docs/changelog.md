@@ -14,7 +14,9 @@ Fixes from two independent reviews of 1.0.0rc7, mostly in the record of an A2 or
 - **Breaking:** a pull request can't change the entries of `.git-blame-ignore-revs` (or `[history]` `ignore-revs-file`) without `--allow-policy-change`: they give lines back to other commits, as `[history]` does.
 - The different-model check splits names at hyphens and slashes and ignores vendors, tools and modes, so `claude-opus-5-5`, `anthropic/claude-opus-5.5`, `Claude Code (Opus 5.5)` and `Claude Opus 5.5 Thinking` are the model that `Claude Opus (Anthropic)` wrote with, and an `Assisted-by` value can list several models. A family name alone (`Claude`) doesn't make a reviewer the same model.
 - Fixed: "independent of the generating session", "not the same session" and similar words counted as a self-check, in `AI-Reviewed-by` and in a customised A1 box.
-- The check that a change to version 4 converts its entries also finds a `[[commits]]` entry whose hash is written with another number of digits.
+- The check that a change to version 4 converts its entries compares the AI review each file gets before and after, so it also finds an annotation whose `path` is written another way (`src/**` for `**`), and a `[[commits]]` entry whose hash has another number of digits.
+- The pull request description is read on the AI review scale of the base branch, like its other rules: a pull request that changes `version` from 4 to 3 is still checked for its findings line and report.
+- A landed A2 or A3 commit with a line that looks like `AI-Review-Findings:` but isn't (`AI-Review-Finding: major`) gets a warning, since the line isn't read.
 - In a repository still on `version = 3`, A2 and A3 from the ticked boxes of today's template give their findings line and report before the merge.
 - The README and the front page of the documentation no longer mention declarations in header comments.
 

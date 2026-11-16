@@ -210,3 +210,36 @@ def test_self_check_words(text, self_check):
     assert mentions_self_check(text) is self_check
     d = Declaration("G3", "H1", "A1", ("Claude Opus (Anthropic)",), ("Jane",), (text,), "test")
     assert any("self-check" in e for e in validate(d)) is self_check
+
+
+# ------------------------------------------------------------------ the open items of the first round
+def test_a_respelled_annotation_path_is_caught_when_the_version_changes(repo, tmp_path, capsys):
+    old = BASE_TOML.replace("version = 4", "version = 3").replace('AI-Review = "A0"', 'AI-Review = "A2"\n'
+                                                                    'AI-Reviewed-by = "M, new session"')
+    write(repo, "SIGNOFF.toml", old)
+    commit(repo, "the scale before")
+    git(repo, "checkout", "-q", "-b", "feature")
+    # the same files, with the path written another way, and the level not converted
+    write(repo, "SIGNOFF.toml", old.replace("version = 3", "version = 4").replace('path = "**"', 'path = "*"'))
+    commit(repo, "version 4")
+    text = "AI-Generation: G0\nHuman-Review: H2\nReviewed-by: jane\nAI-Review: A0\n"
+    code, out = pr(repo, tmp_path, text, capsys, "--allow-policy-change")
+    assert code == 1 and "the entry for * gives solver.py AI-Review A2 now, and A1 before" in out
+
+
+def test_a_pull_request_is_read_on_the_base_branchs_scale(repo, tmp_path, capsys):
+    """A pull request that changes version 4 to 3 is still read, and checked, on version 4's scale."""
+    git(repo, "checkout", "-q", "-b", "feature")
+    write(repo, "SIGNOFF.toml", BASE_TOML.replace("version = 4", "version = 3"))
+    write(repo, "solver.py", "changed\n")
+    commit(repo, "back to version 3")
+    code, out = pr(repo, tmp_path, a2("critical", "reviews/none.md"), capsys, "--allow-policy-change")
+    assert code == 1 and "found a critical problem" in out and "isn't in this change" in out
+
+
+def test_a_misspelt_findings_line_in_a_landed_commit_is_a_warning(repo, capsys):
+    write(repo, "reviews/r.md", "# review\n")
+    commit(repo, "typo", a2("none").replace("AI-Review-Findings: none", "AI-Review-Finding: major"))
+    code, out = lint(repo, capsys=capsys)
+    assert code == 0 and "has a line 'AI-Review-Finding: major' that looks like 'AI-Review-Findings:'" in out
+    assert lint(repo, "--strict", capsys=capsys)[0] == 1

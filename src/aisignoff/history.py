@@ -312,6 +312,10 @@ def old_template(text: str) -> bool | None:
 _FINDINGS_LINE = re.compile(rf"^\s*(?:[-*+]\s+)?[*_]*{FINDINGS}[*_]*\s*:[*_]*[ \t]*(.*?)\s*$", re.I)
 
 
+# a line meant as the findings line, misspelt: "AI-Review-Finding:", "AI Review Findings:", "AIReviewFindings:"
+_FINDINGS_TYPO = re.compile(r"^\W*ai[\W_]*review[\W_]*finding\w*\W*:", re.I)
+
+
 def findings_line(text: str) -> str | None:
     """The value of the "AI-Review-Findings:" line of a message ("" if it is left empty), outside
     code blocks and comments; with several lines, the most severe value (an invalid one first, so
@@ -995,6 +999,12 @@ class History:
             value = findings_line(body)
             if value:
                 self._findings[sha] = value
+            elif value is None and sha in self.order:
+                typo = next((line.strip() for line in _prose_lines(body) if _FINDINGS_TYPO.match(line)), None)
+                if typo:
+                    self._warnings.append(f"{self.describe(sha)} has a line {typo[:60]!r} that looks like "
+                                          f"'{FINDINGS}:' but isn't, so it isn't read; correct the AI review "
+                                          "with a [[commits]] entry if it says a severe finding")
         if both:
             self._both[sha] = both
         revert, pr = REVERT.search(body), REVERT_PR.search(body)

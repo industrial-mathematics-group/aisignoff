@@ -310,7 +310,7 @@ def test_a_pull_request_cant_change_the_scale_by_changing_the_version(branch, tm
     commit(branch, "only the number")
     code, out = lint(branch, tmp_path, FILLED, "--author", "jane", capsys=capsys)
     assert code == 1 and "the change alters version in SIGNOFF.toml" in out
-    assert "changes to version 4 without converting its levels: the entry for solver.py read AI-Review A1 before and reads A2 now" in out
+    assert "changes to version 4 without converting its levels: the entry for solver.py gives solver.py AI-Review A2 now, and A1 before" in out
     code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
     assert code == 1 and "without converting its levels" in out   # also for a maintainer
     write(branch, "SIGNOFF.toml", old.replace("version = 3", "version = 4").replace('"A2"', '"A1"'))
