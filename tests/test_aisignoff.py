@@ -557,3 +557,23 @@ def test_version_comes_from_pyproject():
         pytest.skip("aisignoff is not installed")
     pyproject = tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text())["project"]["version"]
     assert aisignoff.__version__ == installed == pyproject
+
+
+def test_init_turns_on_review_and_history(tmp_path):
+    # the defaults a workflow sets up a repository with: everything left TODO for a person
+    assert main(["--root", str(tmp_path), "init", "-g", "TODO", "-H", "TODO", "-a", "TODO",
+                 "--recheck", "major", "--history"]) == 0
+    config = load(tmp_path)
+    assert config.recheck == "major"
+    assert '\n[review]\nrecheck = "major"\n' in (tmp_path / "SIGNOFF.toml").read_text()
+    assert config.history.enabled
+    assert tuple(config.annotations[0].values["Reviewed-by"]) == ("TODO",)
+    # without them, both stay commented out
+    other = tmp_path / "other"
+    other.mkdir()
+    assert main(["--root", str(other), "init"]) == 0
+    config = load(other)
+    assert not config.history.enabled
+    assert "# [review]" in (other / "SIGNOFF.toml").read_text()
+    with pytest.raises(SystemExit):
+        main(["--root", str(other), "init", "--recheck", "none"])
