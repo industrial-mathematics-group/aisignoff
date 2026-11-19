@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, Declaration, counted_level, printable, validate
-from .history import GIT, git_env
+from .history import GIT, comparable, git_env
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
@@ -234,10 +234,11 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
             base_project.check_snapshot = False
             # as the base's own report: by its SIGNOFF.toml, with its commit as the default branch's
             base_results = base_project.results(quiet=True)
-            base_attestations = {(a.path, a.blob) for a in base_project.config.attestations}
+            base_attestations = Counter((a.path, a.blob, comparable(a.values))
+                                        for a in base_project.config.attestations)
             before = _shares(where, base_results)  # reads the files at BASE, so before the worktree goes
         except Exception as e:  # BASE may predate SIGNOFF.toml, or use an old format
-            base_results, base_attestations, before = [], set(), {}
+            base_results, base_attestations, before = [], Counter(), {}
             note = f"the declarations at {base} could not be read ({e}); removed lines count as undeclared"
         else:
             note = None
@@ -283,8 +284,14 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
             for target in (row, total):
                 target["removed"] += len(removed)
 
-    attested = [{"path": a.path, "blob": a.blob, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
-                for a in project.config.attestations if (a.path, a.blob) not in base_attestations]
+    attested = []
+    for a in project.config.attestations:
+        entry = (a.path, a.blob, comparable(a.values))
+        if base_attestations[entry]:
+            base_attestations[entry] -= 1
+            continue
+        attested.append({"path": a.path, "blob": a.blob,
+                         "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}})
     return {
         "base": sha, "base_name": base, "base_tip": tip, "files": files, "history": project.history_used, "note": note,
         "rows": [_finish(r) for r in sorted(rows.values(), key=lambda r: (r["name"] != ".", r["name"]))], "total": _finish(total), "attested": attested,
