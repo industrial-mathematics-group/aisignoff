@@ -26,3 +26,21 @@ Human-Review = "H1"
 AI-Review = "A1"
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
+
+[[attestations]]
+path = "src/aisignoff/model.py"
+blob = "4648e82a6e86d3b5482ed9679b54a1f7e210ebd1"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT-6 (OpenAI), independent session without the generating conversation, reviews/2026-11-19-main.md"]
+
+[[attestations]]
+path = "src/aisignoff/config.py"
+blob = "2992ba11d7e2109aa7367011112b557f49c3f72f"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT-6 (OpenAI), independent session without the generating conversation, reviews/2026-11-19-main.md"]
+
+[[attestations]]
+path = "src/aisignoff/project.py"
+blob = "1f12c4fedbb5dcb6beb7534c68bbe5cc6fba0021"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT-6 (OpenAI), independent session without the generating conversation, reviews/2026-11-19-main.md"]
