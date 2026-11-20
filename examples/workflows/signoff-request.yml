@@ -57,7 +57,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "1.0.0rc8"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.15.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   request:
