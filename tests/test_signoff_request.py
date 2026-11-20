@@ -66,7 +66,7 @@ def form(**answers):
               "gen": "How much of it did AI write?", "models": "Which AI tools and models wrote parts of it?",
               "human": "How did a human check it?", "responsible": "Responsible person",
               "ai": "Did an AI review it?", "ai_by": "Which model reviewed it, and how?",
-              "notes": "Notes for the reviewer"}
+              "findings": "What did the AI review find?", "notes": "Notes for the reviewer"}
     parts = [f"### {label}\n\n{answers.get(key) or '_No response_'}\n" for key, label in labels.items()]
     parts.append("### Confirmation\n\n- [X] The answers are true\n" if answers.get("confirm", True)
                  else "### Confirmation\n\n- [ ] The answers are true\n")
@@ -137,6 +137,20 @@ def test_attest_and_correct_a_commit(checkout):
     assert f'[[commits]]\ncommit = "{commit}"\nAI-Generation = "G1"' in toml
     assert 'Reviewed-by = ["Jane \\"JD\\" Doe"]' in toml
 
+    # an AI review gives its findings: needed to attest it, recorded with a commit correction
+    r, api = request(checkout, form(kind="Raise the review", paths="results/fit.csv", ai="A1: x",
+                                    ai_by="M (V), new session"))
+    assert r.returncode == 1 and 'An AI review of A1 records what it found: choose it under' in api
+    r, _ = request(checkout, form(kind="Raise the review", paths="results/fit.csv", ai="A1: x",
+                                  ai_by="M (V), new session", findings="major: a wrong result"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    toml = (checkout / "work/SIGNOFF.toml").read_text()
+    assert 'AI-Review = "A1"' in toml and 'AI-Review-Findings = "major"' in toml
+    r, _ = request(checkout, form(kind="Correct the declaration of a commit", commit=commit, ai="A1: y",
+                                  ai_by="M (V), new session", findings="none: nothing"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Reviewed-by = ["M (V), new session"]\nAI-Review-Findings = "none"' in (checkout / "work/SIGNOFF.toml").read_text()
+
 
 @pytest.mark.parametrize("answers, message", [
     (dict(kind="Declare files", paths="results/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J",
@@ -146,6 +160,8 @@ def test_attest_and_correct_a_commit(checkout):
     (dict(kind="Declare files", paths="results/", gen="G0: x", human="H0: x", ai="A0: x", responsible="J"),
      "`aisignoff annotate` refused the request"),   # below the policy the test adds
     (dict(kind="Raise the review", paths="results/", gen="G1: x"), "An attestation records a review only"),
+    (dict(kind="Declare files", paths="results/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J",
+          findings="none: x"), "goes with an AI review level A1 to A3"),
     (dict(kind="Correct the declaration of a commit", commit="deadbeef", gen="G0: x"),
      "There is no commit `deadbeef`"),
 ])

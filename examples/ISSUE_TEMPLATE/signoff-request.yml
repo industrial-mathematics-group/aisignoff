@@ -83,6 +83,17 @@ body:
       label: Which model reviewed it, and how?
       description: A1 to A3 only. One per line.
       placeholder: "GPT Sol (OpenAI), benchmark against reference solutions"
+  - type: dropdown
+    id: ai-findings
+    attributes:
+      label: What did the AI review find?
+      description: A1 to A3 only, and needed to raise the review. The highest severity the review found, or none. It is recorded and blocks nothing.
+      options:
+        - "none: the review found nothing"
+        - "trivial: no effect on results or behaviour, such as naming, style or typos"
+        - "minor: a limited effect, or an easy way around it"
+        - "major: a wrong result or behaviour in a case that matters"
+        - "critical: the work fails its purpose, or does harm"
   - type: textarea
     id: notes
     attributes:

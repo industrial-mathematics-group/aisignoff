@@ -4,6 +4,10 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 
 ## Unreleased
 
+- **Breaking:** A1 gives its findings too, so that a context-free check by the same model is a reference for what a different model finds at A2 and A3. Before the merge, a description that declares A1 needs the line `AI-Review-Findings:` (but no report), `attest -a A1` needs `--findings`, and an A1 review sets the findings level of the lines it covered like A2 and A3. A landed A1 commit without the line leaves its lines at F-. The signoff request form and the `@signoff` assistant ask what an AI review found, and pass it on to `annotate`, `attest` and `[[commits]]` entries; an attestation of A1 to A3 needs it. See [Upgrading](migrating.md#a1-gives-its-findings).
+
+## 1.0.0rc9
+
 A review's findings are recorded, not a threshold: the reviewer only reviews and changes nothing, and reports show what the last independent review of each line found as a fourth axis, in place of the review gap. See [Upgrading](migrating.md#to-the-findings-axis).
 
 - New **findings axis** in `report` (summary, `--tree`, `--json`, `--html`), `diff` and `badge`: `F0`–`F3` for the highest finding that the last independent AI review (A2 or A3) of a line left open (`none` and `trivial` are F0, `minor` F1, `major` F2, `critical` F3), and `F-` where no such review has covered the line since it last changed. A review sets the lines it covered: the commit that lands a reviewed change, an attestation of A2 or A3 for its whole file, a `[[commits]]` entry with `AI-Review-Findings`. A change without a review leaves the other lines as they were, and the lines it touches go back to `F-`, so a fix is unreviewed until the next review. See [Findings](levels.md#findings-f0-to-f3).

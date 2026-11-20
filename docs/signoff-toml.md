@@ -56,7 +56,7 @@ Annotations, `[[commits]]` and `[[attestations]]` use the same keys (case-insens
 | `Human-Review` | `H0`–`H3` or `"TODO"` |
 | `AI-Review` | `A0`–`A3` or `"TODO"` |
 | `Assisted-by`, `Reviewed-by`, `AI-Reviewed-by` | a string or a list of strings |
-| `AI-Review-Findings` | `"none"`, `"trivial"`, `"minor"`, `"major"` or `"critical"`: what an AI review of A2 or A3 found, shown as the [findings level](levels.md#findings-f0-to-f3). Only next to `AI-Review`, and only read for A2 and A3 |
+| `AI-Review-Findings` | `"none"`, `"trivial"`, `"minor"`, `"major"` or `"critical"`: what an AI review of A1, A2 or A3 found, shown as the [findings level](levels.md#findings-f0-to-f3). Only next to `AI-Review`, and only read for A1 to A3 |
 
 What a complete declaration needs is on [Levels and rules](levels.md#what-a-valid-declaration-needs).
 
@@ -112,7 +112,7 @@ Raises the reviews of one file, as of the content that was checked. Written by [
 | `path` | the path of one file (no glob), required |
 | `blob` | the full git blob hash of the checked content, required |
 | `Human-Review`, `AI-Review` and their names | at least one review level; a name only next to its level. An `AI-Generation` here doesn't count |
-| `AI-Review-Findings` | with `AI-Review` A2 or A3: what that review found, for every line of the file (`aisignoff attest --findings`) |
+| `AI-Review-Findings` | with `AI-Review` A1, A2 or A3: what that review found, for every line of the file (`aisignoff attest --findings`) |
 
 ## SIGNOFF.snapshot.json
 

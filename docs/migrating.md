@@ -2,6 +2,14 @@
 
 Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade.
 
+## A1 gives its findings
+
+From the release after 1.0.0rc9, a review of A1 gives its findings like A2 and A3, so that there is a reference for what a different model finds:
+
+- **A pull request that declares A1 needs the line `AI-Review-Findings:`** with `none` or a severity (no report). If your pull request template has the line only next to the A2 and A3 boxes, or says it can be left empty for A1, change it. `attest -a A1` needs `--findings`.
+- **Existing history is read as it is.** A landed A1 commit without the line leaves its lines at F-, as before; an A1 commit that gave the line now gives its lines those findings.
+- **Update the examples** you copied: the signoff request form and workflow, and the `@signoff` assistant, now ask what an AI review found and need it to attest an AI review.
+
 ## To the findings axis
 
 The reviewer only reviews, and its findings are recorded instead of blocking the merge:

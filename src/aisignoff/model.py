@@ -58,15 +58,18 @@ def at_least(level: str, minimum: str) -> bool:
 
 
 # How severe a review's finding is, lowest first (docs/levels.md, after IEEE Std 1044-2009). A
-# commit message or pull request description that declares A2 or A3 says the highest severity the
-# review found in the change itself, in a line "AI-Review-Findings: minor" ("none": no finding).
+# commit message or pull request description that declares A1, A2 or A3 says the highest severity
+# the review found in the change itself, in a line "AI-Review-Findings: minor" ("none": no finding).
 # The reviewer only reviews: it records what it found and changes nothing. A finding blocks
 # nothing; it becomes the findings level of the lines that review covered (FINDINGS_LEVELS).
 SEVERITIES = ("trivial", "minor", "major", "critical")
 FINDINGS = "AI-Review-Findings"
 NO_FINDINGS = "none"
+# The AI reviews that give findings: every independent review, A1 included, so that a context-free
+# check by the same model is a reference for what a different model (A2, A3) finds.
+FINDINGS_REVIEWS = ("A1", "A2", "A3")
 
-# The findings axis of reports: the highest finding that the last independent AI review (A2 or A3)
+# The findings axis of reports: the highest finding that the last independent AI review (A1-A3)
 # of a line left open. F- is the default: no such review has covered the line since it last
 # changed. A trivial finding has no effect on results or behaviour, so it counts as F0.
 UNREVIEWED = "F-"
@@ -96,10 +99,10 @@ def findings_level_of(value: str | None) -> str:
 
 def findings_problems(level: str | None, value: str | None, required: bool = False) -> list[str]:
     """What is wrong with the AI-Review-Findings line VALUE (None: there is none) next to the AI
-    review LEVEL. The line belongs to a review of A2 or A3: next to a lower level it isn't read, so
-    a template's line filled in with "n/a" does no harm. required: A2 and A3 must give it (the
-    check before the merge). Any severity is valid: a finding is recorded, it blocks nothing."""
-    if level not in ("A2", "A3"):
+    review LEVEL. The line belongs to a review of A1, A2 or A3: next to A0 it isn't read, so a
+    template's line filled in with "n/a" does no harm. required: A1-A3 must give it (the check
+    before the merge). Any severity is valid: a finding is recorded, it blocks nothing."""
+    if level not in FINDINGS_REVIEWS:
         return []
     if not value:
         if required:
@@ -199,7 +202,7 @@ class Declaration:
     ai_reviewed_by: tuple[str, ...] = ()
     source: str = "none"  # e.g. 'SIGNOFF.toml [2]', 'none'
     problems: list[str] = field(default_factory=list)  # parse problems found while reading it
-    # the AI-Review-Findings value of the last independent AI review (A2 or A3) that covered it, as
+    # the AI-Review-Findings value of the last independent AI review (A1-A3) that covered it, as
     # written ("none", "minor", ...); None: there is none (findings level F-)
     findings: str | None = None
 
@@ -373,8 +376,8 @@ def counted_level(d: Declaration, errors: list[str], key: str) -> str:
 
 def counted_findings(d: Declaration, errors: list[str]) -> str:
     """The findings level as reports count it: F0-F3 from the findings of the last independent AI
-    review, F- when there is none, or the AI review isn't a valid A2 or A3."""
-    if counted_level(d, errors, AIR) not in ("A2", "A3"):
+    review, F- when there is none, or the AI review isn't a valid A1, A2 or A3."""
+    if counted_level(d, errors, AIR) not in FINDINGS_REVIEWS:
         return UNREVIEWED
     return findings_level_of(d.findings)
 

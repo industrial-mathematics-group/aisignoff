@@ -13,8 +13,8 @@ from pathlib import Path
 from . import __version__
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
-from .model import (AI, AI_REVIEWED, AIR, ASSISTED, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, NO_FINDINGS,
-                    REVIEWED, SEVERITIES, TODO, UNREVIEWED, Declaration, Policy, counted_findings, counted_level,
+from .model import (AI, AI_REVIEWED, AIR, ASSISTED, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN,
+                    GENERATION, HUM, HUMAN, NO_FINDINGS, REVIEWED, SEVERITIES, TODO, UNREVIEWED, Declaration, Policy, counted_findings, counted_level,
                     counted_short, findings_value, printable, valid_findings, validate)
 from .project import Project, ProjectError, weighted_parts
 
@@ -57,8 +57,8 @@ def _values(args) -> dict:
         values[REVIEWED] = [TODO]  # so the person fills in the name next to the level
     findings = getattr(args, "findings", None)
     if findings:
-        if values[AIR] not in ("A2", "A3"):
-            raise UsageError(f"--findings belongs to an independent AI review: give it with -a A2 or -a A3")
+        if values[AIR] not in FINDINGS_REVIEWS:
+            raise UsageError(f"--findings belongs to an independent AI review: give it with -a A1, A2 or A3")
         values[FINDINGS] = findings_value(findings)
     return {k: v for k, v in values.items() if v}
 
@@ -128,7 +128,7 @@ def cmd_init(args) -> int:
         '# "*" = { human = "H1" }',
         '# G3  = { human = "H2", ai = "A1" }',
         "",
-        "# A commit or pull request that declares A2 or A3 says the highest severity its review found in",
+        "# A commit or pull request that declares A1-A3 says the highest severity its review found in",
         '# the change, in a line "AI-Review-Findings: minor" (none, trivial, minor, major, critical).',
         "# The reviewer only reviews; the finding is recorded, blocks nothing, and reports show it as",
         "# the findings level of the lines the review covered (F0-F3, F- for no independent review).",
@@ -193,12 +193,12 @@ def _declared(args, version_3: bool = False):
     # the review report (_pull_request), and becomes the findings level of the lines the change lands
     pieces, both = parse_message(text, name, "the pull request description", version_3)
     args.pr_findings = findings_line(text)
-    # whether its AI review is on today's scale, where A2 and A3 give their findings and report: in
+    # whether its AI review is on today's scale, where A1-A3 give their findings (A2, A3 a report): in
     # version 4, and in version 3 for the ticked boxes of today's template (parse_message)
     args.pr_today = not version_3 or (old_template(text) is False and 2 not in parse_trailers(text, ""))
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}
-    if 2 in pieces and pieces[2].level in ("A2", "A3") and args.pr_today and valid_findings(args.pr_findings):
+    if 2 in pieces and pieces[2].level in FINDINGS_REVIEWS and args.pr_today and valid_findings(args.pr_findings):
         pieces[2] = dataclasses.replace(pieces[2], findings=findings_value(args.pr_findings))
     args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
     return pieces
@@ -628,7 +628,7 @@ def cmd_attest(args) -> int:
         raise UsageError("give at least one review level to attest (-H or -a)")
     if any(v == TODO or (isinstance(v, list) and TODO in v) for v in values.values()):
         raise UsageError("an attestation records a check that was done: TODO isn't allowed")
-    if values.get(AIR) in ("A2", "A3") and FINDINGS not in values:
+    if values.get(AIR) in FINDINGS_REVIEWS and FINDINGS not in values:
         raise UsageError(f"an AI review of {values[AIR]} records what it found: give --findings ({NO_FINDINGS}, "
                          f"{', '.join(SEVERITIES)}); it sets the findings level of the attested lines")
     problems = [e for e in validate(Declaration.from_mapping(values, "command line"))
@@ -925,7 +925,7 @@ def _add_values(p: argparse.ArgumentParser, required: bool) -> None:
     p.add_argument("--reviewed-by", action="append", metavar="PERSON",
                    help="repeatable; the responsible human (always required; TODO: left for a person)")
     p.add_argument("--ai-reviewed-by", action="append", metavar="MODEL", help="repeatable (A1-A3)")
-    p.add_argument("--findings", choices=[NO_FINDINGS, *SEVERITIES], help=f"with -a A2 or A3: the highest severity "
+    p.add_argument("--findings", choices=[NO_FINDINGS, *SEVERITIES], help=f"with -a A1, A2 or A3: the highest severity "
                    f"the review found ({FINDINGS}), which reports show as the findings level")
 
 

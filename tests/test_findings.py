@@ -1,4 +1,4 @@
-"""The findings axis: the highest finding that the last independent AI review (A2 or A3) of a line
+"""The findings axis: the highest finding that the last independent AI review (A1-A3) of a line
 left open, F0-F3, and F- for lines that no such review has covered since they last changed. A
 finding is recorded, never a threshold: lint passes with it."""
 import json
@@ -78,11 +78,21 @@ def test_only_a_new_review_sets_its_lines_clean(landed):
     assert findings(landed)[6:9] == ["F1", "F0", "F3"]
 
 
-def test_an_a1_review_has_no_findings(repo):
+def test_an_a1_review_gives_findings(repo):
+    # a context-free check by the same model is a reference for what a different model finds
+    a1 = UNREVIEWED.replace("A0\n", "A1\nAI-Reviewed-by: Claude Opus, new session\n")
     edit_lines(repo, [1])
-    commit(repo, "A1 with a findings line", UNREVIEWED.replace("A0\n", "A1\nAI-Reviewed-by: Claude Opus, new session\n")
-           + "AI-Review-Findings: none\n")
-    assert findings(repo)[0] == "F-"
+    commit(repo, "A1 with a findings line", a1 + "AI-Review-Findings: none\n")
+    edit_lines(repo, [2])
+    commit(repo, "A1, a major finding", a1 + "AI-Review-Findings: major\n")
+    # a commit of A1 without the line (from before A1 gave findings) leaves its lines at F-
+    edit_lines(repo, [3])
+    commit(repo, "A1 without a findings line", a1)
+    assert findings(repo)[:3] == ["F0", "F2", "F-"]
+    # A0 has no findings: its line isn't read
+    edit_lines(repo, [4])
+    commit(repo, "A0 with a findings line", UNREVIEWED + "AI-Review-Findings: none\n")
+    assert findings(repo)[3] == "F-"
 
 
 def test_an_attestation_is_a_review_of_the_whole_file(landed, capsys, monkeypatch):
@@ -92,14 +102,14 @@ def test_an_attestation_is_a_review_of_the_whole_file(landed, capsys, monkeypatc
                  "--ai-reviewed-by", "GPT Sol (OpenAI), reviews/file.md"]) == 0
     commit(landed, "attest", UNREVIEWED.replace("G3\nAssisted-by: Claude Opus (Anthropic)", "G0"))
     assert findings(landed) == ["F1"] * 10
-    # an A1 attestation isn't an independent review: the findings stay
-    assert main(["--root", str(landed), "attest", "solver.py", "-a", "A1",
+    # an A1 attestation is a review too: the newest review counts, not the highest level
+    assert main(["--root", str(landed), "attest", "solver.py", "-a", "A1", "--findings", "none",
                  "--ai-reviewed-by", "Claude Opus, new session"]) == 0
-    assert findings(landed) == ["F1"] * 10
+    assert findings(landed) == ["F0"] * 10
     # what changes after it is unreviewed again
     edit_lines(landed, [6], "after")
     commit(landed, "after the attestation", UNREVIEWED)
-    assert findings(landed)[5] == "F-" and findings(landed)[4] == "F1"
+    assert findings(landed)[5] == "F-" and findings(landed)[4] == "F0"
 
 
 def test_attest_needs_the_findings_of_an_independent_review(repo, capsys, monkeypatch):
@@ -107,9 +117,10 @@ def test_attest_needs_the_findings_of_an_independent_review(repo, capsys, monkey
     capsys.readouterr()
     assert main(["--root", str(repo), "attest", "solver.py", "-a", "A2", "--ai-reviewed-by", "GPT Sol (OpenAI)"]) == 2
     assert "give --findings" in capsys.readouterr().err
-    assert main(["--root", str(repo), "attest", "solver.py", "-a", "A1", "--findings", "none",
-                 "--ai-reviewed-by", "Claude Opus, new session"]) == 2
-    assert "-a A2 or -a A3" in capsys.readouterr().err
+    assert main(["--root", str(repo), "attest", "solver.py", "-a", "A1", "--ai-reviewed-by", "Claude Opus, new session"]) == 2
+    assert "an AI review of A1 records what it found: give --findings" in capsys.readouterr().err
+    assert main(["--root", str(repo), "attest", "solver.py", "-a", "A0", "--findings", "none"]) == 2
+    assert "-a A1, A2 or A3" in capsys.readouterr().err
 
 
 def test_a_commits_entry_corrects_the_findings(landed):

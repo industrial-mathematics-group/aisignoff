@@ -62,6 +62,9 @@ def test_names_the_levels_need(branch, tmp_path, capsys):
     g3 = g3.replace("[ ] **Claude Opus**", "[x] **Claude Opus**")
     assert lint(branch, tmp_path, g3, "--author", "jane")[0] == 0   # no independent AI review: A0
     a1 = g3.replace("[ ] **A1**", "[x] **A1**")
+    code, out = lint(branch, tmp_path, a1, "--author", "jane", capsys=capsys)
+    assert code == 1 and "A1 needs a line 'AI-Review-Findings:'" in out   # A1 gives its findings
+    a1 += "\nAI-Review-Findings: none\n"
     assert lint(branch, tmp_path, a1, "--author", "jane")[0] == 0   # A1 names the model that wrote it
     code, out = lint(branch, tmp_path, g3.replace("[ ] **A2**", "[x] **A2**"), "--author", "jane", capsys=capsys)
     assert code == 1 and "A2 needs AI-Reviewed-by" in out           # a different model has to be named

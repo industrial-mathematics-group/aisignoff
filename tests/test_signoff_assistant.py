@@ -75,10 +75,10 @@ class FakeClaude:
 def answer(status="ready", message="You wrote results/ with Claude Opus 5.5 and reran it.", kind="annotate",
            paths=("results/",), commit="", generation="G2", models=("Claude Opus 5.5 (Anthropic)",), human="H1",
            responsible="Jane Doe", ai_review="A1", ai_reviewers=("Claude Sonnet 5.5 (Anthropic), new session",),
-           notes=""):
+           findings="minor", notes=""):
     return dict(status=status, message=message, kind=kind, paths=list(paths), commit=commit, generation=generation,
                 models=list(models), human=human, responsible=responsible, ai_review=ai_review,
-                ai_reviewers=list(ai_reviewers), notes=notes)
+                ai_reviewers=list(ai_reviewers), findings=findings, notes=notes)
 
 
 def assist(base, claude, text="@signoff I made results/ with Claude Opus 5.5", comments=None, key="test", **env_more):
@@ -148,6 +148,7 @@ def test_ready_request_goes_to_the_signoff_request_workflow(repo):
     assert out["model-name"] == "Claude Sonnet 5.5 (Anthropic)"
     assert "### What should be recorded?\n\nDeclare files:" in out["request"]
     assert "### How much of it did AI write?\n\nG2: AI wrote" in out["request"]
+    assert "### What did the AI review find?\n\nminor: a limited effect" in out["request"]
     assert "| Files, folders or globs | results/ |" in posted and "now checks this" in posted
     assert not (repo / "work/SIGNOFF.toml").read_text().count("results/")   # the aisignoff dry run is undone
 
@@ -158,6 +159,7 @@ def test_ready_request_goes_to_the_signoff_request_workflow(repo):
     work = repo / "work"
     toml = (work / "SIGNOFF.toml").read_text()
     assert 'path = "results/**"' in toml and 'AI-Generation = "G2"' in toml and 'Reviewed-by = "Jane Doe"' in toml
+    assert 'AI-Review-Findings = "minor"' in toml
     pr = api.split("----- POST /repos/org/repo/pulls\n", 1)[1].split("\n----- ", 1)[0]
     assert "The @signoff assistant (Claude Sonnet 5.5 (Anthropic))" in pr and "> Reran the study." in pr
     assert "- [ ] **G0**" in pr and "- [x] **G1**" in pr and "- [x] **A0**" in pr and "- [ ] **A1**" in pr
@@ -231,3 +233,20 @@ def test_without_a_pr_template_the_key_lines_declare_the_assistant(checkout):
     r = subprocess.run(["aisignoff", "lint", "--declare-from", str(desc), "--author", "github-actions[bot]",
                         "--base", "origin/main"], cwd=work, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout
+
+
+def test_an_attestation_of_an_ai_review_needs_its_findings(repo):
+    att = dict(kind="attest", paths=("results/fit.csv",), generation="", models=(), human="", responsible="")
+    claude = FakeClaude(answer(**att, findings=""), answer(**att, findings="", status="need_info",
+                                                           message="What did the review find?"))
+    r, posted, out = assist(repo, claude)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not out and "An attestation of A1 needs the findings" in claude.requests[1][1]["messages"][2]["content"]
+    claude = FakeClaude(answer(**att, findings="none"))
+    r, posted, out = assist(repo, claude)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "### What did the AI review find?\n\nnone: the review found nothing" in out["request"]
+    claude = FakeClaude(answer(ai_review="A0", ai_reviewers=(), findings="none"), answer(
+        ai_review="A0", ai_reviewers=(), findings="none", status="need_info", message="Which review?"))
+    r, posted, out = assist(repo, claude)
+    assert not out and "Findings go with an AI review level A1 to A3" in claude.requests[1][1]["messages"][2]["content"]
