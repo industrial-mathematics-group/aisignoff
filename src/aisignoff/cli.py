@@ -155,6 +155,12 @@ def cmd_init(args) -> int:
         lines += ["# Default for everything", "[[annotations]]", 'path = "**"']
         lines += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
     else:
+        alone = [flag for flag, v in (("--assisted-by", getattr(args, "assisted_by", None)),
+                                      ("--reviewed-by", getattr(args, "reviewed_by", None)),
+                                      ("--ai-reviewed-by", getattr(args, "ai_reviewed_by", None)),
+                                      ("--findings", getattr(args, "findings", None))) if v]
+        if alone:
+            raise UsageError(f"{', '.join(alone)} goes with the levels: give --generation, --human and --ai as well")
         lines += [
             "# Example:",
             "# [[annotations]]",

@@ -75,10 +75,10 @@ class FakeClaude:
 def answer(status="ready", message="You wrote results/ with Claude Opus 5.5 and reran it.", kind="annotate",
            paths=("results/",), commit="", generation="G2", models=("Claude Opus 5.5 (Anthropic)",), human="H1",
            responsible="Jane Doe", ai_review="A1", ai_reviewers=("Claude Sonnet 5.5 (Anthropic), new session",),
-           notes=""):
+           findings="", notes=""):
     return dict(status=status, message=message, kind=kind, paths=list(paths), commit=commit, generation=generation,
                 models=list(models), human=human, responsible=responsible, ai_review=ai_review,
-                ai_reviewers=list(ai_reviewers), notes=notes)
+                ai_reviewers=list(ai_reviewers), findings=findings, notes=notes)
 
 
 def assist(base, claude, text="@signoff I made results/ with Claude Opus 5.5", comments=None, key="test", **env_more):
@@ -200,6 +200,22 @@ def test_answers_that_fail_the_checks_go_back_to_the_model(repo):
     assert "aisignoff annotate refuses it" in posted and "couldn't put together a request" in posted
     assert "<!-- aisignoff-signoff-request" not in posted   # no fake markers from the model
     assert git(work, "status", "--porcelain") == ""
+
+
+def test_an_independent_review_hands_on_its_findings(repo):
+    # A2 without findings goes back to the model; with them, the attestation records them
+    claude = FakeClaude(answer(kind="attest", generation="", models=(), human="", responsible="", ai_review="A2",
+                               ai_reviewers=("GPT Sol (OpenAI), results/review.md",)),
+                        answer(kind="attest", generation="", models=(), human="", responsible="", ai_review="A2",
+                               ai_reviewers=("GPT Sol (OpenAI), results/review.md",), findings="minor"))
+    r, posted, out = assist(repo, claude)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "needs what it found" in json.dumps(claude.requests[1][1]["messages"])
+    assert "### What did the AI review find?\n\nminor" in out["request"]
+    r, api = form_request(repo, "ignored issue text", SIGNOFF_REQUEST=out["request"], SIGNOFF_REQUESTER="jane",
+                          SIGNOFF_REQUESTER_ID="1", SIGNOFF_ASSISTANT=out["model-name"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Review-Findings = "minor"' in (repo / "work/SIGNOFF.toml").read_text()
 
 
 def test_without_write_access_or_api_key(repo):

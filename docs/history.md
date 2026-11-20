@@ -202,7 +202,7 @@ After reviewing whole files, attest them:
 
 ```bash
 aisignoff attest src/solver.py -H H2 --reviewed-by "Jane Doe"
-aisignoff attest src/ -a A2 --ai-reviewed-by "GPT Sol (OpenAI), new session"   # every declared file below src/
+aisignoff attest src/ -a A2 --findings minor --ai-reviewed-by "GPT Sol (OpenAI), reviews/solver.md"   # every declared file below src/
 ```
 
 This appends one `[[attestations]]` entry per file, with the git blob hash of the content you checked:
@@ -219,7 +219,7 @@ Reviewed-by = "Jane Doe"
 - **It covers the lines that content had.** Lines changed afterwards fall back to their own commit, so an attestation never covers code written after the review and can stay in the file. A review is the highest of the attestation's, the owner's and, for lines whose owner declares nothing, the file-level declaration's: an attestation never lowers a review.
 - **It follows the content.** The blob survives a squash merge and a rename (`git mv`). The same content in another file, such as a copy, isn't covered.
 - **It checks itself.** An attestation whose content never landed on the branch, or whose path was renamed away and created again, is reported by `lint`.
-- **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. That also works for content from before a snapshot.
+- **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. That also works for content from before a snapshot. Such a review is as old as the content it checked, however late it is recorded: where two reviews cover a line, the findings (and the reviewer, on a tie of levels) come from the review of the newer content.
 - Attestations count only with `[history]`, and not for files under `precedence = "override"`, which `attest` refuses.
 
 ## Lines that haven't landed yet

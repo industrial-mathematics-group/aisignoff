@@ -82,7 +82,7 @@ def test_diff_reports_a_new_attestation_for_an_already_attested_blob(repo, capsy
     data = json.loads(capsys.readouterr().out)
     assert data["files"] == 0
     assert data["attested"] == [{"path": "solver.py", "blob": git(repo, "rev-parse", "HEAD:solver.py"),
-                                 "levels": {"AI-Review": "A2"}}]
+                                 "levels": {"AI-Review": "A2"}, "findings": "none"}]
 
 
 

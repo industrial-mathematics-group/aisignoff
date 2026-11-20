@@ -2,7 +2,7 @@
 # Copy it to .github/workflows/ in your repository (instead of signoff-lint.yml, not next to it).
 #
 #   lint    every push and pull request: fails when a file has no valid declaration
-#   badges  pushes to main: writes the three badge files with "aisignoff badge" and
+#   badges  pushes to main: writes the four badge files with "aisignoff badge" and
 #           commits them to the branch "badges", which this workflow creates on its first run
 #
 # Then add the badges to your README (replace <owner>/<repo>):
@@ -10,6 +10,7 @@
 #   ![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-generation.json)
 #   ![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-human-review.json)
 #   ![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-ai-review.json)
+#   ![AI review findings](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-findings.json)
 #
 # raw.githubusercontent.com only serves public repositories. The badges branch must not be
 # protected against pushes by github-actions[bot].

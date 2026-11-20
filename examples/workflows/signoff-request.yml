@@ -134,6 +134,8 @@ jobs:
           F_RESPONSIBLE = "Responsible person"
           F_AI = "Did an AI review it?"
           F_AI_BY = "Which model reviewed it, and how?"
+          F_FINDINGS = "What did the AI review find?"
+          FINDINGS_FOR = ("A2", "A3")   # the AI review levels that record their findings
           F_NOTES = "Notes for the reviewer"
           F_CONFIRM = "Confirmation"
           KINDS = {"Declare files": "annotate", "Raise the review": "attest", "Correct the declaration of a commit": "commit"}
@@ -223,6 +225,7 @@ jobs:
           paths = [p.strip("`") for p in lines_of(F_PATHS)]
           gen, human, ai = level(F_GEN, "G"), level(F_HUMAN, "H"), level(F_AI, "A")
           models, ai_by = lines_of(F_MODELS), lines_of(F_AI_BY)
+          findings = (re.match(r"^(none|trivial|minor|major|critical)\b", value(F_FINDINGS)) or [None, ""])[1]
           responsible = value(F_RESPONSIBLE).strip()
           commit = value(F_COMMIT).strip().strip("`")
           if not re.search(r"^- \[[xX]\] ", fields.get(F_CONFIRM, ""), re.M):
@@ -259,6 +262,10 @@ jobs:
               problems.append("The AI models go with an AI generation level.")
           if ai_by and not ai:
               problems.append("The reviewing model goes with an AI review level.")
+          if ai in FINDINGS_FOR and not findings:
+              problems.append(f'An AI review of {ai} records what it found: choose it under "{F_FINDINGS}".')
+          if findings and ai not in FINDINGS_FOR:
+              problems.append(f'"{F_FINDINGS}" goes with an AI review of {" or ".join(FINDINGS_FOR)}; leave it empty.')
           if problems:
               reject(problems)
 
@@ -274,6 +281,7 @@ jobs:
           options += [f"--assisted-by={m}" for m in models]
           options += [f"--reviewed-by={responsible}"] if human else []
           options += [f"--ai-reviewed-by={m}" for m in ai_by]
+          options += [f"--findings={findings}"] if findings else []
 
           if kind in ("annotate", "attest"):
               r = run("aisignoff", kind, *options, "--", *paths, check=False)
@@ -283,7 +291,8 @@ jobs:
               toml = lambda s: json.dumps(s, ensure_ascii=False)   # a JSON string is a valid TOML basic string
               entry = ["", "[[commits]]", f"commit = {toml(commit.lower())}"]
               for key, v in (("AI-Generation", gen), ("Assisted-by", models), ("Human-Review", human),
-                             ("Reviewed-by", [responsible] if human else []), ("AI-Review", ai), ("AI-Reviewed-by", ai_by)):
+                             ("Reviewed-by", [responsible] if human else []), ("AI-Review", ai), ("AI-Reviewed-by", ai_by),
+                             ("AI-Review-Findings", findings)):
                   if v:
                       entry.append(f"{key} = " + (toml(v) if isinstance(v, str) else "[" + ", ".join(map(toml, v)) + "]"))
               text = config.read_text(encoding="utf-8")
