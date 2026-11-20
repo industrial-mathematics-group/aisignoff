@@ -120,7 +120,7 @@ def test_the_base_branch_sets_the_rules(branch, tmp_path, capsys):
     code, out = lint(branch, tmp_path, FILLED, "--author", "jane", "--allow-policy-change", capsys=capsys)
     assert code == 0, out   # it meets the base's policy: the new one applies to the pull requests after it
     assert "the change alters [policy] in SIGNOFF.toml (allowed by --allow-policy-change)" in out
-    assert "still checked under the base branch's [policy] and [review] (main)" in out
+    assert "still checked under the base branch's [policy] (main)" in out
     # after it has landed, the lower policy is main's
     git(branch, "checkout", "-q", "main")
     git(branch, "merge", "-q", "--no-ff", "-m", "Merge the policy change\n\nAI-Generation: G0\nHuman-Review: H1\n"
@@ -273,26 +273,32 @@ def test_a_review_by_a_different_model_gives_its_findings_and_its_report(branch,
     assert check(a2 + "\nAI-Review-Findings: none\n")[0] == 0
     code, out = check(a2 + "\nAI-Review-Findings: high\n")
     assert code == 1 and "invalid AI-Review-Findings 'high'" in out
-    # a finding from the threshold on needs a new review: the pull request can't be merged with it
+    # a finding of any severity is recorded, not a threshold: the pull request passes, and its lines
+    # show the finding (F2) until a later review finds it fixed
     code, out = check(a2 + "\nAI-Review-Findings: major\n")
-    assert code == 1 and "found a major problem in this change" in out and "needs a new review" in out
-    # ... and it can't raise the threshold for itself: [review] is the base branch's
+    assert code == 0, out
+    # [review] recheck of 1.0.0rc8 is no longer read: a warning, and no rule the change alters
     write(branch, "SIGNOFF.toml", BASE_TOML + '\n[review]\nrecheck = "critical"\n')
-    commit(branch, "raise the threshold")
+    commit(branch, "an old threshold")
     code, out = check(a2 + "\nAI-Review-Findings: major\n")
-    assert code == 1 and "needs a new review" in out and "the change alters [review] in SIGNOFF.toml" in out
-    code, out = check(a2 + "\nAI-Review-Findings: major\n", "--allow-policy-change")
-    assert code == 1 and "needs a new review" in out and "alters [review] in SIGNOFF.toml (allowed" in out
+    assert code == 0 and "'recheck' is no longer used" in out and "alters [review]" not in out
+    git(branch, "rm", "-q", "--cached", "SIGNOFF.toml")
+    write(branch, "SIGNOFF.toml", BASE_TOML)
+    git(branch, "add", "SIGNOFF.toml")
+    commit(branch, "back")
     # the same lines as "Key: value" lines, and the report as JSON
     lines = ("AI-Generation: G3\nAssisted-by: Claude Opus (Anthropic)\nHuman-Review: H1\nReviewed-by: jane\n"
              "AI-Review: A3\nAI-Reviewed-by: GPT Sol (OpenAI), reviews/pull7.md\nAI-Review-Findings: major\n")
     code, out = lint(branch, tmp_path, lines, capsys=capsys)
-    assert code == 1 and "needs a new review" in out
+    assert code == 0, out
     desc = tmp_path / "d.md"
     desc.write_text(lines)
     capsys.readouterr()
     main(["--root", str(branch), "report", "--json", "--declare-from", str(desc), "--base", "main"])
-    assert json.loads(capsys.readouterr().out)["pull_request"]["AI-Review-Findings"] == "major"
+    data = json.loads(capsys.readouterr().out)
+    assert data["pull_request"]["AI-Review-Findings"] == "major"
+    solver = next(f for f in data["files"] if f["path"] == "solver.py")
+    assert solver["Findings"] == "F2" and solver["AI-Review-Findings"] == "major"
 
 
 def test_a_pull_request_cant_change_the_scale_by_changing_the_version(branch, tmp_path, capsys):

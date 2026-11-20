@@ -39,7 +39,7 @@ def test_a_repository_keeps_its_levels_through_the_change_to_version_4(repo, cap
     # 1. freeze with the new aisignoff, still at version 3: the commit messages so far are kept as read
     assert run(repo, capsys, "freeze")[0] == 0
     data = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
-    assert data["rules"] == 2 and not any("self-check" in json.dumps(d) for d in data["declarations"])
+    assert data["rules"] == 3 and not any("self-check" in json.dumps(d) for d in data["declarations"])
     commit(repo, "freeze", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A0")
     # 2. convert the file
     monkeypatch.chdir(repo)
@@ -85,7 +85,7 @@ def test_a_snapshot_of_the_rules_before_is_read_on_todays_scale(repo, capsys):
     commit(repo, "and later", OLD.format(a="A1", by="M, new session"))
     assert run(repo, capsys, "freeze")[0] == 0
     data = json.loads(path.read_text())
-    assert data["rules"] == 2 and "self-check" not in json.dumps(data["declarations"])
+    assert data["rules"] == 3 and "self-check" not in json.dumps(data["declarations"])
     assert levels(repo)[1] == "G3 H1 A1"
 
 

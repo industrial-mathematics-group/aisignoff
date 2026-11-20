@@ -32,12 +32,12 @@ import json
 import os
 import re
 import subprocess
-import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, LEVEL_KEYS, LIST_KEYS, RECHECK, TODO, Declaration, canonical_key,
-                    findings_problems, from_version_3, mentions_self_check, validate, worst_findings)
+from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key,
+                    findings_problems, findings_value, from_version_3, mentions_self_check, valid_findings, validate,
+                    worst_findings)
 
 UNCOMMITTED = "0" * 40
 SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
@@ -47,8 +47,9 @@ SNAPSHOT_FORMAT = 1
 # checked by working it out again. One of other rules is accepted as it is on the default
 # branch, and fails as a change. 1: from 0.14.0 on. 2: the AI review scale of SIGNOFF.toml version 4
 # (a snapshot of rules 1 has the scale before it, and is read on today's: Snapshot.read), and a
-# review of the file level that an attestation doesn't reach stays.
-RULES = 2
+# review of the file level that an attestation doesn't reach stays. 3: the findings of the last
+# independent AI review of each line (AI-Review-Findings), which a snapshot of rules 2 doesn't have.
+RULES = 3
 REVERT = re.compile(r"^This reverts commit ([0-9a-f]{7,64})", re.M)
 # GitHub's Revert button: the pull request's description, and the subject of its commits
 REVERT_PR = re.compile(r"^Reverts ([\w.-]+/[\w.-]+#\d+)", re.M)
@@ -159,6 +160,8 @@ class Piece:
     source: str
     kind: str  # commit | branch | attestation | file | declared | frozen | required
     problems: tuple[str, ...] = ()
+    # the AI review axis only: its AI-Review-Findings value ("none", "minor", ...), None: none given
+    findings: str | None = None
 
 
 @dataclass
@@ -186,6 +189,9 @@ def pieces_from_values(values: dict, source: str, kind: str) -> dict[int, Piece]
         if values.get(level) is not None:
             v = values.get(names) or ()
             out[i] = Piece(values[level], tuple([v] if isinstance(v, str) else v), source, kind)
+    findings = values.get(FINDINGS)
+    if 2 in out and isinstance(findings, str) and valid_findings(findings):
+        out[2] = replace(out[2], findings=findings_value(findings))
     return out
 
 
@@ -465,6 +471,8 @@ def combine(pieces) -> Declaration:
         values[level], values[names] = p.level, list(p.names)
         if p.source not in sources:
             sources.append(p.source)
+    if len(pieces) > 2 and pieces[2] is not None and pieces[2].level is not None and pieces[2].findings:
+        values[FINDINGS] = pieces[2].findings
     if not values and not problems:
         return Declaration()
     d = Declaration.from_mapping(values, " + ".join(sources) or "history")
@@ -523,6 +531,8 @@ class Snapshot:
                 if not isinstance(d.get(level), str) or not isinstance(d.get(names, []), list) \
                         or not all(isinstance(n, str) for n in d.get(names, [])):
                     raise ValueError(f"a declaration without a valid {level}")
+            if FINDINGS in d and not (isinstance(d[FINDINGS], str) and valid_findings(d[FINDINGS])):
+                raise ValueError(f"a declaration with an invalid {FINDINGS}")
         if not isinstance(files, dict):
             raise ValueError('"files" must be a table')
         for name, entry in files.items():
@@ -669,13 +679,6 @@ class History:
         self.parents: dict[str, list[str]] = {}
         self._trailers: dict[str, dict[int, Piece]] = {}
         self._both: dict[str, str] = {}  # commits with trailers and checkboxes: the problem
-        self._findings: dict[str, str] = {}  # commits that declare A2 or A3 -> their AI-Review-Findings line
-        self._findings_done: dict[str, tuple[str, ...]] = {}  # commit -> the problems of that line
-        self._findings_texts: set[str] = set()  # all of those problems, which an attestation clears
-        self._recheck_cache: dict[str, str | None] = {}
-        self._files_cache: dict[str, set[str]] = {}
-        self._fresh: list[tuple[int, str | None]] | None = None
-        self._findings_lock = threading.RLock()  # files are resolved in threads
         self._reverts: dict[str, str] = {}  # commit -> the commit its message says it reverts
         self._ancestor: dict[tuple[str, str], bool] = {}
         self._side_cache: dict[str, tuple[bool, int, str | None]] = {}
@@ -996,15 +999,20 @@ class History:
         self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3)
         ai = self._trailers[sha].get(2)
         if ai is not None and ai.level in ("A2", "A3") and not self.config.version_3:
+            # the findings of the review travel with the AI review: they become the findings level of
+            # the lines this commit lands (a commit without them leaves its lines at F-)
             value = findings_line(body)
-            if value:
-                self._findings[sha] = value
+            if value and valid_findings(value):
+                self._trailers[sha][2] = replace(ai, findings=findings_value(value))
+            elif value:
+                self._trailers[sha][2] = replace(ai, problems=ai.problems + tuple(
+                    f"{self.describe(sha)}: {w}" for w in findings_problems(ai.level, value)))
             elif value is None and sha in self.order:
                 typo = next((line.strip() for line in _prose_lines(body) if _FINDINGS_TYPO.match(line)), None)
                 if typo:
                     self._warnings.append(f"{self.describe(sha)} has a line {typo[:60]!r} that looks like "
-                                          f"'{FINDINGS}:' but isn't, so it isn't read; correct the AI review "
-                                          "with a [[commits]] entry if it says a severe finding")
+                                          f"'{FINDINGS}:' but isn't, so it isn't read and its lines stay at F-; "
+                                          "give the findings with a [[commits]] entry that restates its AI review")
         if both:
             self._both[sha] = both
         revert, pr = REVERT.search(body), REVERT_PR.search(body)
@@ -1162,125 +1170,7 @@ class History:
         if sha in self._both and sha not in self.corrections:
             pieces = {i: replace(p, problems=p.problems + (self._both[sha],)) for i, p in pieces.items()}
         pieces.update(self.corrections.get(sha, {}))
-        wrong = self._findings_problems(sha) if 2 not in self.corrections.get(sha, {}) else ()
-        if wrong and 2 in pieces:
-            pieces[2] = replace(pieces[2], problems=pieces[2].problems + wrong)
         return pieces
-
-    # ------------------------------------------------------------ the AI-Review-Findings line of a landed commit
-    def _findings_problems(self, sha: str) -> tuple[str, ...]:
-        """What is wrong with the AI-Review-Findings line of a commit that declares A2 or A3, judged
-        by the [review] recheck in force when it landed (its first parent's SIGNOFF.toml): tightening
-        the threshold applies to the changes after it. A later fix that is reviewed again clears it."""
-        if sha in self._findings_done:
-            return self._findings_done[sha]
-        with self._findings_lock:
-            if sha not in self._findings_done:
-                self._findings_done[sha] = self._judge_findings(sha)
-        return self._findings_done[sha]
-
-    def _judge_findings(self, sha: str) -> tuple[str, ...]:
-        out: tuple[str, ...] = ()
-        value, ai = self._findings.get(sha), self._trailers.get(sha, {}).get(2)
-        recheck = self._recheck_at(sha) if value and ai else None
-        if recheck is not None:
-            wrong = findings_problems(ai.level, value, recheck)
-            if wrong and not self._cleared(sha):
-                out = tuple(f"{self.describe(sha)}: {w}. A later change of its files that is reviewed again "
-                            f"(A2 or A3, with a lower {FINDINGS}) clears this, and so does 'aisignoff attest' "
-                            "for a file" for w in wrong)
-                self._findings_texts.update(out)
-        return out
-
-    def _recheck_at(self, sha: str) -> str | None:
-        """[review] recheck of the SIGNOFF.toml a commit landed on (its first parent's; for the first
-        commit, its own). None: that SIGNOFF.toml is of version 3, which had no findings line."""
-        parents = self.parents.get(sha) or []
-        rev = parents[0] if parents else sha
-        if rev not in self._recheck_cache:
-            from .config import ConfigError, load_text
-            name = self.config.path.name if self.config.path else "SIGNOFF.toml"
-            text = _git(self.root, "show", f"{rev}:{self.prefix}{name}", check=False)
-            if text is None and parents:
-                text = _git(self.root, "show", f"{sha}:{self.prefix}{name}", check=False)
-            recheck: str | None = self.config.recheck
-            if text is not None:
-                try:
-                    config = load_text(text, Path(f"{name} of {short(rev)}"))
-                    recheck = None if config.version_3 else config.recheck
-                except ConfigError:
-                    recheck = RECHECK
-            self._recheck_cache[rev] = recheck
-        return self._recheck_cache[rev]
-
-    def _changed_files(self, sha: str) -> set[str]:
-        """The files a commit changes against its first parent (paths from the top of the repository)."""
-        if sha not in self._files_cache:
-            parents = self.parents.get(sha) or []
-            if parents:
-                out = _git(self.root, "diff", "--name-only", "-z", "--no-renames", parents[0], sha, "--", check=False)
-            else:
-                out = _git(self.root, "diff-tree", "-r", "--root", "--name-only", "-z", "--no-commit-id", sha, check=False)
-            self._files_cache[sha] = {f for f in (out or "").split("\0") if f}
-        return self._files_cache[sha]
-
-    def _fresh_reviews(self) -> list[tuple[int, str | None]]:
-        """The changes that declare a new AI review of A2 or A3 with a finding below the threshold
-        (or by a [[commits]] entry): (their place in the order of the default branch, the commit; None
-        for the pull request this check declares)."""
-        if self._fresh is None:
-            fresh = []
-            fine = []
-            if self.config.history.merge_method == "rebase":
-                for sha in sorted(self.pending - set(self._trailers)):
-                    out = _git(self.root, "log", "-1", f"--format={self.FORMAT}", sha, check=False) or ""
-                    for record in _records(out):
-                        self._remember(*record)
-            for sha, value in self._findings.items():
-                ai = self._trailers[sha].get(2)
-                recheck = self._recheck_at(sha)
-                if recheck is not None and not findings_problems(ai.level, value, recheck):
-                    fine.append(sha)
-            fine += [sha for sha, pieces in self.corrections.items()
-                     if 2 in pieces and pieces[2].level in ("A2", "A3")]
-            for sha in dict.fromkeys(fine):
-                if sha in self.order:
-                    fresh.append((self.order[sha], sha))
-                elif sha in self.pending and self.config.history.merge_method == "rebase":
-                    fresh.append((self._pending_at(sha), sha))  # lands as it is, after what has landed
-            declared = (self.declared or {}).get(2)
-            if declared is not None and declared.level in ("A2", "A3") \
-                    and self.config.history.merge_method != "rebase" and self.changes:
-                # the pull request this check is for: its description's findings line is checked before the merge
-                fresh.append((self.newest + len(self.pending) + 1, None))
-            self._fresh = fresh
-        return self._fresh
-
-    def _pending_at(self, sha: str) -> int:
-        """The place of a commit that hasn't landed: after the default branch, in the order its commits
-        were made (with rebase, they land in that order)."""
-        if not hasattr(self, "_pending_order"):
-            chain = (_git(self.root, "rev-list", "--topo-order", "--reverse", self.head, f"^{self.base}", check=False)
-                     or "").split() if self.head and self.base else []
-            self._pending_order = {c: i for i, c in enumerate(chain)}
-        return self.newest + self._pending_order.get(sha, 0)
-
-    def _cleared(self, sha: str) -> bool:
-        """Whether a later change with a new AI review (A2 or A3, findings below the threshold)
-        changes one of the files of commit SHA: the fix of what its review found."""
-        files = self._changed_files(sha)
-        at = self.order[sha] if sha in self.order else self._pending_at(sha)
-        for when, later in self._fresh_reviews():
-            if when <= at or later == sha:
-                continue
-            if later is None:
-                theirs = {self.prefix + p for p, (old, _, _) in self.changes.items()} | \
-                         {self.prefix + old for old, _, _ in self.changes.values() if old}
-            else:
-                theirs = self._changed_files(later)
-            if files & theirs:
-                return True
-        return False
 
     def _side(self, merge: str) -> tuple[bool, int, str | None, list[tuple[str, str]]]:
         """Of the commits a merge commit brought in: whether one that isn't a merge says
@@ -1704,6 +1594,8 @@ class History:
         """The parts of a file: runs of lines that share one combined declaration."""
         fb = {i: Piece(fallback.get(level), fallback.get(names), fallback.source, "file", tuple(fallback.problems))
               for i, (level, names) in enumerate(AXES) if fallback.get(level) is not None}
+        if 2 in fb and fallback.findings:
+            fb[2] = replace(fb[2], findings=fallback.findings)
         attestations = self.attestations.get(path, [])
         keys: list[tuple] = []
         memo: dict[tuple, tuple] = {}
@@ -1834,10 +1726,22 @@ class History:
             else:
                 best = fb.get(i)
             out.append(best)
-        if out[2] is not None and out[2].kind == "attestation" and self._findings_texts.intersection(problems):
-            # an attestation is a new review of the file: it settles what the owner's review found
-            out = [p if p is None else replace(p, problems=tuple(x for x in p.problems if x not in self._findings_texts))
-                   for p in out]
+        if out[2] is not None and out[2].level is not None:
+            # the findings level: what the last independent AI review (A2 or A3) of the line found. The
+            # owner's review comes first (or the file level's, where that declares the line), then the
+            # attestations that cover it, each a review of content that already had the line. A review
+            # without findings leaves them as they are; an owner without one leaves the line at F-
+            if owner or required:
+                reviews = [owner.get(2)]
+            else:
+                reviews = [fb.get(2)]
+            reviews += [pieces.get(2) for pieces in attested]
+            findings = None
+            for p in reviews:
+                if p is not None and p.level in ("A2", "A3") and p.findings:
+                    findings = p.findings
+            if findings != out[2].findings:
+                out[2] = replace(out[2], findings=findings)
         return tuple(out)
 
 

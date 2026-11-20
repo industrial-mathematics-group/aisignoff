@@ -60,11 +60,24 @@ def at_least(level: str, minimum: str) -> bool:
 # How severe a review's finding is, lowest first (docs/levels.md, after IEEE Std 1044-2009). A
 # commit message or pull request description that declares A2 or A3 says the highest severity the
 # review found in the change itself, in a line "AI-Review-Findings: minor" ("none": no finding).
-# A finding from [review] recheck on (RECHECK by default) needs a new review.
+# The reviewer only reviews: it records what it found and changes nothing. A finding blocks
+# nothing; it becomes the findings level of the lines that review covered (FINDINGS_LEVELS).
 SEVERITIES = ("trivial", "minor", "major", "critical")
-RECHECK = "major"
 FINDINGS = "AI-Review-Findings"
 NO_FINDINGS = "none"
+
+# The findings axis of reports: the highest finding that the last independent AI review (A2 or A3)
+# of a line left open. F- is the default: no such review has covered the line since it last
+# changed. A trivial finding has no effect on results or behaviour, so it counts as F0.
+UNREVIEWED = "F-"
+FINDINGS_AXIS = "Findings"  # its key in reports (AI-Review-Findings is the value a review gives)
+FINDINGS_LEVELS = {
+    "F0": "Reviewed, nothing open",
+    "F1": "Minor finding open",
+    "F2": "Major finding open",
+    "F3": "Critical finding open",
+}
+_FINDINGS_OF = {NO_FINDINGS: "F0", "trivial": "F0", "minor": "F1", "major": "F2", "critical": "F3"}
 
 
 def findings_value(value: str) -> str:
@@ -72,11 +85,20 @@ def findings_value(value: str) -> str:
     return value.strip().strip("*_`").strip().rstrip(".!").strip().lower()
 
 
-def findings_problems(level: str | None, value: str | None, recheck: str = RECHECK, required: bool = False) -> list[str]:
+def valid_findings(value: str | None) -> bool:
+    return value is not None and findings_value(value) in _FINDINGS_OF
+
+
+def findings_level_of(value: str | None) -> str:
+    """The findings level a valid findings value gives (F0-F3), else F-."""
+    return _FINDINGS_OF.get(findings_value(value), UNREVIEWED) if value else UNREVIEWED
+
+
+def findings_problems(level: str | None, value: str | None, required: bool = False) -> list[str]:
     """What is wrong with the AI-Review-Findings line VALUE (None: there is none) next to the AI
     review LEVEL. The line belongs to a review of A2 or A3: next to a lower level it isn't read, so
     a template's line filled in with "n/a" does no harm. required: A2 and A3 must give it (the
-    check before the merge)."""
+    check before the merge). Any severity is valid: a finding is recorded, it blocks nothing."""
     if level not in ("A2", "A3"):
         return []
     if not value:
@@ -84,21 +106,9 @@ def findings_problems(level: str | None, value: str | None, recheck: str = RECHE
             return [f"{level} needs a line '{FINDINGS}:' with the highest severity the review found in this change "
                     f"({NO_FINDINGS}, {', '.join(SEVERITIES)})"]
         return []
-    v = findings_value(value)
-    if v == NO_FINDINGS:
-        return []
-    if v not in SEVERITIES:
+    if not valid_findings(value):
         return [f"invalid {FINDINGS} {value!r}: must be one of {NO_FINDINGS}, {', '.join(SEVERITIES)}"]
-    if severe(v, recheck):
-        return [f"{FINDINGS}: {v} says that the AI review found a {v} problem in this change, and a finding from "
-                f"{recheck} on needs a new review ([review] recheck): fix it, have the change reviewed again, "
-                "and declare that review"]
     return []
-
-
-def severe(value: str, recheck: str = RECHECK) -> bool:
-    """Whether a findings value (as findings_value gives it) needs a new review."""
-    return value in SEVERITIES and SEVERITIES.index(value) >= SEVERITIES.index(recheck)
 
 
 def worst_findings(values: list[str]) -> str:
@@ -189,6 +199,9 @@ class Declaration:
     ai_reviewed_by: tuple[str, ...] = ()
     source: str = "none"  # e.g. 'SIGNOFF.toml [2]', 'none'
     problems: list[str] = field(default_factory=list)  # parse problems found while reading it
+    # the AI-Review-Findings value of the last independent AI review (A2 or A3) that covered it, as
+    # written ("none", "minor", ...); None: there is none (findings level F-)
+    findings: str | None = None
 
     _FIELDS = {GEN: "generation", HUM: "human", AIR: "ai",
                ASSISTED: "assisted_by", REVIEWED: "reviewed_by", AI_REVIEWED: "ai_reviewed_by"}
@@ -206,7 +219,8 @@ class Declaration:
         for key, attr in cls._FIELDS.items():
             v = values.get(key)
             kwargs[attr] = as_tuple(v) if key in LIST_KEYS else (v or None)
-        return cls(**kwargs, source=source)
+        findings = values.get(FINDINGS)
+        return cls(**kwargs, source=source, findings=findings if isinstance(findings, str) and findings else None)
 
     def get(self, key: str):
         return getattr(self, self._FIELDS[key])
@@ -216,6 +230,8 @@ class Declaration:
         for key in KEYS:
             v = self.get(key)
             out[key] = list(v) if key in LIST_KEYS else v
+        if self.findings is not None:
+            out[FINDINGS] = self.findings
         out["source"] = self.source
         return out
 
@@ -353,6 +369,24 @@ def counted_level(d: Declaration, errors: list[str], key: str) -> str:
     if level not in LEVELS[key] or any(key in error_axes(e) for e in errors):
         return UNDECLARED
     return level
+
+
+def counted_findings(d: Declaration, errors: list[str]) -> str:
+    """The findings level as reports count it: F0-F3 from the findings of the last independent AI
+    review, F- when there is none, or the AI review isn't a valid A2 or A3."""
+    if counted_level(d, errors, AIR) not in ("A2", "A3"):
+        return UNREVIEWED
+    return findings_level_of(d.findings)
+
+
+def axis_level(d: Declaration, errors: list[str], key: str) -> str:
+    """The level of one axis as reports count it: counted_level, or counted_findings for FINDINGS_AXIS."""
+    return counted_findings(d, errors) if key == FINDINGS_AXIS else counted_level(d, errors, key)
+
+
+def unset(key: str) -> str:
+    """What an axis counts where it has no level: undeclared, or for the findings F- (unreviewed)."""
+    return UNREVIEWED if key == FINDINGS_AXIS else UNDECLARED
 
 
 def counted_short(d: Declaration, errors: list[str]) -> str:

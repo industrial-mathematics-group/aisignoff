@@ -319,7 +319,8 @@ def test_the_pull_request_diff_shows_a_todo_on_its_own_axis(repo, capsys):
     body = write(repo.parent, "body.md", AGENT + "\nHuman-Review: TODO")
     code, out = run(repo, capsys, "diff", "main", "--json", "--declare-from", str(body))
     added = json.loads(out)["total"]["levels_added"]
-    assert added == {"AI-Generation": {"G3": 1}, "Human-Review": {"undeclared": 1}, "AI-Review": {"A1": 1}}
+    assert added == {"AI-Generation": {"G3": 1}, "Human-Review": {"undeclared": 1}, "AI-Review": {"A1": 1},
+                     "Findings": {"F-": 1}}
 
 
 # ------------------------------------------------------------------ freezes as baselines
@@ -355,7 +356,8 @@ def test_freeze_prune_moves_the_entries_into_the_snapshots_archive(repo, capsys)
     # the next freeze keeps the archive and adds to it
     edit_lines(repo, [9])
     commit(repo, "another AI change", G3)
-    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark")[0] == 0
+    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark",
+               "--findings", "none")[0] == 0
     commit(repo, "attest", D("G0", "H2", "A0"))
     after = levels(repo)
     assert after[8] == "G3 H1 A3" and after[1] == "G3 H3 A3"
@@ -395,7 +397,8 @@ def test_a_snapshot_edited_by_hand_fails_lint(repo, capsys):
     path.write_text(good)
     assert lint(repo, capsys)[0] == 0
     # raised by an attestation: that is what a new snapshot may do
-    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark")[0] == 0
+    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark",
+               "--findings", "none")[0] == 0
     commit(repo, "attest", D("G0", "H2", "A0"))
     assert run(repo, capsys, "freeze", "--prune")[0] == 0
     commit(repo, "third freeze", D("G0", "H2", "A0"))

@@ -89,7 +89,8 @@ def test_an_attestation_reviews_the_whole_file_but_not_later_changes(repo):
 
 def test_an_attestation_before_its_commit_covers_the_working_tree(repo):
     edit_lines(repo, [1])  # uncommitted: falls back to the annotation, then the attestation covers it
-    main(["--root", str(repo), "attest", str(repo / "solver.py"), "-a", "A2", "--ai-reviewed-by", "Model B"])
+    main(["--root", str(repo), "attest", str(repo / "solver.py"), "-a", "A2", "--ai-reviewed-by", "Model B",
+          "--findings", "none"])
     r, project = result(repo)
     assert project.history_problems == []
     assert shares(r) == {"G0 H2 A2": 10}
