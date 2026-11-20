@@ -12,11 +12,13 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, Declaration, counted_level, printable, validate
+from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, Declaration,
+                    axis_level, printable, unset, validate)
 from .history import GIT, git_env
 from .project import FileResult, Project, line_count
 
-AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
+AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI),
+        (FINDINGS_AXIS, "Findings", FINDINGS_LEVELS))
 
 
 class DiffError(Exception):
@@ -190,6 +192,8 @@ def _with_declared(d: Declaration, kinds, declared: Declaration | None, policy, 
     for key, names in ((GEN, "Assisted-by"), (HUM, "Reviewed-by"), (AIR, "AI-Reviewed-by")):
         if declared.get(key) is not None:
             values[key], values[names] = declared.get(key), list(declared.get(names))
+    if declared.ai is not None:
+        values[FINDINGS] = declared.findings  # the findings travel with the AI review that found them
     merged = Declaration.from_mapping(values, "declared for this change")
     return merged, validate(merged, policy)
 
@@ -202,7 +206,7 @@ def _shares(root: Path, results) -> dict:
         counts = Counter()
         for r in results:
             for d, errors, w in weighted_parts(root, r, "lines"):
-                counts[counted_level(d, errors, key)] += w
+                counts[axis_level(d, errors, key)] += w
         total = sum(counts.values()) or 1
         out[key] = {lv: 100 * c / total for lv, c in counts.items()}
     return out
@@ -222,7 +226,7 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
     head = {r.path: r for r in project.results(declared=declared, base=sha)}
     if declared is not None and not isinstance(declared, Declaration):
         from .history import combine
-        declared = combine([declared.get(i) for i in range(len(AXES))])
+        declared = combine([declared.get(i) for i in range(3)])
     prefix = _git(root, "rev-parse", "--show-prefix", check=False).strip()  # root below the top of the repo
     with tempfile.TemporaryDirectory(prefix="aisignoff-base-") as tmp:
         top = Path(tmp) / "base"
@@ -272,13 +276,13 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
                 for target in (row, total):
                     target["added"] += 1
                     for key, _, _ in AXES:
-                        target["levels_added"][key][counted_level(d, errors, key)] += 1
+                        target["levels_added"][key][axis_level(d, errors, key)] += 1
         if r_old is not None:
             for d, errors, _ in _line_declarations(r_old, removed):
                 for target in (row, total):
                     target["removed"] += 1
                     for key, _, _ in AXES:
-                        target["levels_removed"][key][counted_level(d, errors, key)] += 1
+                        target["levels_removed"][key][axis_level(d, errors, key)] += 1
         elif old is not None:
             for target in (row, total):
                 target["removed"] += len(removed)
@@ -301,7 +305,7 @@ def _empty_row(name: str) -> dict:
 
 def _order(key: str, counts: Counter) -> dict:
     levels = dict((k, lv) for k, _, lv in AXES)[key]
-    return {lv: counts[lv] for lv in [*levels, UNDECLARED] if counts.get(lv)}
+    return {lv: counts[lv] for lv in [*levels, unset(key)] if counts.get(lv)}
 
 
 def _finish(row: dict) -> dict:
@@ -319,7 +323,7 @@ def _moves(data: dict, threshold: float = 0.05) -> list[str]:
     for key, title, levels in AXES:
         before, after = data["before"].get(key, {}), data["after"].get(key, {})
         parts = []
-        for lv in [*levels, UNDECLARED]:
+        for lv in [*levels, unset(key)]:
             b, a = before.get(lv, 0.0), after.get(lv, 0.0)
             if abs(a - b) >= threshold:
                 parts.append(f"{lv} {b:.1f}% → {a:.1f}% ({a - b:+.1f})")

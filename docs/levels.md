@@ -57,10 +57,12 @@ The terms:
 - **A3: everything.** The same report, and with it what the reviewer produced: the new tests, benchmarks, scripts or derivations.
 - **A1** needs no record.
 
+**The reviewer only reviews.** It reports what it found and changes nothing in the content it reviews: a reviewer that fixes what it found has written part of the content, so it is no longer independent of it, and the next review would need yet another model. The fixes are the author's, in the same change or a later one, and a later review checks them.
+
 What a report looks like is up to the repository or its organisation, and so is checking it: aisignoff never reads one. [`examples/review-report.md`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/review-report.md) is a template to start from. Whatever the form, a report should keep two things apart:
 
-- **Findings in this change:** what the change itself introduces or makes worse, each with its severity ([below](#when-a-review-counts)) and whether it is fixed or open.
-- **Outside this change:** problems the reviewer met that were there before, of any severity, each with the reason why the change isn't its cause. They don't count towards the highest finding, so a reviewer can report a major problem elsewhere in the code without holding up the change. A maintainer reads this part to see that it really is separate.
+- **Findings in this change:** what the change itself introduces or makes worse, each with its severity ([below](#severity)).
+- **Outside this change:** problems the reviewer met that were there before, of any severity, each with the reason why the change isn't its cause. They don't count towards the highest finding. A maintainer reads this part to see that it really is separate.
 
 The declaration carries everything aisignoff needs to know about the review. `AI-Reviewed-by` names the model and the report, such as `GPT Sol (OpenAI), reviews/pull12.md`. A line `AI-Review-Findings:` gives the highest severity among the findings in this change, or `none`:
 
@@ -72,9 +74,9 @@ AI-Review-Findings: minor
 
 In a pull request template, the same line stands below the AI review boxes. It belongs to A2 and A3: next to A0 or A1 it isn't read, so it can be left empty or say `n/a`. With several such lines, the most severe value counts. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
 
-### When a review counts
+A finding is recorded, not a threshold: a change with a major finding can be merged, and its lines show the finding until a later review finds it fixed ([Findings](#findings-f0-to-f3)).
 
-A review counts once each of its findings in the change is fixed or listed as open in its record. A fix for a small finding needs no review of its own. A severe finding in the change ends the review: it is fixed, the change is reviewed again, and the new report replaces the old one. What is severe is set per repository, on this scale:
+### Severity
 
 | Severity | Meaning | Code | Research and writing |
 |---|---|---|---|
@@ -85,23 +87,35 @@ A review counts once each of its findings in the change is fixed or listed as op
 
 The four levels follow the severity of IEEE Std 1044-2009, the standard classification for software anomalies (critical, major, minor, inconsequential; its "blocking" counts as critical here) and of bug trackers such as Bugzilla. A security finding takes its level from its [CVSS](https://www.first.org/cvss/) rating: critical and high are critical, medium is major, low is minor.
 
-By default the threshold is **major**: a major or critical finding in the change needs a new review, and fixes for minor and trivial findings need none. A repository can move the threshold:
-
-```toml
-[review]
-recheck = "major"   # trivial, minor, major (the default) or critical
-```
-
 What `lint` checks:
 
 - **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity, and its report: `AI-Reviewed-by` names the reviewing model and then a link or a file inside the repository that the change adds or modifies. A report that was there before, such as an earlier review's, doesn't count. Nothing is read from the report.
-- **A severity from the threshold on fails,** in a pull request description and in a landed commit's message. So a severe finding can't be merged with the review that found it: fix it, have the change reviewed again in a new session, and declare that review, with its report in place of the old one.
-- **A severe finding that has landed** (through a direct push, `merge-method = "rebase"`, or a check that wasn't required yet) fails until it is fixed: a later change that modifies one of that commit's files and declares a new review of A2 or A3, with a lower `AI-Review-Findings:`, clears it for all of that commit's lines. So does [`aisignoff attest`](history.md#raising-a-review-attestations) for the lines of the file it attests, and a [`[[commits]]` entry](history.md#correcting-a-commit) that restates the commit's AI review. aisignoff can't tell a fix from any other change of the same file, so this is the reviewer's word, as the rest of the record is.
-- A landed commit with a line that looks like the findings line but isn't (`AI-Review-Finding:`) gets a warning (`lint --strict` fails on it).
-- The threshold is the base branch's: a pull request can't change `[review]` for itself, and its description is read on the base branch's scale. A landed commit is judged by the threshold of the `SIGNOFF.toml` it landed on, so tightening the threshold applies to the changes after it, not to history.
-- With `merge-method = "rebase"`, the description lands nowhere and isn't checked, and commit messages need neither the line nor the report; a commit that lands with a severe finding fails as above. In a repository still on `version = 3`, the line and the report are checked for the ticked boxes of today's template, not for trailers on the old scale.
+- **Any severity passes.** An invalid value (`AI-Review-Findings: high`) fails, in a pull request description and in a landed commit's message.
+- A landed commit with a line that looks like the findings line but isn't (`AI-Review-Finding:`) gets a warning (`lint --strict` fails on it): its lines stay at F-.
+- With `merge-method = "rebase"`, the description lands nowhere and isn't checked, and commit messages need neither the line nor the report. In a repository still on `version = 3`, the line and the report are checked for the ticked boxes of today's template, not for trailers on the old scale.
 
-This is a guard against mistakes, not a proof. aisignoff doesn't read the findings themselves: whether one was rated correctly, whether it really lies outside the change, and whether a new review was done, stays with the people who declare it. File-level declarations and attestations aren't checked for a report.
+aisignoff doesn't read the findings themselves: whether one was rated correctly, and whether it really lies outside the change, stays with the people who declare it.
+
+## Findings: F0 to F3
+
+Reports show a fourth axis next to the three that are declared: what the last independent AI review of a line found. No one declares it as such; it follows from the `AI-Review-Findings:` lines of the reviews.
+
+| Level | Meaning |
+|---|---|
+| **F-** Not reviewed | No independent AI review (A2 or A3 with its findings) has covered the line since it last changed. The default |
+| **F0** Reviewed, nothing open | The last review found nothing in the change, or only trivial findings |
+| **F1** Minor finding open | The last review found a minor problem |
+| **F2** Major finding open | The last review found a major problem |
+| **F3** Critical finding open | The last review found a critical problem |
+
+The findings are a state of the code, not of the pull request:
+
+- **A review sets the lines it covered.** The commit that lands a change with an A2 or A3 review gives its findings to the lines it lands. An [attestation](history.md#raising-a-review-attestations) of A2 or A3 with `--findings` gives them to every line of the file it attests, and a [`[[commits]]` entry](history.md#correcting-a-commit) can restate them with `AI-Review-Findings`. In file-level declarations, an annotation can give them with the same key.
+- **A change without a review changes nothing else.** Lines it doesn't touch keep the findings of the last review that covered them, just as they keep their human and AI review levels.
+- **What a later change touches goes back to F-,** because new code hasn't been reviewed. A fix therefore becomes unreviewed, never silently clean. Only the next review can set F0.
+- **The newest review counts,** not the highest level: an attestation after the commit replaces the commit's findings for the lines it covers. A review of A0 or A1 has no findings and leaves them as they are.
+
+F- (unreviewed) and F2 or F3 (a known open problem) are the two that need attention: the [report](report.md#the-interactive-report) shows both as figures at the top. The findings are per line as far as the review's commit or attestation reaches; a finding that names its lines can't narrow them further, since aisignoff never reads the report.
 
 ### Model tiers
 
@@ -132,7 +146,7 @@ The rows pair each vendor's lineup by position, its most capable model first, no
 
 aisignoff compares model names by their words, without the vendor in brackets and without version numbers: `Claude Opus 5.5 (Anthropic)` and `Opus` name a model that `Claude Opus (Anthropic)` wrote with, and `Claude Fable` doesn't. It doesn't check tiers: whether a reviewer is capable, and whether a review was context-free, stays with the people who declare it.
 
-No level of generation requires an AI review by itself. A repository that wants one sets a minimum.
+No level of generation requires an AI review by itself. A repository that wants one sets a minimum. The [findings](#findings-f0-to-f3) are never a minimum: they are shown, and block nothing.
 
 ## Minimum levels
 

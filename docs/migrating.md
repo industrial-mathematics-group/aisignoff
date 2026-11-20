@@ -2,6 +2,16 @@
 
 Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade.
 
+## To the findings axis
+
+The reviewer only reviews, and its findings are recorded instead of blocking the merge:
+
+- **A major or critical finding no longer fails `lint`.** It shows as F2 or F3 on the lines its review covered, until a later review of those lines finds them fixed. Fixing what a review found is the author's work, in the same pull request or a later one; have it reviewed again to bring the lines to F0.
+- **Remove `[review]` `recheck`** from `SIGNOFF.toml` (`lint` warns while it is there), and `--recheck` from `aisignoff init` calls in workflows.
+- **Existing history is read as it is.** Commits that gave `AI-Review-Findings:` with A2 or A3 give their lines those findings; older commits leave theirs at F-.
+- **With a snapshot,** the frozen lines are at F- (a snapshot written before has no findings). To take the findings of the commits behind them, work the files out again with `aisignoff freeze --reset FILE…` and commit the snapshot; or attest a reviewed file with `aisignoff attest FILE -a A2 --findings none --ai-reviewed-by …`.
+- **Report links** with `axis=gap` open the generation axis now.
+
 ## To 1.0.0rc8
 
 Nothing to do for most repositories. What can change a result:

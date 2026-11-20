@@ -4,7 +4,8 @@
      reviews/pull<number>.md (or reviews/commit<hash>.md), fill it in and commit it with the change.
      This is a template to start from: aisignoff never reads a report, so a repository or organisation
      can use any form, and check it with a tool of its own. Keep the two lists apart in any form.
-     Severities: trivial, minor, major, critical (docs/levels.md, "When a review counts"). -->
+     Severities: trivial, minor, major, critical (docs/levels.md, "Severity").
+     The reviewer only reviews: it reports what it found and changes nothing in the reviewed content. -->
 
 - **Reviewer:** <model, and how it reviewed, e.g. "GPT Sol (OpenAI), new session without the generating conversation">
 - **Reviewed:** <the change: pull request, commit or commit range>, on <date>
@@ -12,9 +13,9 @@
 - **Highest finding in this change:** <none, trivial, minor, major or critical>
 
 <!-- The line above counts only the findings under "Findings in this change". The commit message or
-     pull request description repeats it as "AI-Review-Findings: <the same word>". From the severity
-     of [review] recheck on (by default major), the finding is fixed and the change reviewed again:
-     the report of that review replaces this one. -->
+     pull request description repeats it as "AI-Review-Findings: <the same word>". It blocks nothing:
+     reports show it as the findings level of the lines the change lands (minor F1, major F2,
+     critical F3), until a later review of those lines finds them fixed. -->
 
 ## Summary
 
@@ -28,9 +29,9 @@
 
 <!-- Only what the change itself introduces or makes worse. "None." if there is nothing. -->
 
-| # | Severity | Where | Finding | Status |
-|---|---|---|---|---|
-| 1 | <severity> | <file:line> | <what is wrong, and why> | <fixed in <commit>, or open> |
+| # | Severity | Where | Finding |
+|---|---|---|---|
+| 1 | <severity> | <file:line> | <what is wrong, and why> |
 
 ## Outside this change
 

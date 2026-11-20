@@ -15,18 +15,20 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__
-from .model import AI, AIR, GEN, GENERATION, HUM, HUMAN, UNDECLARED, counted_level, printable
+from .model import (AI, AIR, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, UNDECLARED, axis_level,
+                    printable, unset)
 from .project import line_count, weighted_parts
 
-AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI))
+# The three declared axes, and the findings of the last independent AI review (F0-F3; F- for none),
+# which no one declares as such: it follows from the AI-Review-Findings lines of the reviews
+AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI),
+        (FINDINGS_AXIS, "Findings", FINDINGS_LEVELS))
 WEIGHTS = ("files", "lines")
-
-
 
 
 def status_level(result, key: str) -> str:
     """Level for counting: the declared level if the declaration is valid, else 'undeclared'."""
-    return counted_level(result.declaration, result.errors, key)
+    return axis_level(result.declaration, result.errors, key)
 
 
 def _new_dir(name: str, path: str) -> dict:
@@ -130,7 +132,7 @@ def _build_tree(root: Path, results) -> dict:
         for key, _, _ in AXES:
             for w in WEIGHTS:
                 for d, errors, amount in weighted[w]:
-                    file_counts[key][w][counted_level(d, errors, key)] += amount
+                    file_counts[key][w][axis_level(d, errors, key)] += amount
         # the level of most lines (with one part: the file's level)
         levels = {key: max(file_counts[key]["lines"].items(), key=lambda kv: kv[1])[0]
                   if lines else status_level(r, key) for key, _, _ in AXES}
@@ -147,7 +149,7 @@ def _build_tree(root: Path, results) -> dict:
             leaf["counts"] = {key: {w: _ordered(key, file_counts[key][w]) for w in WEIGHTS} for key, _, _ in AXES}
         if r.parts is not None:
             leaf["parts"] = [{"lines": p.lines, "runs": p.runs, "declaration": p.declaration.as_dict(),
-                              "levels": {key: counted_level(p.declaration, p.errors, key) for key, _, _ in AXES},
+                              "levels": {key: axis_level(p.declaration, p.errors, key) for key, _, _ in AXES},
                               "errors": p.errors, "advisory": p.advisory} for p in r.parts]
         node["children"][parts[-1]] = leaf
         for d in chain:
@@ -178,7 +180,7 @@ def _finish(node: dict, is_root: bool = False) -> dict:
 
 def _ordered(key: str, counts) -> dict:
     levels = dict((k, lv) for k, _, lv in AXES)[key]
-    return {lv: counts.get(lv, 0) for lv in [*levels, UNDECLARED] if counts.get(lv, 0)}
+    return {lv: counts.get(lv, 0) for lv in [*levels, unset(key)] if counts.get(lv, 0)}
 
 
 # ------------------------------------------------------------------ text and Markdown
@@ -225,7 +227,8 @@ def render_text(tree: dict, weight: str = "files", max_depth: int | None = None,
     table = [header]
     for n in rows:
         if n["type"] == "file" and n["errors"]:
-            cells = ["✗", "✗", "✗ " + "; ".join(n["errors"])]  # the error text runs on in the last column
+            # the error text runs on in the last column
+            cells = ["✗"] * (len(AXES) - 1) + ["✗ " + "; ".join(n["errors"])]
         elif n["type"] == "file":
             cells = [file_cell(n, key, weight) for key, _, _ in AXES]
         else:
@@ -299,7 +302,7 @@ def report_meta(root: Path, title: str | None = None, link: str | None = None, s
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "version": __version__,
         "link": link,
-        "axes": [{"key": key, "title": title_, "levels": levels} for key, title_, levels in AXES],
+        "axes": [{"key": key, "title": title_, "levels": levels, "unset": unset(key)} for key, title_, levels in AXES],
         "since": since,  # {"name": "origin/main", "commit": sha} with --since
     }
 

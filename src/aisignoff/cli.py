@@ -13,8 +13,9 @@ from pathlib import Path
 from . import __version__
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
-from .model import (AI, AI_REVIEWED, AIR, ASSISTED, GEN, GENERATION, HUM, HUMAN, RECHECK, REVIEWED, TODO, Declaration,
-                    Policy, SEVERITIES, counted_level, counted_short, printable, validate)
+from .model import (AI, AI_REVIEWED, AIR, ASSISTED, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, NO_FINDINGS,
+                    REVIEWED, SEVERITIES, TODO, UNREVIEWED, Declaration, Policy, counted_findings, counted_level,
+                    counted_short, findings_value, printable, valid_findings, validate)
 from .project import Project, ProjectError, weighted_parts
 
 SPEC_URL = ("https://github.com/industrial-mathematics-group/.github/blob/main/.github/"
@@ -24,6 +25,7 @@ AXIS_INFO = (  # key, short, title, levels, badge file, colour
     (HUM, "H", "Human review", HUMAN, "aisignoff-human-review.json", "389826"),
     (AIR, "A", "AI review", AI, "aisignoff-ai-review.json", "9558B2"),
 )
+FINDINGS_BADGE = "aisignoff-findings.json"
 
 
 class UsageError(Exception):
@@ -53,6 +55,11 @@ def _values(args) -> dict:
             values[key] = [i.strip() for i in items]
     if values[HUM] == TODO and REVIEWED not in values:
         values[REVIEWED] = [TODO]  # so the person fills in the name next to the level
+    findings = getattr(args, "findings", None)
+    if findings:
+        if values[AIR] not in ("A2", "A3"):
+            raise UsageError(f"--findings belongs to an independent AI review: give it with -a A2 or -a A3")
+        values[FINDINGS] = findings_value(findings)
     return {k: v for k, v in values.items() if v}
 
 
@@ -122,13 +129,11 @@ def cmd_init(args) -> int:
         '# G3  = { human = "H2", ai = "A1" }',
         "",
         "# A commit or pull request that declares A2 or A3 says the highest severity its review found in",
-        '# the change, in a line "AI-Review-Findings: minor". From this severity on (trivial, minor, major,',
-        "# critical), the finding needs a new review, and lint fails (optional).",
+        '# the change, in a line "AI-Review-Findings: minor" (none, trivial, minor, major, critical).',
+        "# The reviewer only reviews; the finding is recorded, blocks nothing, and reports show it as",
+        "# the findings level of the lines the review covered (F0-F3, F- for no independent review).",
+        "",
     ]
-    if args.recheck:
-        lines += ["[review]", f"recheck = {_toml_str(args.recheck)}", ""]
-    else:
-        lines += ["# [review]", f'# recheck = "{RECHECK}"', ""]
     if args.history:
         lines += [
             "# Line-level declarations from git history: each line takes the levels of the commit that",
@@ -185,7 +190,7 @@ def _declared(args, version_3: bool = False):
     text = text.replace("\r\n", "\n")
     name, problems, notes = reviewer(text, args.author or "")
     # the check before the merge: on the scale the repository's SIGNOFF.toml says. Its "AI-Review-Findings:" line is checked with
-    # the review report, under the base branch's [review] (_pull_request)
+    # the review report (_pull_request), and becomes the findings level of the lines the change lands
     pieces, both = parse_message(text, name, "the pull request description", version_3)
     args.pr_findings = findings_line(text)
     # whether its AI review is on today's scale, where A2 and A3 give their findings and report: in
@@ -193,12 +198,14 @@ def _declared(args, version_3: bool = False):
     args.pr_today = not version_3 or (old_template(text) is False and 2 not in parse_trailers(text, ""))
     pieces = {i: dataclasses.replace(p, kind="declared", problems=p.problems + ((both,) if both else ()))
               for i, p in pieces.items()}
+    if 2 in pieces and pieces[2].level in ("A2", "A3") and args.pr_today and valid_findings(args.pr_findings):
+        pieces[2] = dataclasses.replace(pieces[2], findings=findings_value(args.pr_findings))
     args.pr_pieces, args.pr_problems, args.pr_notes = pieces, problems, notes
     return pieces
 
 
 def _load_base_rules(project: Project, args) -> None:
-    """The rules of the branch the change goes into (--base): its [policy] and [review] apply to the
+    """The rules of the branch the change goes into (--base): its [policy] applies to the
     change, which can't lower them itself, not even with --allow-policy-change, which lets it change
     them for the pull requests after it."""
     from .pullrequest import base_rules
@@ -208,7 +215,6 @@ def _load_base_rules(project: Project, args) -> None:
         raise UsageError(str(e))
     if args.pr_rules.config is not None:
         project.config.policy = args.pr_rules.config.policy
-        project.config.recheck = args.pr_rules.config.recheck
 
 
 def _description_scale(project: Project, args) -> bool:
@@ -298,7 +304,7 @@ def _pull_request(project: Project, args) -> dict | None:
         if getattr(args, "pr_today", True):
             base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
             problems += [f"the pull request description: {p}" for p in
-                         review_problems(project.root, args.pr_pieces.get(2), args.pr_findings, project.config.recheck,
+                         review_problems(project.root, args.pr_pieces.get(2), args.pr_findings,
                                          change_files(project.root, base))]
     if rules is not None and rules.config is not None:
         what = (f"removes {FILENAME}" if project.config.path is None
@@ -311,7 +317,7 @@ def _pull_request(project: Project, args) -> dict | None:
         if what and getattr(args, "allow_policy_change", False):
             # allowed, but said out loud, and it doesn't lower the bar for this pull request itself
             out["notes"].append(f"the change {what} (allowed by --allow-policy-change); this pull request is "
-                                f"still checked under the base branch's [policy] and [review] ({args.base}); the new rules apply once it has landed")
+                                f"still checked under the base branch's [policy] ({args.base}); the new rules apply once it has landed")
         elif what:
             problems.append(f"the change {what}, which only the branch it goes into "
                             f"{'can do' if project.config.path is None else 'sets'}: commit it there directly, "
@@ -474,6 +480,15 @@ def cmd_report(args) -> int:
             if counts[level]:
                 print(f"  {level:<10} {name:<38} {counts[level]:>5g}  {100 * counts[level] / total:5.1f}%")
         print()
+    counts = Counter()
+    for r in results:
+        for d, errors, w in weighted_parts(project.root, r, weight):
+            counts[counted_findings(d, errors)] += w
+    print("Findings (of the last independent AI review)")
+    for level, name in list(FINDINGS_LEVELS.items()) + [(UNREVIEWED, "No independent AI review since last change")]:
+        if counts[level]:
+            print(f"  {level:<10} {name:<46} {counts[level]:>5g}  {100 * counts[level] / total:5.1f}%")
+    print()
     if _waiting(results):
         print(f"note: {_waiting(results)}")
     return 0
@@ -489,10 +504,13 @@ def _json_header() -> dict:
 
 
 def _result_json(r) -> dict:
-    out = {"path": r.path, **r.declaration.as_dict(), "errors": r.errors}
+    # Findings: the findings level (F0-F3, F- for no independent AI review), from AI-Review-Findings
+    out = {"path": r.path, **r.declaration.as_dict(), FINDINGS_AXIS: counted_findings(r.declaration, r.errors),
+           "errors": r.errors}
     if r.parts is not None:
         # kinds: where each axis comes from (commit, branch, attestation, file, declared, frozen; null: nowhere)
-        out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(), "errors": p.errors,
+        out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(),
+                         FINDINGS_AXIS: counted_findings(p.declaration, p.errors), "errors": p.errors,
                          "kinds": dict(zip((GEN, HUM, AIR), p.kinds)), "advisory": p.advisory}
                         for p in r.parts]
     return out
@@ -610,6 +628,9 @@ def cmd_attest(args) -> int:
         raise UsageError("give at least one review level to attest (-H or -a)")
     if any(v == TODO or (isinstance(v, list) and TODO in v) for v in values.values()):
         raise UsageError("an attestation records a check that was done: TODO isn't allowed")
+    if values.get(AIR) in ("A2", "A3") and FINDINGS not in values:
+        raise UsageError(f"an AI review of {values[AIR]} records what it found: give --findings ({NO_FINDINGS}, "
+                         f"{', '.join(SEVERITIES)}); it sets the findings level of the attested lines")
     problems = [e for e in validate(Declaration.from_mapping(values, "command line"))
                 if not any(e == f"missing {k}" for k in (GEN, HUM, AIR))]
     if problems:
@@ -878,6 +899,16 @@ def cmd_badge(args) -> int:
         (out / filename).write_text(json.dumps(badge_json(label, counts, [*levels, "undeclared"], color),
                                                ensure_ascii=False))
         written.append(str(out / filename))
+    counts = Counter()
+    for r in results:
+        for d, errors, w in weighted_parts(project.root, r, args.weight):
+            counts[counted_findings(d, errors)] += w
+    badge = badge_json("AI review findings" + suffix, counts, [*FINDINGS_LEVELS, UNREVIEWED], "2DA44E")
+    if badge["message"] != "no files":
+        # the flags: an open critical or major finding
+        badge["color"] = "red" if counts["F3"] else "orange" if counts["F2"] else "2DA44E"
+    (out / FINDINGS_BADGE).write_text(json.dumps(badge, ensure_ascii=False))
+    written.append(str(out / FINDINGS_BADGE))
     print("Wrote " + ", ".join(written))
     return 0
 
@@ -894,6 +925,8 @@ def _add_values(p: argparse.ArgumentParser, required: bool) -> None:
     p.add_argument("--reviewed-by", action="append", metavar="PERSON",
                    help="repeatable; the responsible human (always required; TODO: left for a person)")
     p.add_argument("--ai-reviewed-by", action="append", metavar="MODEL", help="repeatable (A1-A3)")
+    p.add_argument("--findings", choices=[NO_FINDINGS, *SEVERITIES], help=f"with -a A2 or A3: the highest severity "
+                   f"the review found ({FINDINGS}), which reports show as the findings level")
 
 
 def _add_history_options(p) -> None:
@@ -901,7 +934,8 @@ def _add_history_options(p) -> None:
     p.add_argument("--base", metavar="REV", help="with --declare-from: the branch the pull request goes into "
                    "(a pull request into another branch than the default one declares nothing)")
     _add_landed(p)
-    p.set_defaults(generation=None, human=None, ai=None, assisted_by=None, reviewed_by=None, ai_reviewed_by=None)
+    p.set_defaults(generation=None, human=None, ai=None, assisted_by=None, reviewed_by=None, ai_reviewed_by=None,
+                   findings=None)
 
 
 def _add_landed(p) -> None:
@@ -926,8 +960,6 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("init", help=f"create {FILENAME}")
     _add_values(p, required=False)
-    p.add_argument("--recheck", choices=SEVERITIES, help="turn on [review] with this threshold: an A2 or A3 "
-                   "review that found a finding this severe needs a new review")
     p.add_argument("--history", action="store_true", help="turn on [history]: line-level declarations from git history")
     p.set_defaults(func=cmd_init)
 

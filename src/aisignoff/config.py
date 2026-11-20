@@ -42,8 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .globbing import compile_glob, matches
-from .model import (AI_REVIEWED, AIR, AXES, KEYS, LEVELS, LIST_KEYS, RECHECK, SEVERITIES, TODO, Declaration, Policy,
-                    canonical_key, from_version_3, parse_policy, policy_from_version_3)
+from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, KEYS, LEVELS, LIST_KEYS, NO_FINDINGS, SEVERITIES, TODO, Declaration,
+                    Policy, canonical_key, findings_value, valid_findings, from_version_3, parse_policy, policy_from_version_3)
 
 FILENAME = "SIGNOFF.toml"
 # Converted by 'aisignoff migrate' up to 1.0.0rc1, and no longer read: say so instead of treating
@@ -128,9 +128,6 @@ class Config:
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # for the reader, never a failure
-    # [review] recheck: a finding of this severity or above needs a new AI review. A commit message or
-    # pull request description whose "AI-Review-Findings:" line says such a severity fails
-    recheck: str = RECHECK
     # version = 3: AI review levels here, and in commit messages are of the scale before version 4
     version_3: bool = False
 
@@ -231,12 +228,14 @@ def parse(data: dict, path: Path) -> Config:
     review = data.get("review", {})
     if not isinstance(review, dict):
         raise ConfigError(f"{name}: use a [review] table")
+    if "recheck" in review:
+        # 1.0.0rc8 had a threshold from which a finding failed lint; findings are now recorded as the
+        # findings level of the lines the review covered, and block nothing
+        warnings.append(f"{name} [review]: 'recheck' is no longer used (a finding blocks nothing: it is shown as the "
+                        "findings level of the lines the review covered); remove it")
     if set(review) - {"recheck"}:
         warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - {'recheck'}))}, ignored "
                         "(a typo, or a setting of a later aisignoff?)")
-    recheck = review.get("recheck", RECHECK)
-    if recheck not in SEVERITIES:
-        raise ConfigError(f"{name} [review]: recheck must be one of {', '.join(SEVERITIES)}")
     commits = []
     for i, table in enumerate(_tables(data, "commits", name), start=1):
         where = f"{name} [[commits]] entry {i}"
@@ -266,7 +265,7 @@ def parse(data: dict, path: Path) -> Config:
                      "and shown on today's (A1 self-check: A0, A2 new session: A1, A3 stays). To change over, run "
                      "examples/convert-to-version-4.py (see 'Upgrading' in the documentation)")
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
-                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old, recheck=recheck)
+                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old)
 
 
 def _is_hex(s: str, minimum: int) -> bool:
@@ -287,12 +286,16 @@ def _parse_values(table: dict, skip: tuple, where: str, old: bool = False) -> di
     for k, v in table.items():
         if k in skip:
             continue
-        key = canonical_key(k)
+        key = canonical_key(k, (*KEYS, FINDINGS))
         if key is None:
-            raise ConfigError(f"{where}: unknown key '{k}' (allowed: {', '.join((*skip, *KEYS))})")
+            raise ConfigError(f"{where}: unknown key '{k}' (allowed: {', '.join((*skip, *KEYS, FINDINGS))})")
         if key in values:
             raise ConfigError(f"{where}: '{key}' is given more than once")
-        if key in LIST_KEYS:
+        if key == FINDINGS:
+            if not isinstance(v, str) or not valid_findings(v):
+                raise ConfigError(f"{where}: invalid {FINDINGS} {v!r} (use {NO_FINDINGS}, {', '.join(SEVERITIES)})")
+            values[key] = findings_value(v)
+        elif key in LIST_KEYS:
             values[key] = _str_list(v, f"{where}: '{k}'")
         else:
             if not isinstance(v, str):
@@ -317,6 +320,8 @@ def _check_axes(values: dict, where: str) -> None:
     for level, names in AXES:
         if names in values and level not in values:
             raise ConfigError(f"{where}: {names} without {level}")
+    if FINDINGS in values and AIR not in values:
+        raise ConfigError(f"{where}: {FINDINGS} without {AIR}")
 
 
 def _parse_history(table, name: str, warnings: list[str]) -> HistorySettings:

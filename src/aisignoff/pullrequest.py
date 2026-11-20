@@ -116,7 +116,7 @@ def _unconverted_annotations(root: Path, base: Config, head: Config) -> list[str
 
 def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     """The rules of the base branch BASE, and which protected settings HEAD's SIGNOFF.toml changes:
-    [policy], [review], exclude, [history] and version (which decides the scale the AI review levels
+    [policy], exclude, [history] and version (which decides the scale the AI review levels
     are read on), and the entries of .git-blame-ignore-revs (or [history] ignore-revs-file), which
     give lines back to other commits. A repository's first SIGNOFF.toml changes nothing."""
     text = _show(root, base, FILENAME)
@@ -130,8 +130,6 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
         changed.append("exclude")
     if config.history != head.history:
         changed.append("[history]")
-    if config.recheck != head.recheck:
-        changed.append("[review]")
     ignore, ignored = head.history.ignore_revs_file or ".git-blame-ignore-revs", None
     if _revs(_show(root, base, ignore)) != _revs(_read(root / ignore)):
         # its entries give lines back to the commits before them: they steer resolution as [history] does
@@ -188,7 +186,7 @@ def _report_paths(root: Path, item: str) -> list[str]:
     return [m.group(0) for m in _REPORT_PATH.finditer(item)]
 
 
-def review_problems(root: Path, piece, findings: str | None, recheck: str, changed: set[str] | None = None) -> list[str]:
+def review_problems(root: Path, piece, findings: str | None, changed: set[str] | None = None) -> list[str]:
     """The check before the merge of a pull request that declares A2 or A3 (PIECE, its AI review):
     the "AI-Review-Findings:" line FINDINGS, and that AI-Reviewed-by names the reviewing model and
     the review's report: a link, or a file inside the repository that the change adds or modifies
@@ -197,7 +195,7 @@ def review_problems(root: Path, piece, findings: str | None, recheck: str, chang
     from .history import _git
     from .model import findings_problems
     level = piece.level if piece else None
-    problems = findings_problems(level, findings, recheck, required=True)
+    problems = findings_problems(level, findings, required=True)
     if level not in ("A2", "A3"):
         return problems
     items = [i.strip() for n in piece.names for i in n.split(",") if i.strip()]

@@ -51,12 +51,12 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 ## init
 
 ```bash
-aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-reviewed-by …]] [--recheck SEVERITY] [--history]
+aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-reviewed-by …]] [--history]
 ```
 
-Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--recheck` turns on `[review]` with that threshold ([When a review counts](levels.md#when-a-review-counts)), and `--history` turns on `[history]` ([Line-level declarations](history.md)); without them, both stay commented out. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
+Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--history` turns on `[history]` ([Line-level declarations](history.md)); without it, it stays commented out. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
 
-A workflow can set up a repository with defaults that a person completes: `aisignoff init -g TODO -H TODO -a TODO --recheck major --history` writes a `**` annotation with every level and `Reviewed-by` left `TODO`, which `lint` reports until they are filled in.
+A workflow can set up a repository with defaults that a person completes: `aisignoff init -g TODO -H TODO -a TODO --history` writes a `**` annotation with every level and `Reviewed-by` left `TODO`, which `lint` reports until they are filled in.
 
 ## annotate
 
@@ -72,7 +72,7 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs). The lev
 aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV [--allow-policy-change]] | --landed]
 ```
 
-Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a commit message whose `AI-Review-Findings:` line says a finding severe enough to need a new review ([When a review counts](levels.md#when-a-review-counts)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
+Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a commit message with an invalid `AI-Review-Findings:` line; a finding of any severity passes ([Findings](levels.md#findings-f0-to-f3)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a snapshot that doesn't match its commit. Lines that haven't landed fail nothing on their own.
 
 `--strict` also fails on warnings: annotations that match no file; reverts, `git pull` merges and commits that look like pull requests that own lines without declaring them; review levels in a `[[commits]]` entry for a commit inside a pull request; attestations of files under `precedence = "override"` or with an `AI-Generation`.
 
@@ -111,10 +111,10 @@ The levels of the lines changed between the merge base of `BASE` and `HEAD`, and
 ## attest
 
 ```bash
-aisignoff attest PATHS [-H H] [-a A] [--reviewed-by …] [--ai-reviewed-by …] [--at REV]
+aisignoff attest PATHS [-H H] [-a A [--findings SEVERITY]] [--reviewed-by …] [--ai-reviewed-by …] [--at REV]
 ```
 
-Appends one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
+Appends one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. An AI review of A2 or A3 also gives `--findings` (`none`, `trivial`, `minor`, `major` or `critical`), which sets the [findings level](levels.md#findings-f0-to-f3) of every line of the file. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
 
 ## freeze
 

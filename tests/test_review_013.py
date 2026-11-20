@@ -167,7 +167,7 @@ def test_a_hand_edit_fails_whatever_version_or_rules_the_snapshot_says(repo, cap
     commit(repo, "freeze", HAND)
     path = repo / "SIGNOFF.snapshot.json"
     good = json.loads(path.read_text())
-    assert good["rules"] == 2
+    assert good["rules"] == 3
     for key, value in [("aisignoff", "0.13.0"), ("aisignoff", None), ("rules", 0), ("rules", None)]:
         data = json.loads(json.dumps(good))
         data["declarations"][0]["Human-Review"] = "H3"
@@ -287,8 +287,8 @@ def test_the_json_keys_of_format_1(repo, capsys):
     assert set(data) == {"format", "aisignoff", "files"} and data["format"] == 1
     f = next(f for f in data["files"] if f["path"] == "solver.py")
     levels = {"AI-Generation", "Human-Review", "AI-Review", "Assisted-by", "Reviewed-by", "AI-Reviewed-by", "source"}
-    assert set(f) == levels | {"path", "errors", "parts"}
-    assert set(f["parts"][0]) == levels | {"errors", "lines", "runs", "kinds", "advisory"}
+    assert set(f) == levels | {"path", "Findings", "errors", "parts"}
+    assert set(f["parts"][0]) == levels | {"Findings", "errors", "lines", "runs", "kinds", "advisory"}
     data = json.loads(run(repo, capsys, "report", "--tree", "--json")[1])
     assert {"format", "aisignoff", "name", "path", "type", "files", "lines", "errors", "counts", "children"} <= set(data)
     assert set(data["counts"]["AI-Generation"]) == {"files", "lines"}

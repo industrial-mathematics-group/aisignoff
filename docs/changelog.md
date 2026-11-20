@@ -4,7 +4,15 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 
 ## Unreleased
 
-- `init --recheck SEVERITY` turns on `[review]` with that threshold and `init --history` turns on `[history]`, so that a workflow can set up a repository with its organisation's defaults in one command (with the levels left `TODO`).
+A review's findings are recorded, not a threshold: the reviewer only reviews and changes nothing, and reports show what the last independent review of each line found as a fourth axis, in place of the review gap. See [Upgrading](migrating.md#to-the-findings-axis).
+
+- New **findings axis** in `report` (summary, `--tree`, `--json`, `--html`), `diff` and `badge`: `F0`–`F3` for the highest finding that the last independent AI review (A2 or A3) of a line left open (`none` and `trivial` are F0, `minor` F1, `major` F2, `critical` F3), and `F-` where no such review has covered the line since it last changed. A review sets the lines it covered: the commit that lands a reviewed change, an attestation of A2 or A3 for its whole file, a `[[commits]]` entry with `AI-Review-Findings`. A change without a review leaves the other lines as they were, and the lines it touches go back to `F-`, so a fix is unreviewed until the next review. See [Findings](levels.md#findings-f0-to-f3).
+- The HTML report's **Review gap** axis is replaced by **Findings**, and its header shows two flags: the share of lines without independent AI review (`F-`) and the share with an open major or critical finding (`F2`, `F3`). The gap followed from generation and human review anyway.
+- **Breaking:** a finding of any severity passes `lint`, before the merge and in a landed commit. `[review]` `recheck` is no longer read (a warning until it is removed), a pull request no longer counts a change of `[review]` as a change of the rules, and `init --recheck` (unreleased) is gone; `init --history` stays.
+- `AI-Review-Findings` is a key of annotations, `[[commits]]` and `[[attestations]]` in `SIGNOFF.toml` (only next to `AI-Review`), and `annotate` and `attest` take `--findings`. `attest -a A2` or `-a A3` needs it.
+- `report --json` gives each file and part its `Findings` level, and `AI-Review-Findings` where a review gave one. `aisignoff badge` also writes `aisignoff-findings.json`.
+- Snapshots are written under rules 3, with the findings of each line. A snapshot of rules 2 is accepted as it is; its frozen lines are at `F-` until `freeze --reset` or an attestation.
+- `init --history` turns on `[history]`, so that a workflow can set up a repository with its organisation's defaults in one command (with the levels left `TODO`).
 
 ## 1.0.0rc8
 
@@ -50,7 +58,7 @@ The AI review scale changes, so that both review scales are cumulative and the A
 - **Breaking:** in the check before the merge (`lint --declare-from`, with version 4), a ticked human review box above an unticked one is an error: the levels build on each other.
 - **Breaking:** the `"*"` minimum of `[policy]` also applies to a declaration whose generation is missing or `TODO`. Before, such a declaration was checked against no minimum.
 - Fixed: an attestation could lower a review. For lines whose commit declares nothing, an attestation replaced the review of the file-level declaration, also with a lower one. Now the higher counts.
-- New `[review]` table with `recheck` (default `"major"`): the severity from which a review's finding needs a new review after its fix, on a scale of trivial, minor, major and critical defined in [When a review counts](levels.md#when-a-review-counts).
+- New `[review]` table with `recheck` (default `"major"`): the severity from which a review's finding needs a new review after its fix, on a scale of trivial, minor, major and critical defined in [Severity](levels.md#severity).
 - **Breaking:** `lint` fails on a committed review report (`[review]` `reports`, by default the Markdown files in `reviews/`) that lists a finding from that severity on: the finding is fixed, the change reviewed again, and the new report replaces the old one. A report lists its findings as list items or headings that start with the severity, such as `- **minor:** …`.
 - In a ticked template, A2 and A3 need the reviewing model after `Model:`; A1 without one names the models that wrote the change, as a new session.
 - The issue form of the signoff request and the `@signoff` assistant use the new wording. The assistant's pull requests declare G1 with A0.

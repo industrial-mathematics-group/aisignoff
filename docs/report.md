@@ -19,9 +19,12 @@ Human review
 AI review
   A0         No independent AI review                  23   67.6%
   A1         Context-free check                        11   32.4%
+
+Findings (of the last independent AI review)
+  F-         No independent AI review since last change        34  100.0%
 ```
 
-The shares count files, or lines with `[history]`. Each axis is counted on its own, with an *undeclared* share for what is missing, `TODO`, invalid or has an error about that axis ([how axes are counted](levels.md#how-reports-count-an-axis)).
+The shares count files, or lines with `[history]`. Each axis is counted on its own, with an *undeclared* share for what is missing, `TODO`, invalid or has an error about that axis ([how axes are counted](levels.md#how-reports-count-an-axis)). The findings come last: what the last independent AI review of each line found, F- where none has covered it since it last changed ([Findings](levels.md#findings-f0-to-f3)).
 
 - `--files` gives one line per file: its levels (with `[history]`, the share of each combination of levels), where they come from (`SIGNOFF.toml [2]` is the second annotation), and any problems.
 - `--json` gives the same per file for other tools: `{"format": 1, "aisignoff": VERSION, "files": [...]}`. With `[history]`, each file has `parts`: runs of lines with one declaration, with `kinds` (where each axis comes from) and `advisory` (lines that haven't landed and wait for their pull request). See [JSON output](#json-output) for every key and [Compatibility](compatibility.md) for what `format` promises.
@@ -75,13 +78,13 @@ What it shows:
 - **Changes.** With `--since`, a *Changed* column, a switch to show only what changed, and the changed lines marked `+` in the file details.
 - **Find and links.** Type part of a path to jump to it. The address keeps the view, so a link opens the same folder, file and line.
 
-The axis buttons choose what is coloured: **Generation**, **Human review**, **AI review**, or the **Review gap**, a line's generation level minus its human review level, never below 0 (G3 tested at H1 has a gap of 2). Each axis has its own ramp from light (level 0) to dark (level 3), the same in light and dark mode. A folder, which mixes levels, is coloured by:
+The axis buttons choose what is coloured: **Generation**, **Human review**, **AI review**, or **Findings**, the highest finding the last independent AI review of a line left open ([F0 to F3](levels.md#findings-f0-to-f3)), grey for F- (no such review since the line last changed). Each axis has its own ramp from light (level 0) to dark (level 3), the same in light and dark mode. Two figures at the top flag what needs attention: the share of lines at F-, and the share with an open major or critical finding (F2, F3). A folder, which mixes levels, is coloured by:
 
 | Colour | A folder shows |
 |---|---|
 | **Average** (default) | the weighted average of its levels, between the steps, with a red outline when anything inside is undeclared |
 | **Majority** | the level that covers most of its files or lines |
-| **Weakest link** | its least-reviewed file, or for generation and the gap the highest |
+| **Weakest link** | its least-reviewed file, or for generation and findings the highest (for findings, F- counts between F1 and F2) |
 
 Excluded files never appear. Undeclared files are red and don't count towards an average.
 
@@ -102,13 +105,14 @@ This documentation does the last: [the folder report of aisignoff itself](https:
 $ aisignoff diff origin/main --declare-from description.md
 Changes since origin/main (f4d6052): +1 −0 lines in 1 file(s)
 
-      +lines  -lines  Generation (added)  Human review (added)  AI review (added)
-src/      +1      -0  G3 +1               H1 +1                 A2 +1
+      +lines  -lines  Generation (added)  Human review (added)  AI review (added)  Findings (added)
+src/      +1      -0  G3 +1               H1 +1                 A2 +1              F1 +1
 
 Whole repository, by lines:
   Generation: G0 67.6% → 65.7% (-1.9) · G1 2.9% → 2.9% (-0.1) · G3 29.4% → 31.4% (+2.0)
   Human review: H1 0.0% → 2.9% (+2.9) · H2 100.0% → 97.1% (-2.9)
   AI review: A0 67.6% → 65.7% (-1.9) · A1 32.4% → 31.4% (-0.9) · A2 0.0% → 2.9% (+2.9)
+  Findings: F1 0.0% → 2.9% (+2.9) · F- 100.0% → 97.1% (-2.9)
 ```
 
 Like a coverage diff, `diff` shows only what changed since `BASE`: the levels of the added lines, the removed lines (their levels at the base are in `--json`), the attestations the change adds, and how the repository's shares move. It compares the working tree, so it works before committing, against the merge base of `BASE` and `HEAD`, as GitHub shows a pull request.
@@ -125,7 +129,7 @@ For the same change in the folder report: `aisignoff report --html report.html -
 
 ## Badges
 
-`aisignoff badge` writes three [shields.io endpoint](https://shields.io/badges/endpoint-badge) files, one per axis, such as `G0 60% · G2 30% · G3 10%`: `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json`. They turn red and show an undeclared share while anything is missing a valid declaration. `--weight lines` weights files by their lines, `--out DIR` sets the folder (default `badges`).
+`aisignoff badge` writes four [shields.io endpoint](https://shields.io/badges/endpoint-badge) files, one per axis, such as `G0 60% · G2 30% · G3 10%`: `aisignoff-generation.json`, `aisignoff-human-review.json`, `aisignoff-ai-review.json` and `aisignoff-findings.json`. The first three turn red and show an undeclared share while anything is missing a valid declaration; the findings badge turns orange with an open major finding and red with a critical one. `--weight lines` weights files by their lines, `--out DIR` sets the folder (default `badges`).
 
 Publish the files somewhere public, such as a `badges` branch (`signoff-badges.yml` does this), and link them from the README, ideally to the folder report:
 
@@ -133,6 +137,7 @@ Publish the files somewhere public, such as a `badges` branch (`signoff-badges.y
 ![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-generation.json)
 ![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-human-review.json)
 ![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-ai-review.json)
+![AI review findings](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repo>/badges/aisignoff-findings.json)
 ```
 
 raw.githubusercontent.com only serves public repositories.
@@ -147,16 +152,18 @@ raw.githubusercontent.com only serves public repositories.
 |---|---|
 | `path` | the file, relative to the project root |
 | `AI-Generation`, `Human-Review`, `AI-Review` | the file's level on each axis (with `[history]`, see `parts` for its lines), or `null` |
+| `Findings` | the [findings level](levels.md#findings-f0-to-f3): `F0`–`F3`, or `F-` without an independent AI review |
+| `AI-Review-Findings` | only where a review gave one: its findings value as written (`none`, `minor`, …) |
 | `Assisted-by`, `Reviewed-by`, `AI-Reviewed-by` | lists of names |
 | `source` | where the declaration comes from |
 | `errors` | list of problems (empty when valid) |
 | `parts` | only with `[history]`: a list of runs of lines with one declaration |
 
-Each part has the six level and name keys above, `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `frozen`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
+Each part has the six level and name keys above, `Findings` (and `AI-Review-Findings` where given), `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `frozen`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
 
 With `--declare-from`, `report --json` also has `pull_request`: `applies` (`false` for a pull request into another branch than the default one, whose description declares nothing), the six level and name keys of what the description declares, `AI-Review-Findings` (its findings line as written, `null` without one), `source` and `errors` (what [`lint`](ci.md#checking-the-pull-request-description) would report about the description).
 
-**`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` (shares, 0 to 1) and `lines` (numbers), by level and `undeclared`.
+**`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` (shares, 0 to 1) and `lines` (numbers), by level and `undeclared`; the axis `Findings` counts `F0`–`F3` and `F-` instead.
 
 **`diff --json`:**
 

@@ -1,7 +1,6 @@
-"""The fixes of 1.0.0rc8, from the two reviews of 1.0.0rc7: the report must be a file of the change, a
-landed severe finding is cleared by its fix, a commit is judged by the threshold it landed under, the
+"""The fixes of 1.0.0rc8, from the two reviews of 1.0.0rc7: the report must be a file of the change, the
 findings line is read only next to A2 and A3, .git-blame-ignore-revs is protected, and the model
-name heuristics."""
+name heuristics. (The severity threshold of rc8 gave way to the findings axis: test_findings.py.)"""
 import pytest
 
 from aisignoff.cli import main
@@ -77,76 +76,8 @@ def test_the_findings_line_is_read_only_for_a2_and_a3(feature, tmp_path, capsys)
     for value in ("n/a", "-", "major", ""):
         assert pr(feature, tmp_path, a1 + f"AI-Review-Findings: {value}\n", capsys)[0] == 0
     write(feature, "reviews/new.md", "# this review\n")
-    code, out = pr(feature, tmp_path, a2("critical", "reviews/new.md") + "AI-Review-Findings: none\n", capsys)
-    assert code == 1 and "found a critical problem" in out
+    assert pr(feature, tmp_path, a2("critical", "reviews/new.md") + "AI-Review-Findings: none\n", capsys)[0] == 0
     assert pr(feature, tmp_path, a2("minor", "reviews/new.md") + "AI-Review-Findings:\n", capsys)[0] == 0
-
-
-# ------------------------------------------------------------------ a severe finding that has landed
-def test_a_later_fix_with_a_new_review_clears_a_landed_finding(repo, capsys):
-    write(repo, "reviews/r.md", "# review\n")
-    write(repo, "other.py", "a\nb\n")
-    commit(repo, "the change, landed with its finding", a2("major"))
-    code, out = lint(repo, capsys=capsys)
-    assert code == 1 and "found a major problem" in out and "clears this" in out
-    # a later change of another file, even with a review, doesn't
-    write(repo, "unrelated.py", "x\n")
-    commit(repo, "unrelated", a2("none"))
-    assert lint(repo, capsys=capsys)[0] == 1
-    # the fix: one line of one of its files, reviewed again
-    write(repo, "other.py", "a\nfixed\n")
-    commit(repo, "the fix", a2("none"))
-    code, out = lint(repo, capsys=capsys)
-    assert code == 0, out
-
-
-def test_a_fix_that_is_reviewed_again_isnt_enough_with_a_severe_finding(repo, capsys):
-    write(repo, "reviews/r.md", "# review\n")
-    write(repo, "other.py", "a\nb\n")
-    commit(repo, "the change, landed with its finding", a2("major"))
-    write(repo, "reviews/r.md", "# review, still bad\n")
-    commit(repo, "a fix whose review found another major", a2("major"))
-    code, out = lint(repo, capsys=capsys)
-    assert code == 1 and "(the change, landed with its finding)" in out and "(a fix whose review" in out
-
-
-def test_the_fix_pull_request_passes_while_main_has_the_finding(repo, tmp_path, capsys):
-    write(repo, "reviews/r.md", "# review\n")
-    commit(repo, "the change, landed with its finding", a2("major"))
-    git(repo, "checkout", "-q", "-b", "fix")
-    write(repo, "reviews/r.md", "# the new review\n")
-    commit(repo, "the fix")
-    code, out = pr(repo, tmp_path, a2("none"), capsys)
-    assert code == 0, out
-    code, out = pr(repo, tmp_path, a2("major"), capsys)
-    assert code == 1
-
-
-def test_an_attestation_clears_a_landed_finding_for_its_file(repo, capsys, monkeypatch):
-    monkeypatch.chdir(repo)
-    write(repo, "reviews/r.md", "# review\n")
-    write(repo, "solver.py", "".join(f"agent {i}\n" for i in range(1, 11)))
-    commit(repo, "the change, landed with its finding", a2("major"))
-    assert lint(repo, capsys=capsys)[0] == 1
-    assert main(["--root", str(repo), "attest", "solver.py", "-a", "A2",
-                 "--ai-reviewed-by", "GPT Fable (OpenAI), reviews/r2.md"]) == 0
-    code, out = lint(repo, capsys=capsys)
-    errors = out.split("files have")[0]
-    assert "solver.py" not in errors and "reviews/r.md" in errors, out  # only the file it attests
-
-
-def test_a_landed_commit_is_judged_by_the_threshold_it_landed_under(repo, capsys):
-    write(repo, "reviews/r.md", "# review\n")
-    commit(repo, "fine under the default", a2("minor"))
-    assert lint(repo, capsys=capsys)[0] == 0
-    write(repo, "SIGNOFF.toml", BASE_TOML + '\n[review]\nrecheck = "minor"\n')
-    commit(repo, "tighten the threshold", a2("minor", "SIGNOFF.toml"))  # lands under major: fine
-    code, out = lint(repo, capsys=capsys)
-    assert code == 0, out
-    write(repo, "reviews/r.md", "# review 2\n")
-    commit(repo, "lands under minor", a2("minor"))
-    code, out = lint(repo, capsys=capsys)
-    assert code == 1 and "a finding from minor on" in out
 
 
 # ------------------------------------------------------------------ .git-blame-ignore-revs
@@ -234,7 +165,7 @@ def test_a_pull_request_is_read_on_the_base_branchs_scale(repo, tmp_path, capsys
     write(repo, "solver.py", "changed\n")
     commit(repo, "back to version 3")
     code, out = pr(repo, tmp_path, a2("critical", "reviews/none.md"), capsys, "--allow-policy-change")
-    assert code == 1 and "found a critical problem" in out and "isn't in this change" in out
+    assert code == 1 and "isn't in this change" in out
 
 
 def test_a_misspelt_findings_line_in_a_landed_commit_is_a_warning(repo, capsys):

@@ -124,7 +124,7 @@ AI-Review-Findings:
 
 Boxes in code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are an unfilled template: `TODO`, which `lint` reports.
 
-The line `AI-Review-Findings:` belongs to a review of A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)). It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
+The line `AI-Review-Findings:` belongs to a review of A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)), and it becomes the [findings level](levels.md#findings-f0-to-f3) of the lines the commit lands. It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
 
 Two more rules keep a template to the [definitions](levels.md):
 
@@ -194,7 +194,7 @@ Reviewed-by = "Jane Doe"
 - For a commit inside a merged pull request, only `AI-Generation` counts, and it may be lower than the pull request's. `lint` warns about review levels there.
 - An entry for a commit that isn't in the history of `HEAD` (rebased or squashed away) declares nothing, and `lint` says so.
 - Entries don't change lines a [snapshot](snapshots.md) has frozen; `aisignoff freeze --reset FILE` applies them there.
-- A commit that landed with a severe `AI-Review-Findings:` ([When a review counts](levels.md#when-a-review-counts)) needs no entry when the problem is fixed: the fix, with a new review of A2 or A3 and a lower finding, clears it. An entry that gives its `AI-Review` replaces the commit's review, findings line included.
+- An entry that gives `AI-Review` replaces the commit's review, findings line included: give `AI-Review-Findings` there too, or the commit's lines are at F- ([Findings](levels.md#findings-f0-to-f3)).
 
 ## Raising a review: attestations
 

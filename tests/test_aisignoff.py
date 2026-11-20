@@ -194,9 +194,10 @@ def test_the_findings_line_of_a_review():
     assert findings_problems("A1", None, required=True) == [] and findings_problems("A2", None) == []
     assert "A2 needs a line 'AI-Review-Findings:'" in findings_problems("A2", "", required=True)[0]
     assert "invalid AI-Review-Findings 'high'" in findings_problems("A2", "high")[0]
-    assert "needs a new review" in findings_problems("A2", "Major")[0] and findings_problems("A2", "major", "critical") == []
+    # any severity is valid: a finding is recorded, it blocks nothing
+    assert findings_problems("A2", "Major") == [] and findings_problems("A3", "critical", required=True) == []
     # the line belongs to A2 and A3: below that it isn't read, so a template's "n/a" does no harm
-    assert findings_problems("A1", "minor", "minor") == [] and findings_problems("A0", "n/a", required=True) == []
+    assert findings_problems("A1", "minor") == [] and findings_problems("A0", "n/a", required=True) == []
     assert findings_problems("A2", "None.") == [] and findings_problems("A2", "**minor**") == []
     # several lines: the most severe counts, and an empty one only when none is filled in
     assert findings_line("AI-Review-Findings: critical\nAI-Review-Findings: none\n") == "critical"
@@ -205,22 +206,46 @@ def test_the_findings_line_of_a_review():
     assert findings_line("AI-Review-Findings: high\nAI-Review-Findings: critical\n") == "high"
     # the key in bold or in a list item, as templates are often filled in
     assert findings_line("**AI-Review-Findings:** none\n") == "none" and findings_line("- AI-Review-Findings: minor\n") == "minor"
-    # parse_message leaves the line to its caller (History judges a landed commit by the rules it landed under)
+    # parse_message leaves the line to its caller (History attaches it to the commit's AI review)
     body = "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A2\nAI-Reviewed-by: N, r.md\n"
     assert parse_message(body + "AI-Review-Findings: critical\n", "J", "c")[0][2].problems == ()
 
 
-def test_the_review_table_sets_which_fixes_need_a_new_review(tmp_path):
-    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n')
-    assert load(tmp_path).recheck == "major"
+def test_the_review_table_of_rc8_is_no_longer_read(tmp_path):
     (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[review]\nrecheck = "minor"\nlater = 1\n')
     config = load(tmp_path)
-    assert config.recheck == "minor" and "[review]: unknown key(s) later" in config.warnings[0]
-    for bad in ('[review]\nrecheck = "high"\n', '[review]\nrecheck = 2\n', 'review = "major"\n'):
-        (tmp_path / "SIGNOFF.toml").write_text('version = 4\n' + bad)
-        with pytest.raises(ConfigError, match="review"):
-            load(tmp_path)
+    assert "'recheck' is no longer used" in config.warnings[0] and "[review]: unknown key(s) later" in config.warnings[1]
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\nreview = "major"\n')
+    with pytest.raises(ConfigError, match="review"):
+        load(tmp_path)
 
+
+def test_findings_levels():
+    from aisignoff.model import Declaration, counted_findings, findings_level_of
+    assert [findings_level_of(v) for v in (None, "", "none", "trivial", "Minor", "**major**", "critical", "high")] == \
+        ["F-", "F-", "F0", "F0", "F1", "F2", "F3", "F-"]
+    base = {"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H1", "Reviewed-by": ["J"]}
+    a2 = Declaration.from_mapping({**base, "AI-Review": "A2", "AI-Reviewed-by": ["N"], "AI-Review-Findings": "major"}, "t")
+    assert counted_findings(a2, []) == "F2" and a2.as_dict()["AI-Review-Findings"] == "major"
+    # only an independent review (A2, A3) has findings; an error about the AI review leaves F-
+    a1 = Declaration.from_mapping({**base, "AI-Review": "A1", "AI-Reviewed-by": ["N"], "AI-Review-Findings": "none"}, "t")
+    assert counted_findings(a1, []) == "F-"
+    assert counted_findings(a2, ["A2 needs AI-Reviewed-by (reviewing model and session)"]) == "F-"
+    assert "AI-Review-Findings" not in Declaration.from_mapping(base, "t").as_dict()
+
+
+def test_findings_in_signoff_toml(tmp_path):
+    entry = '[[attestations]]\npath = "a.py"\nblob = "{}"\nAI-Review = "A2"\nAI-Reviewed-by = ["N"]\n'.format("0" * 40)
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n' + entry + 'AI-Review-Findings = "Minor"\n')
+    assert load(tmp_path).attestations[0].values["AI-Review-Findings"] == "minor"
+    for bad, match in (('AI-Review-Findings = "high"\n', "invalid AI-Review-Findings"),):
+        (tmp_path / "SIGNOFF.toml").write_text('version = 4\n' + entry + bad)
+        with pytest.raises(ConfigError, match=match):
+            load(tmp_path)
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[[commits]]\ncommit = "abcd"\nHuman-Review = "H1"\n'
+                                           'Reviewed-by = ["J"]\nAI-Review-Findings = "none"\n')
+    with pytest.raises(ConfigError, match="AI-Review-Findings without AI-Review"):
+        load(tmp_path)
 
 def test_unknown_settings_are_warnings(tmp_path):
     # a later 1.x may add optional settings: an older install warns about them instead of failing
@@ -559,21 +584,17 @@ def test_version_comes_from_pyproject():
     assert aisignoff.__version__ == installed == pyproject
 
 
-def test_init_turns_on_review_and_history(tmp_path):
+def test_init_turns_on_history(tmp_path):
     # the defaults a workflow sets up a repository with: everything left TODO for a person
-    assert main(["--root", str(tmp_path), "init", "-g", "TODO", "-H", "TODO", "-a", "TODO",
-                 "--recheck", "major", "--history"]) == 0
+    assert main(["--root", str(tmp_path), "init", "-g", "TODO", "-H", "TODO", "-a", "TODO", "--history"]) == 0
     config = load(tmp_path)
-    assert config.recheck == "major"
-    assert '\n[review]\nrecheck = "major"\n' in (tmp_path / "SIGNOFF.toml").read_text()
-    assert config.history.enabled
+    assert config.history.enabled and not config.warnings
     assert tuple(config.annotations[0].values["Reviewed-by"]) == ("TODO",)
-    # without them, both stay commented out
+    assert "[review]" not in (tmp_path / "SIGNOFF.toml").read_text()
+    # without it, [history] stays off
     other = tmp_path / "other"
     other.mkdir()
     assert main(["--root", str(other), "init"]) == 0
-    config = load(other)
-    assert not config.history.enabled
-    assert "# [review]" in (other / "SIGNOFF.toml").read_text()
-    with pytest.raises(SystemExit):
-        main(["--root", str(other), "init", "--recheck", "none"])
+    assert not load(other).history.enabled
+    with pytest.raises(SystemExit):   # the threshold of 1.0.0rc8 is gone
+        main(["--root", str(tmp_path / "x"), "init", "--recheck", "major"])

@@ -303,9 +303,9 @@ def test_declare_from_reads_a_pull_request_description(repo, tmp_path_factory, c
     levels = added("Intro, mentioning Human-Review: H3 in prose\r\n\r\n```\nAI-Review: A3\n```\n\n"
                    "AI-Generation: G3\nAssisted-by: M\nHuman-Review: H1\nReviewed-by: Jane\nAI-Review: A1\n"
                    "AI-Reviewed-by: M\n\nCo-authored-by: B <b@x>\n")
-    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}}
+    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}, "Findings": {"F-": 1}}
     levels = added(TEMPLATE.format(a2=" ", model=""), "--author", "jane")  # the template: the author reviewed
-    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}}
+    assert levels == {"AI-Generation": {"G3": 1}, "Human-Review": {"H1": 1}, "AI-Review": {"A1": 1}, "Findings": {"F-": 1}}
     # a TODO in the description is what will land: the line isn't declared yet
     levels = added("AI-Generation: G3\nAssisted-by: M\nHuman-Review: TODO\nAI-Review: A1\nAI-Reviewed-by: M\n")
     assert levels["Human-Review"] == {"undeclared": 1}

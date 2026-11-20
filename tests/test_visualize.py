@@ -42,7 +42,8 @@ def test_tree_counts_per_folder(repo):
     assert src["counts"]["AI-Generation"]["lines"] == {"G0": 10, "G2": 10, "undeclared": 1}
     assert src["counts"]["Human-Review"]["files"] == {"H1": 2, "H2": 1, "undeclared": 1}
     bad = child(src, "bad.py")
-    assert bad["levels"] == {"AI-Generation": "undeclared", "Human-Review": "undeclared", "AI-Review": "undeclared"}
+    assert bad["levels"] == {"AI-Generation": "undeclared", "Human-Review": "undeclared", "AI-Review": "undeclared",
+                             "Findings": "F-"}
     assert bad["errors"] and bad["declaration"]["source"] == "SIGNOFF.toml [3]"
 
 
@@ -64,7 +65,7 @@ def test_tree_leaves_out_excluded_files(repo):
 def test_text_tree(repo):
     out = visualize.render_text(tree_of(repo))
     lines = out.splitlines()
-    assert lines[0].split() == ["files", "Generation", "Human", "review", "AI", "review"]
+    assert lines[0].split() == ["files", "Generation", "Human", "review", "AI", "review", "Findings"]
     assert re.match(r"^\.\s+6\s+G0 33% · G2 50% · undeclared 17%", lines[1])
     assert any(line.startswith("├─ lib/deep/er/") for line in lines)
     # a file without a valid declaration is listed under its folder, even without --files
@@ -109,7 +110,7 @@ def test_html_report_embeds_tree_safely(tmp_path):
     assert parsed["meta"]["title"] == "A & <B>"
     leaf = parsed["tree"]["children"][0]["children"][0]   # the folder "<" holds "script><!--.txt"
     assert leaf["path"] == "</script><!--.txt"
-    assert [a["key"] for a in parsed["meta"]["axes"]] == ["AI-Generation", "Human-Review", "AI-Review"]
+    assert [a["key"] for a in parsed["meta"]["axes"]] == ["AI-Generation", "Human-Review", "AI-Review", "Findings"]
 
 
 def test_html_links_to_github_on_actions(tmp_path, monkeypatch):
