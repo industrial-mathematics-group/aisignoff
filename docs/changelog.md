@@ -13,6 +13,7 @@ A review's findings are recorded, not a threshold: the reviewer only reviews and
 - `report --json` gives each file and part its `Findings` level, and `AI-Review-Findings` where a review gave one. `aisignoff badge` also writes `aisignoff-findings.json`.
 - Snapshots are written under rules 3, with the findings of each line. A snapshot of rules 2 is accepted as it is; its frozen lines are at `F-` until `freeze --reset` or an attestation.
 - `init --history` turns on `[history]`, so that a workflow can set up a repository with its organisation's defaults in one command (with the levels left `TODO`).
+- Fixed: `diff` didn't list a new attestation of a file whose content was attested already at BASE, such as an AI review added after a human review of the same content. Attestations are now compared by path, blob and declaration, and a repeated entry counts once per copy.
 
 ## 1.0.0rc8
 
