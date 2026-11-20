@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc8"
+      - run: pip install "aisignoff==1.0.0rc9"
       - run: aisignoff lint
 ```
 
