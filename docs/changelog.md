@@ -4,7 +4,14 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 
 ## Unreleased
 
-- **Breaking:** A1 gives its findings too, so that a context-free check by the same model is a reference for what a different model finds at A2 and A3. Before the merge, a description that declares A1 needs the line `AI-Review-Findings:` (but no report), `attest -a A1` needs `--findings`, and an A1 review sets the findings level of the lines it covered like A2 and A3. A landed A1 commit without the line leaves its lines at F-. The signoff request form and the `@signoff` assistant ask what an AI review found, and pass it on to `annotate`, `attest` and `[[commits]]` entries; an attestation of A1 to A3 needs it. See [Upgrading](migrating.md#a1-gives-its-findings).
+Fixes from an independent review of 1.0.0rc9, and A1 gives its findings.
+
+- **Breaking:** A1 gives its findings too, so that a context-free check by the same model is a reference for what a different model finds at A2 and A3. Before the merge, a description that declares A1 needs the line `AI-Review-Findings:` (but no report), `attest -a A1` needs `--findings`, and an A1 review sets the findings level of the lines it covered like A2 and A3. A landed A1 commit without the line leaves its lines at F-. The signoff request form and the `@signoff` assistant need the findings for A1 too. See [Upgrading](migrating.md#a1-gives-its-findings).
+- Fixed: where two reviews cover a line, the findings (and the reviewer, on a tie of levels) came from the attestation written last in `SIGNOFF.toml`. An older review recorded later with `attest --at` replaced the findings of a newer review, so a major finding could disappear. Now the review of the newer content counts.
+- The example workflows `signoff-request.yml` and `signoff-assistant.yml` and the issue form ask for the findings of an A1, A2 or A3 review and pass them on (`--findings`, or `AI-Review-Findings` in a `[[commits]]` entry). With 1.0.0rc9 they could no longer attest A2 or A3.
+- `diff` lists the findings of an attestation of A1, A2 or A3 (`A2, findings: major`; `findings` in `--json`).
+- `init` refuses `--findings`, `--assisted-by`, `--reviewed-by` and `--ai-reviewed-by` without the levels; before, they were silently ignored.
+- Docs: the `report --tree` example shows the Findings column, the attestation example in [History](history.md) gives `--findings`, and `signoff-badges.yml` lists the findings badge.
 
 ## 1.0.0rc9
 

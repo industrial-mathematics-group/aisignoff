@@ -1,5 +1,5 @@
 """The fixes of 1.0.0rc8, from the two reviews of 1.0.0rc7: the report must be a file of the change, the
-findings line is read only next to A2 and A3 (since 1.0.0rc10 also A1), .git-blame-ignore-revs is protected, and the model
+findings line is read only next to A2 and A3 (now also A1), .git-blame-ignore-revs is protected, and the model
 name heuristics. (The severity threshold of rc8 gave way to the findings axis: test_findings.py.)"""
 import pytest
 

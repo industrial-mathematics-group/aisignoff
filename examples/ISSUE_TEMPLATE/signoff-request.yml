@@ -87,13 +87,13 @@ body:
     id: ai-findings
     attributes:
       label: What did the AI review find?
-      description: A1 to A3 only, and needed to raise the review. The highest severity the review found, or none. It is recorded and blocks nothing.
+      description: A1 to A3 only. The most severe finding of the review; findings block nothing, reports show them.
       options:
-        - "none: the review found nothing"
-        - "trivial: no effect on results or behaviour, such as naming, style or typos"
-        - "minor: a limited effect, or an easy way around it"
-        - "major: a wrong result or behaviour in a case that matters"
-        - "critical: the work fails its purpose, or does harm"
+        - "none: nothing found"
+        - "trivial: no effect on results or behaviour"
+        - "minor: a small effect, with a workaround"
+        - "major: wrong results or behaviour in some cases"
+        - "critical: wrong results or behaviour in normal use"
   - type: textarea
     id: notes
     attributes:

@@ -12,7 +12,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, Declaration,
+from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN, GENERATION, HUM, HUMAN, Declaration,
                     axis_level, printable, unset, validate)
 from .history import GIT, comparable, git_env
 from .project import FileResult, Project, line_count
@@ -294,8 +294,10 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
         if base_attestations[entry]:
             base_attestations[entry] -= 1
             continue
-        attested.append({"path": a.path, "blob": a.blob,
-                         "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}})
+        item = {"path": a.path, "blob": a.blob, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
+        if isinstance(a.values.get(FINDINGS), str) and a.values.get(AIR) in FINDINGS_REVIEWS:
+            item["findings"] = a.values[FINDINGS]  # what the review found sets the findings of the file's lines
+        attested.append(item)
     return {
         "base": sha, "base_name": base, "base_tip": tip, "files": files, "history": project.history_used, "note": note,
         "rows": [_finish(r) for r in sorted(rows.values(), key=lambda r: (r["name"] != ".", r["name"]))], "total": _finish(total), "attested": attested,
@@ -384,7 +386,7 @@ def _extras(data: dict, md: bool) -> list[str]:
         out.append("")
         out.append("**Attested:**" if md else "Attested:")
         for a in data["attested"]:
-            levels = " ".join(a["levels"].values())
+            levels = " ".join(a["levels"].values()) + (f", findings: {a['findings']}" if a.get("findings") else "")
             out.append(f"- `{_md(a['path'])}` at {levels}" if md else f"  {printable(a['path'])}  {levels}")
     moves = _moves(data)
     if moves:

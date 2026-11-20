@@ -92,7 +92,8 @@ def test_declare_files_opens_a_pull_request_from_the_template(checkout):
     r, api = request(checkout, form(kind="Declare files: how they were made", paths="results/",
                                     gen="G2: AI wrote substantial parts", models="Claude Opus 5.5 (Anthropic)",
                                     human="H1: ran it", responsible="Jane Doe", ai="A1: the AI that wrote it",
-                                    ai_by="Claude Sonnet 5.5 (Anthropic), new session", notes="Checked."))
+                                    ai_by="Claude Sonnet 5.5 (Anthropic), new session", findings="none: nothing",
+                                    notes="Checked."))
     assert r.returncode == 0, r.stdout + r.stderr
     work = checkout / "work"
     assert git(work, "branch", "--show-current").strip() == "signoff-request/issue-7"
@@ -130,7 +131,7 @@ def test_attest_and_correct_a_commit(checkout):
     commit = git(checkout / "work", "rev-parse", "--short", "origin/main").strip()
     r, _ = request(checkout, form(kind="Correct the declaration of a commit", commit=commit, gen="G1: x",
                                   models="M (V)", human="H2: read", responsible='Jane "JD" Doe', ai="A1: y",
-                                  ai_by="M (V), new session"))
+                                  ai_by="M (V), new session", findings="minor: x"))
     assert r.returncode == 0, r.stdout + r.stderr
     toml = (checkout / "work/SIGNOFF.toml").read_text()
     assert "[[attestations]]" not in toml   # each run starts from the default branch
@@ -152,7 +153,27 @@ def test_attest_and_correct_a_commit(checkout):
     assert 'AI-Reviewed-by = ["M (V), new session"]\nAI-Review-Findings = "none"' in (checkout / "work/SIGNOFF.toml").read_text()
 
 
+def test_an_independent_review_records_its_findings(checkout):
+    r, _ = request(checkout, form(kind="Raise the review", paths="results/fit.csv", ai="A2: a different model",
+                                  ai_by="GPT Sol (OpenAI), https://example.org/review",
+                                  findings="major: wrong results or behaviour in some cases"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Review = "A2"' in (checkout / "work/SIGNOFF.toml").read_text()
+    assert 'AI-Review-Findings = "major"' in (checkout / "work/SIGNOFF.toml").read_text()
+
+    commit = git(checkout / "work", "rev-parse", "--short", "origin/main").strip()
+    r, _ = request(checkout, form(kind="Correct the declaration of a commit", commit=commit, ai="A2: x",
+                                  ai_by="GPT Sol (OpenAI), https://example.org/review", findings="none: nothing found"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Review = "A2"\nAI-Reviewed-by = ["GPT Sol (OpenAI), https://example.org/review"]\n' \
+           'AI-Review-Findings = "none"' in (checkout / "work/SIGNOFF.toml").read_text()
+
+
 @pytest.mark.parametrize("answers, message", [
+    (dict(kind="Raise the review", paths="results/", ai="A2: x", ai_by="GPT Sol (OpenAI), https://example.org/r"),
+     'choose it under "What did the AI review find?"'),
+    (dict(kind="Raise the review", paths="results/", ai="A0: x", findings="none: x"),
+     '"What did the AI review find?" goes with an AI review of A1, A2, A3'),
     (dict(kind="Declare files", paths="results/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J",
           confirm=False), 'Tick the box under "Confirmation"'),
     (dict(kind="Declare files", paths="--root=/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J"),
@@ -160,8 +181,6 @@ def test_attest_and_correct_a_commit(checkout):
     (dict(kind="Declare files", paths="results/", gen="G0: x", human="H0: x", ai="A0: x", responsible="J"),
      "`aisignoff annotate` refused the request"),   # below the policy the test adds
     (dict(kind="Raise the review", paths="results/", gen="G1: x"), "An attestation records a review only"),
-    (dict(kind="Declare files", paths="results/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J",
-          findings="none: x"), "goes with an AI review level A1 to A3"),
     (dict(kind="Correct the declaration of a commit", commit="deadbeef", gen="G0: x"),
      "There is no commit `deadbeef`"),
 ])

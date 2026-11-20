@@ -136,13 +136,6 @@ jobs:
               "A2": "A2: a different, capable model did that check and committed a review report",
               "A3": "A3: a different, capable model validated it with new evidence, committed with the report",
           }
-          FINDINGS = {
-              "none": "none: the review found nothing",
-              "trivial": "trivial: no effect on results or behaviour, such as naming, style or typos",
-              "minor": "minor: a limited effect, or an easy way around it",
-              "major": "major: a wrong result or behaviour in a case that matters",
-              "critical": "critical: the work fails its purpose, or does harm",
-          }
 
 
           def api(method, path, body=None, ok404=False):
@@ -286,7 +279,7 @@ jobs:
           Rules the answers must meet:
           - G1-G3 need "models": the AI tools and models that wrote parts, as precisely as known, e.g. "Claude Opus 5.5 (Anthropic)". G0 has none.
           - A1-A3 need "ai_reviewers": the reviewing model and how, e.g. "Claude Opus 5.5 (Anthropic), new session without the original conversation". For A2 and A3 it must not be a model named in "models". A self-check by the session that wrote it is A0. A0 has none.
-          - "findings": the highest severity the AI review (A1-A3) found: none; trivial (no effect on results or behaviour: naming, style, typos); minor (a limited effect, or an easy way around it); major (a wrong result or behaviour in a case that matters); critical (the work fails its purpose, or does harm). An attestation of A1-A3 needs it; for A0, or without an AI review, leave it empty.
+          - A1-A3 need "findings": the most severe finding the review reported: none (nothing found), trivial (no effect on results or behaviour), minor (a small effect, with a workaround), major (wrong results or behaviour in some cases) or critical (wrong results or behaviour in normal use). A finding blocks nothing; it is recorded. Never guess it: ask. A0 leaves it empty.
           - A human level needs "responsible": the full name of the person who did the human check (it is recorded as Reviewed-by). Without a human level, leave it empty.
           - Paths are relative to the repository root and must exist in the file list below; a folder ends with "/" and covers everything in it; globs like "notebooks/*.ipynb" are allowed.
           - The [policy] of SIGNOFF.toml may require minimum levels for some paths.
@@ -305,6 +298,7 @@ jobs:
                   f"<recent_commits>\n{log}</recent_commits>\n</repository>\n\n"
                   f"<conversation issue=\"#{NUMBER}\">\n{conversation}\n</conversation>")
 
+          FINDINGS_FOR = ("A1", "A2", "A3")   # the AI review levels that record their findings
           LEVEL = lambda axis: {"type": "string", "enum": [""] + [f"{axis}{i}" for i in range(4)]}
           STRINGS = {"type": "array", "items": {"type": "string"}}
           SCHEMA = {
@@ -317,7 +311,7 @@ jobs:
                   "generation": LEVEL("G"), "models": STRINGS,
                   "human": LEVEL("H"), "responsible": {"type": "string"},
                   "ai_review": LEVEL("A"), "ai_reviewers": STRINGS,
-                  "findings": {"type": "string", "enum": ["", *FINDINGS]},
+                  "findings": {"type": "string", "enum": ["", "none", "trivial", "minor", "major", "critical"]},
                   "notes": {"type": "string"},
               },
               "required": ["status", "message", "kind", "paths", "commit", "generation", "models", "human",
@@ -365,8 +359,9 @@ jobs:
 
           def problems_of(a):
               kind, paths, commit = a["kind"], [p.strip().strip("`") for p in a["paths"] if p.strip()], a["commit"].strip()
-              gen, human, ai, findings = a["generation"], a["human"], a["ai_review"], a["findings"]
+              gen, human, ai = a["generation"], a["human"], a["ai_review"]
               models, ai_by = [m for m in a["models"] if m.strip()], [m for m in a["ai_reviewers"] if m.strip()]
+              findings = a["findings"]
               responsible, out = a["responsible"].strip(), []
               texts = [*paths, commit, *models, *ai_by, responsible]
               if any("\n" in t or len(t) > 300 for t in texts) or len(paths) > 50:
@@ -410,16 +405,17 @@ jobs:
                   out.append("A1 to A3 need the reviewing model, and how it reviewed.")
               if ai_by and ai in ("", "A0"):
                   out.append("A reviewing model goes with an AI review level A1 to A3.")
-              if findings and ai not in ("A1", "A2", "A3"):
-                  out.append("Findings go with an AI review level A1 to A3.")
-              if kind == "attest" and ai in ("A1", "A2", "A3") and not findings:
-                  out.append(f"An attestation of {ai} needs the findings: the highest severity the review found, or none.")
+              if ai in FINDINGS_FOR and not findings:
+                  out.append(f"An AI review of {ai} needs what it found: none, trivial, minor, major or critical.")
+              if findings and ai not in FINDINGS_FOR:
+                  out.append(f"Findings go with an AI review of {', '.join(FINDINGS_FOR)}.")
               if out or kind == "commit":
                   return out
               # what aisignoff itself says, on a scratch copy of the default branch (discarded afterwards)
               options = [f"{flag}={v}" for flag, v in (("--generation", gen), ("--human", human), ("--ai", ai)) if v]
               options += [f"--assisted-by={m}" for m in models] + ([f"--reviewed-by={responsible}"] if human else [])
-              options += [f"--ai-reviewed-by={m}" for m in ai_by] + ([f"--findings={findings}"] if findings else [])
+              options += [f"--ai-reviewed-by={m}" for m in ai_by]
+              options += [f"--findings={findings}"] if findings else []
               if not Path("SIGNOFF.toml").is_file():
                   return ["This repository has no SIGNOFF.toml yet; a maintainer creates it once with `aisignoff init`."]
               try:
@@ -468,7 +464,7 @@ jobs:
               ("Responsible person", answers["responsible"].strip() or "_No response_"),
               ("Did an AI review it?", LEVELS.get(answers["ai_review"], "_No response_")),
               ("Which model reviewed it, and how?", lines(answers["ai_reviewers"])),
-              ("What did the AI review find?", FINDINGS.get(answers["findings"], "_No response_")),
+              ("What did the AI review find?", answers["findings"] or "_No response_"),
               ("Notes for the reviewer", answers["notes"].strip() or "_No response_"),
               ("Confirmation", f"- [X] Asked for by @{REQUESTER} with @signoff; they review the pull request before it is merged."),
           ]
