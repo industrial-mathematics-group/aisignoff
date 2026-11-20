@@ -75,7 +75,7 @@ def test_diff_reports_a_new_attestation_for_an_already_attested_blob(repo, capsy
     args = ["--root", str(repo), "attest", str(repo / "solver.py")]
     assert main([*args, "-H", "H3", "--reviewed-by", "Jane"]) == 0
     base = commit(repo, "Human review")
-    assert main([*args, "-a", "A2", "--ai-reviewed-by", "Model B"]) == 0
+    assert main([*args, "-a", "A2", "--ai-reviewed-by", "Model B", "--findings", "none"]) == 0
     capsys.readouterr()
 
     assert main(["--root", str(repo), "diff", base, "--json"]) == 0

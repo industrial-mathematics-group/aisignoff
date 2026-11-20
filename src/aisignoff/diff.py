@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, Declaration,
                     axis_level, printable, unset, validate)
-from .history import GIT, git_env
+from .history import GIT, comparable, git_env
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI),
