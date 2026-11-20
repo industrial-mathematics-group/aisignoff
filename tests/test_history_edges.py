@@ -71,6 +71,37 @@ def test_diff_renames_deletions_and_binary_files(repo):
     assert changes[("pic.png", "pic.png")] == ([1], [1])
 
 
+def test_diff_reports_a_new_attestation_for_an_already_attested_blob(repo, capsys):
+    args = ["--root", str(repo), "attest", str(repo / "solver.py")]
+    assert main([*args, "-H", "H3", "--reviewed-by", "Jane"]) == 0
+    base = commit(repo, "Human review")
+    assert main([*args, "-a", "A2", "--ai-reviewed-by", "Model B"]) == 0
+    capsys.readouterr()
+
+    assert main(["--root", str(repo), "diff", base, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["files"] == 0
+    assert data["attested"] == [{"path": "solver.py", "blob": git(repo, "rev-parse", "HEAD:solver.py"),
+                                 "levels": {"AI-Review": "A2"}}]
+
+
+
+def test_diff_counts_a_repeated_attestation_once_per_copy(repo, capsys):
+    args = ["--root", str(repo), "attest", str(repo / "solver.py"), "-H", "H3", "--reviewed-by", "Jane"]
+    assert main(args) == 0
+    base = commit(repo, "Human review")
+    capsys.readouterr()
+    assert main(["--root", str(repo), "diff", base, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["attested"] == []  # the same entry as at BASE: nothing new
+
+    toml = repo / "SIGNOFF.toml"
+    text = toml.read_text()
+    entry = text[text.index("[[attestations]]"):]
+    toml.write_text(text.rstrip("\n") + "\n\n" + entry)  # the same entry once more
+    assert main(["--root", str(repo), "diff", base, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert [a["levels"] for a in data["attested"]] == [{"Human-Review": "H3"}]
+
 # ------------------------------------------------------------------ BASE behind HEAD's branch
 def test_diff_and_since_start_from_the_merge_base(repo, capsys, tmp_path_factory):
     git(repo, "checkout", "-q", "-b", "feature")
