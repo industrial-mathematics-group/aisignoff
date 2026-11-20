@@ -54,7 +54,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-reviewed-by …]] [--recheck SEVERITY] [--history]
 ```
 
-Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--recheck` turns on `[review]` with that threshold ([When a review counts](levels.md#when-a-review-counts)), and `--history` turns on `[history]` ([Line-level declarations](history.md)); without them, both stay commented out. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
+Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--recheck` turns on `[review]` with that threshold ([When a review counts](levels.md#when-a-review-counts)), and `--history` turns on `[history]` ([Line-level declarations](history.md)). Without `--recheck`, `[review]` is a commented example; without `--history`, there is no `[history]` table (history stays off). Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
 
 A workflow can set up a repository with defaults that a person completes: `aisignoff init -g TODO -H TODO -a TODO --recheck major --history` writes a `**` annotation with every level and `Reviewed-by` left `TODO`, which `lint` reports until they are filled in.
 

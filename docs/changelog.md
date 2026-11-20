@@ -5,6 +5,7 @@ What changed in each release. Changes that can break a workflow are marked **Bre
 ## Unreleased
 
 - `init --recheck SEVERITY` turns on `[review]` with that threshold and `init --history` turns on `[history]`, so that a workflow can set up a repository with its organisation's defaults in one command (with the levels left `TODO`).
+- Fixed: `diff` didn't list a new attestation of a file whose content was attested already at BASE, such as an AI review added after a human review of the same content. Attestations are now compared by path, blob and declaration, and a repeated entry counts once per copy.
 
 ## 1.0.0rc8
 
