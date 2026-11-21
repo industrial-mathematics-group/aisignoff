@@ -163,6 +163,11 @@ class Config:
         records about the content, not content, so they need no declaration."""
         return bool(self.review_dir) and path.startswith(self.review_dir + "/")
 
+    def is_record_file(self, path: str) -> bool:
+        """Whether a path (relative to the project root) is a record file: a .toml file directly in
+        the review folder. Files in its subfolders (an A3 review's evidence) are never read."""
+        return self.in_review_dir(path) and path.endswith(".toml") and "/" not in path[len(self.review_dir) + 1:]
+
     def all_attestations(self) -> list[Attestation]:
         """The attestations of SIGNOFF.toml, then those of the review folder."""
         return self.attestations + self.review_attestations
@@ -210,7 +215,9 @@ def load(root: Path) -> Config:
 
 
 def load_review_records(root: Path, config: Config) -> list[Attestation]:
-    """The [[attestations]] of the record files (*.toml) in the review folder, by path."""
+    """The [[attestations]] of the record files in the review folder, by path: its *.toml files.
+    Those of its subfolders are evidence (the test project of an A3 review, a config), never read:
+    one that looks like a record file is noted, since it counts for nothing there."""
     folder = root / config.review_dir if config.review_dir else None
     if folder is None or not folder.is_dir():
         return []
@@ -219,6 +226,15 @@ def load_review_records(root: Path, config: Config) -> list[Attestation]:
         if not file.is_file():
             continue
         name = file.relative_to(root).as_posix()
+        if file.parent != folder:
+            try:
+                data = tomllib.loads(file.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, tomllib.TOMLDecodeError, OSError):
+                continue
+            if "attestations" in data:
+                config.notes.append(f"{name} is in a subfolder of the review folder, so it isn't read as a record "
+                                    f"file: record files go directly into {config.review_dir}/")
+            continue
         try:
             text = file.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:

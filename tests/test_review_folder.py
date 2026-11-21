@@ -191,4 +191,4 @@ def test_attest_commit_to_a_review_file(landed, capsys):
     assert "goes into SIGNOFF.toml" in capsys.readouterr().err
     assert main(["--root", str(repo), "attest", str(repo / "solver.py"), "-a", "A1", "--findings", "none",
                  "--ai-reviewed-by", "Model", "--to", str(repo / "notes.toml")]) == 2
-    assert "a .toml file in the review folder" in capsys.readouterr().err
+    assert "a .toml file directly in the review folder" in capsys.readouterr().err

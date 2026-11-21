@@ -116,7 +116,7 @@ def test_a_change_may_delete_a_record_file_that_covers_no_line(repo, capsys, dea
     code, out = _pull_request(repo, capsys, "Delete records that cover no line.\n")
     if dead:
         assert code == 0, out
-        assert "it is a review" in out
+        assert "only deletes record files of the review folder" in out and "only adds" not in out
     else:
         assert code == 1 and "the change deletes reviews/a1.toml" in out
 

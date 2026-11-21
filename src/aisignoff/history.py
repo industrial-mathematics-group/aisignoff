@@ -33,6 +33,7 @@ import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .globbing import matches
 from .model import (AXES, FINDINGS, FINDINGS_REVIEWS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration,
                     canonical_key, findings_problems, findings_value, from_version_3, mentions_self_check, valid_findings,
                     validate, worst_findings)
@@ -522,7 +523,10 @@ class History:
         self.gone: list = []  # attestations of files deleted since: they cover no line
         self.attestation_keys: list[tuple] = []  # (attestation, the file it is listed under, its tuple)
         self.origins: dict[str, set[tuple]] = {}  # the different origins of the lines of each file resolved
+        self._ages: dict[tuple, float] = {}  # see _scoped_age
+        self._excluded_touch: dict[str, bool] = {}  # see _may_cover_excluded
         self.attestations = self._load_attestations()
+        self._check_signoff_commits()
 
     # ------------------------------------------------------------ the default branch
     def _default_tip(self) -> str | None:
@@ -900,7 +904,7 @@ class History:
 
     # ------------------------------------------------------------ attestations
     def _load_attestations(self) -> dict[str | None, list[tuple]]:
-        """Per file: (until, commit, pieces, blob, age, scope, seq) of each attestation (age: see
+        """Per file: (until, commit, pieces, blob, age, scope, seq, recorded) of each attestation (age: see
         _content_age). 'until' is the ordinal of the last commit of the default branch at which the
         file still was the checked content (newest: it is the file as it is now). The commit is set
         instead when no commit of the default branch had that content, only a merged branch or the
@@ -909,19 +913,23 @@ class History:
         scope: for an attestation of a commit, the commit (its full hash): it covers the lines that
         commit landed on the default branch and that are still there, as they are now. Those without
         a path are listed under None: they cover the lines of every file.
-        The order is the order they were recorded in, as far as it is known: SIGNOFF.toml, then the
-        attestation files of the review folder by the commit that added them. Of two reviews of the
-        same content, the later one counts."""
+        recorded: the commit of the default branch that recorded it (None: it hasn't landed yet).
+        The order (seq) is the order they were recorded in: by the commit of the default branch that
+        added the entry to SIGNOFF.toml or the record file to the review folder, whichever file it is
+        in, those that haven't landed last. Of two reviews of the same content, the later one counts."""
         out: dict[str | None, list] = {}
-        entries = list(self.config.attestations) + self._review_order(self.config.review_attestations)
-        for seq, a in enumerate(entries):
+        entries = self._recorded_order(list(self.config.attestations), self.config.review_attestations)
+        for seq, (a, recorded) in enumerate(entries):
             where = f"{a.filename} [[attestations]] entry {a.index}"
             if a in self.config.review_attestations:
-                self._review_record(a, where)
+                self._review_record(a, where, recorded is None)
+            elif recorded is None:
+                self._signoff_review(a, where)
             got = self._attestation(a, where, seq, self.problems, self._warnings)
             if got == "gone":
                 self.gone.append(a)
             elif got is not None:
+                got = (got[0], got[1] + (recorded,))
                 self.attestation_keys.append((a, got[0], got[1]))
                 if got[1][2]:
                     out.setdefault(got[0], []).append(got[1])
@@ -981,8 +989,8 @@ class History:
         if pieces.pop(0, None) is not None:
             warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
                             "count; correct the generation of a commit with a [[commits]] entry")
-        # the lines it covers are as the review saw them: as new as any content of the file
-        return path, (None, None, pieces, None, float(self.newest), sha, seq)
+        # how new the content it saw is depends on the file and on when it was recorded: see _scoped_age
+        return path, (None, None, pieces, None, None, sha, seq)
 
     def _existed(self, path: str) -> bool:
         """Whether a file of this path was ever in the history of HEAD: an attestation of it then
@@ -1014,35 +1022,184 @@ class History:
         of lint instead, and not listed."""
         touched = self._touched()
         out = list(self.gone)
-        out += [a for a, key, t in self.attestation_keys if not self._covers_any(key, t)]
+        out += [a for a, key, t in self.attestation_keys
+                if not self._covers_any(key, t) and not self._may_cover_excluded(key, t[5])]
         for entry in self.config.commits:
             sha = self._resolve(entry.commit)
-            if sha is not None and sha in self.corrections and sha not in touched:
+            if sha is not None and sha in self.corrections and sha not in touched \
+                    and not self._may_cover_excluded(None, sha):
                 out.append(entry)
         return out
+
+    def _may_cover_excluded(self, key: str | None, sha: str | None) -> bool:
+        """Whether a record may cover lines of an excluded file, which is never resolved, so that
+        it can't be told dead: an attestation of an excluded file, or a record of a commit that
+        changed one that is still there. It keeps its levels for when the exclusion is lifted."""
+        if key is not None:
+            return any(matches(p, key) for p in self.config.exclude)
+        if sha is None or not self.config.exclude:
+            return False
+        if sha not in self._excluded_touch:
+            names = _git(self.root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "--name-only", "-r",
+                         "--relative", "-m", "--first-parent", sha, check=False) or ""
+            self._excluded_touch[sha] = any(any(matches(p, n) for p in self.config.exclude) and (self.root / n).is_file()
+                                            for n in names.splitlines() if n)
+        return self._excluded_touch[sha]
 
     def is_dead(self, attestations: list, name: str) -> bool:
         """Whether every entry of a record file that isn't loaded (one a change deletes) covers no
         line: then deleting it changes no level."""
         for a in attestations:
             got = self._attestation(a, f"{name} [[attestations]] entry {a.index}", -1, [], [])
-            if got is None or (got != "gone" and self._covers_any(*got)):
+            if got is None or (got != "gone" and (self._covers_any(*got) or self._may_cover_excluded(got[0], got[1][5]))):
                 return False
         return True
 
-    def _review_record(self, a, where: str) -> None:
+    def _review_record(self, a, where: str, pending: bool) -> None:
         """An attestation file of the review folder records an independent AI review like a pull
-        request description does: with its findings, and for A2 and A3 its report."""
+        request description does: with its findings, and for A2 and A3 its report. A record file
+        that hasn't landed (PENDING: the change under check adds it) names a report the change adds
+        or modifies, or a link, as a description does: an earlier review's report isn't this one's."""
         from .pullrequest import review_problems
         piece = pieces_from_values(a.values, where, "attestation").get(2)
+        for p in review_problems(self.root, piece, a.values.get(FINDINGS), self._change_files() if pending else None):
+            self.problems.append(f"{where}: {p}")
+
+    def _signoff_review(self, a, where: str) -> None:
+        """An AI review (A1-A3) that the change under check adds to SIGNOFF.toml (an entry that
+        hasn't landed) gives its findings, and for A2 and A3 its report, as a record file does.
+        Entries that have landed are read as they are: a review recorded before findings existed
+        has none (F-)."""
+        from .pullrequest import review_problems
+        piece = pieces_from_values(a.values, where, "attestation").get(2)
+        if piece is None or piece.level not in FINDINGS_REVIEWS:
+            return
         for p in review_problems(self.root, piece, a.values.get(FINDINGS)):
             self.problems.append(f"{where}: {p}")
 
-    def _review_order(self, entries: list) -> list:
-        """The attestations of the review folder in the order their files were added on the default
-        branch: those of files it doesn't have yet (this change's) last, each group by path."""
+    def _check_signoff_commits(self) -> None:
+        """A [[commits]] entry that the change under check adds to SIGNOFF.toml and that gives an AI
+        review of A1-A3 gives its findings (or the commit's message does), and for A2 and A3 its
+        report, as an attestation does."""
+        from .pullrequest import review_problems
+        entries = self.config.commits
+        at = self._signoff_entry_order(len(entries), "commits")
+        late = len(self.order) + 1
+        for entry, ordinal in zip(entries, at):
+            if ordinal != late:
+                continue
+            where = f"{entry.filename} [[commits]] entry {entry.index}"
+            piece = pieces_from_values(entry.values, where, "commit").get(2)
+            if piece is None or piece.level not in FINDINGS_REVIEWS:
+                continue
+            sha = self._resolve(entry.commit)
+            findings = entry.values.get(FINDINGS)
+            if not findings and sha is not None:
+                own = self._trailers.get(sha, {}).get(2)
+                findings = own.findings if own is not None and own.level == piece.level else None
+            for p in review_problems(self.root, piece, findings):
+                self.problems.append(f"{where}: {p}")
+
+    def _change_files(self) -> set[str] | None:
+        """The files the change under check adds or modifies (from the top of the repository)."""
+        if not hasattr(self, "_changed"):
+            from .pullrequest import change_files
+            self._changed = change_files(self.root, self.base)
+        return self._changed
+
+    def _recorded_order(self, own: list, records: list) -> list[tuple]:
+        """(attestation, the commit of the default branch that recorded it or None) of the entries of
+        SIGNOFF.toml (OWN) and of the record files of the review folder (RECORDS), in the order they
+        were recorded: by that commit, those that haven't landed last. On a tie (the same commit),
+        SIGNOFF.toml first, then the record files by path, each in the order of its entries. Neither
+        file counts before the other: a re-review recorded in SIGNOFF.toml (attest --signoff) replaces
+        the findings of an earlier one in the review folder, and the other way round."""
+        late = len(self.order) + 1
+        by_ordinal = {n: sha for sha, n in self.order.items()}
+        own_at = self._signoff_entry_order(len(own))
+        rows = [(own_at[i], 0, "", a.index, a) for i, a in enumerate(own)]
+        added = self._review_order(records)
+        rows += [(added.get(a.filename, late), 1, a.filename, a.index, a) for a in records]
+        rows.sort(key=lambda r: r[:4])
+        return [(r[4], by_ordinal.get(r[0])) for r in rows]
+
+    _TABLE = re.compile(r"^\s*\[")
+
+    def _signoff_entry_order(self, count: int, table: str = "attestations") -> list[int]:
+        """For each [[attestations]] (or TABLE) entry of SIGNOFF.toml, the ordinal of the commit of the default
+        branch that last changed one of its lines (first-parent blame): the commit that recorded it.
+        Entries that haven't landed (this change's, or not committed) get one past the newest commit.
+        0 for all when the entries can't be told apart in the file (not written as [[attestations]]
+        tables): they then count before the record files, in the order they are written."""
+        late = len(self.order) + 1
+        path = self.config.path
+        if not count or path is None or not self.order:
+            return [late if not self.order else 0] * count
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return [0] * count
+        header = re.compile(rf"^\s*\[\[\s*{table}\s*\]\]")
+        starts = [n for n, line in enumerate(lines) if header.match(line)]
+        if len(starts) != count:
+            return [0] * count
+        blame = _git(self.root, "blame", "--porcelain", "--first-parent", "--ignore-revs-file=", "--",
+                     path.name, check=False)
+        if blame is None:
+            return [late] * count
+        owners: list[str] = []
+        current = ""
+        for row in blame.split("\n"):
+            if row.startswith("\t"):
+                owners.append(current)
+                continue
+            fields = row.split(" ")
+            if len(fields[0]) in (40, 64) and len(fields) >= 3 and fields[1].isdigit():
+                current = fields[0]
+        out = []
+        for k, start in enumerate(starts):
+            end = start + 1
+            while end < len(lines) and not self._TABLE.match(lines[end]):
+                end += 1
+            # the lines of the entry (its comments and blank lines aside): the newest one recorded it
+            at = [self.order.get(owners[n], late) if n < len(owners) else late for n in range(start, end)
+                  if lines[n].strip() and not lines[n].lstrip().startswith("#")]
+            out.append(max(at, default=late))
+        return out
+
+    def _scoped_age(self, attestation: tuple, path: str) -> float:
+        """How new the content of PATH was that an attestation of a commit saw: the content the file
+        had at the commit that recorded the review, aged like the content of an attestation of the
+        file (_content_age). A review of a commit and a review of the whole file that saw the same
+        content then count in the order they were recorded, and a whole-file review of newer content
+        counts after the review of the commit."""
+        key = (id(attestation), path)
+        if key in self._ages:
+            return self._ages[key]
+        recorded = attestation[7] if len(attestation) > 7 else None
+        age = float(self.newest)
+        if recorded is not None:
+            names = self._names_since(path)
+            blob = None
+            for name in reversed(names):
+                blob = _git(self.root, "rev-parse", "--verify", "--quiet", f"{recorded}:./{name}", check=False)
+                if blob:
+                    blob = blob.strip()
+                    break
+            if blob:
+                until, commit = self._blob_until(set(names), path, blob)
+                if until is not None:
+                    age = self._content_age(until, commit)
+            else:
+                age = float(self.order.get(recorded, self.newest))
+        self._ages[key] = age
+        return age
+
+    def _review_order(self, entries: list) -> dict[str, int]:
+        """The ordinal of the commit of the default branch that added each record file of the review
+        folder (the files it doesn't have yet, this change's, are missing)."""
         if not entries:
-            return entries
+            return {}
         added: dict[str, int] = {}
         if self.base:
             out = _git(self.root, "-c", "core.quotePath=false", "log", "--first-parent", "--diff-merges=first-parent",
@@ -1053,8 +1210,7 @@ class History:
                 if rows and rows[0] in self.order:
                     for name in rows[1:]:
                         added.setdefault(name, self.order[rows[0]])  # newest first: keep the last time it was added
-        late = len(self.order) + 1
-        return sorted(entries, key=lambda a: (added.get(a.filename, late), a.filename, a.index))
+        return added
 
     def _content_age(self, until: int, commit: str | None) -> float:
         """How new the checked content of an attestation is, for ordering the reviews of a line:
@@ -1384,7 +1540,7 @@ class History:
         self.origins[path] = set(origins)  # which records cover a line: see dead_records
         for origin in origins:
             if origin not in memo:
-                memo[origin] = self._line_pieces(origin, attestations, fb)
+                memo[origin] = self._line_pieces(origin, attestations, fb, path)
             keys.append(memo[origin])
 
         parts: dict[tuple, Part] = {}
@@ -1406,10 +1562,12 @@ class History:
             previous = key
         return sorted(parts.values(), key=lambda p: p.runs[0][0])
 
-    def _line_pieces(self, origin: tuple, attestations: list, fb: dict[int, Piece]) -> tuple[tuple, bool]:
+    def _line_pieces(self, origin: tuple, attestations: list, fb: dict[int, Piece], path: str = "") -> tuple[tuple, bool]:
         """One piece per axis for the lines of one origin, and whether they are advisory."""
         # oldest checked content first: the later of two reviews is the review of the newer content
-        attested = [a[2] for a in sorted((a for a in attestations if self._covers(a, origin)), key=lambda a: a[4])]
+        # (an attestation of a commit: the content of the file when the review was recorded)
+        attested = [a[2] for a in sorted((a for a in attestations if self._covers(a, origin)),
+                                         key=lambda a: a[4] if a[4] is not None else self._scoped_age(a, path))]
         kind = origin[0]
         if kind in ("landed", "released"):
             sha, writer = origin[1], origin[2]

@@ -30,7 +30,8 @@ per file and per line: AI generation (G0-G3), human review (H0-H3) and AI review
   the generations only a person can give. (Without `[history]`, `aisignoff annotate` with
   `-H TODO` is the one exception, see below.)
 - **The review folder** (`reviews/` unless `[review] dir` says otherwise): never modify or delete a
-  file there. It holds the reviewers' records; a change that edits one fails `lint`.
+  file there, and never add a record file to it. It holds the reviewers' records; the check before
+  the merge fails a change that edits one, or that adds a record file next to other changes.
 
 ## When a landed commit is declared wrong
 

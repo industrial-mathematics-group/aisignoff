@@ -329,15 +329,32 @@ def _pull_request(project: Project, args) -> dict | None:
         out["applies"] = False  # it doesn't go into the default branch: the pull request that lands it there declares it
         return out
     base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
-    review_only, problems = review_folder_changes(project.root, base, project.config.review_dir,
-                                                  _dead_record_file(project, base))
+    base_dir = rules.config.review_dir if rules is not None and rules.config is not None else None
+    folder = review_folder_changes(project.root, base, project.config.review_dir,
+                                   _dead_record_file(project, base), base_dir)
+    review_only, problems = folder.review_only, list(folder.problems)
+    records = [p for p in folder.added if project.config.is_record_file(p)]
+    if records and folder.outside:
+        # a change's own AI review is declared in its description, with its findings: a record file
+        # next to the content would raise the change's lines without a review the check can see
+        more = f" and {len(folder.outside) - 1} more" if len(folder.outside) > 1 else ""
+        problems.append(f"the change adds the review record {records[0]} and also changes {folder.outside[0]}{more}: "
+                        "a review record goes into a pull request of its own, which only adds files to the review "
+                        f"folder ({project.config.review_dir}/). The AI review of this change is declared in its "
+                        "description")
     if review_only:
         # a review: it only adds records to the review folder, so it has no lines to declare. What it
         # attests is in its attestation files, which lint checks with the others
         out["review"] = True
-        out["notes"].append(f"this change only adds files to the review folder ({project.config.review_dir}/): it "
-                            "is a review, so its description needs no declaration; its attestation files record "
-                            "what it reviewed")
+        if folder.added:
+            out["notes"].append(f"this change only adds files to the review folder ({project.config.review_dir}/)"
+                                + (" and deletes record files there that cover no line" if folder.deleted else "")
+                                + ": it is a review, so its description needs no declaration; its record files "
+                                "record what it reviewed")
+        else:
+            out["notes"].append(f"this change only deletes record files of the review folder "
+                                f"({project.config.review_dir}/) that cover no line (aisignoff gc): it changes no "
+                                "level, so its description needs no declaration")
     else:
         problems += [f"the pull request description: {p}" for p in args.pr_problems]
     if not review_only and not (project.history_used and project.config.history.merge_method == "rebase"):
@@ -376,6 +393,8 @@ def _dead_record_file(project: Project, base: str | None):
     from .config import parse_record_file
 
     def dead(path: str) -> bool:
+        if not project.config.is_record_file(path):
+            return False  # evidence in a subfolder, never read: add-only like every other file there
         text = _git_out(project.root, "show", f"{base}:./{path}", strip=False)
         if text is None:
             return False
@@ -695,8 +714,9 @@ def _review_target(project: Project, name: str) -> Path:
         rel = target.relative_to(project.root).as_posix()
     except ValueError:
         raise UsageError(f"{name} is outside the project root {project.root}")
-    if not project.config.in_review_dir(rel) or target.suffix != ".toml":
-        raise UsageError(f"--to names a .toml file in the review folder ({folder}/), such as {folder}/pull12.toml")
+    if not project.config.is_record_file(rel):
+        raise UsageError(f"--to names a .toml file directly in the review folder ({folder}/), such as "
+                         f"{folder}/pull12.toml (files in its subfolders aren't read as records)")
     if target.exists():
         raise UsageError(f"{rel} exists: the review folder keeps every review as it was recorded, so write a new file")
     return target

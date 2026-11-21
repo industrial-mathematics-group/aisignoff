@@ -2,6 +2,15 @@
 
 Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. Every line is worked out from the whole history on each run, so a release that changes how a line is read can change the levels of existing lines; the changelog says when.
 
+## To 0.19: the order of reviews
+
+0.19 fixes the order in which AI reviews count, and checks the records more closely. Nothing changes for a repository that keeps its AI reviews in one place and records each review in a pull request of its own.
+
+1. **Raise the pin to 0.19** in your workflows, and run `aisignoff report` before and after: where a record file and `SIGNOFF.toml` review the same lines, or a review of a commit and a review of the whole file, the review recorded last now gives the findings.
+2. **Move TOML records out of subfolders** of the review folder: only the `.toml` files directly in it are read. `lint` notes each file in a subfolder that looks like a record file. Moving one is a change to the add-only folder, so a maintainer commits it to the default branch directly.
+3. **Change `[review] dir` on the default branch directly**: a pull request that changes it now fails, unless the workflow passes `--allow-policy-change`.
+4. **Record a review in a pull request of its own**, with a report it adds (or a link). A change that adds a record file next to other changes fails before the merge.
+
 ## To 0.18: who writes what
 
 0.18 splits the records by who writes them: `SIGNOFF.toml` is the file a person signs off, and the review folder holds the AI reviews. Nothing that is there today changes its meaning.
