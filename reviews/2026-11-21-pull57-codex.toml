@@ -1,0 +1,16 @@
+# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:
+# a later review goes into a new file.
+
+[[attestations]]
+commit = "6ec289181e2f1f10d8684aa938f2a9a1738f5ed7"
+path = "docs/changelog.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-pull57-codex.md"]
+AI-Review-Findings = "minor"
+
+[[attestations]]
+commit = "6ec289181e2f1f10d8684aa938f2a9a1738f5ed7"
+path = "docs/cache.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-pull57-codex.md"]
+AI-Review-Findings = "minor"
