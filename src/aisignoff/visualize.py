@@ -307,12 +307,24 @@ def report_meta(root: Path, title: str | None = None, link: str | None = None, s
     }
 
 
+def _has_source(node: dict) -> bool:
+    if node["type"] == "file":
+        return "source" in node
+    return any(_has_source(c) for c in node["children"])
+
+
 def render_html(tree: dict, meta: dict) -> str:
     template = resources.files("aisignoff").joinpath("report.html").read_text(encoding="utf-8")
     data = json.dumps({"meta": meta, "tree": tree}, ensure_ascii=False, separators=(",", ":"))
     # inside <script>: '<' escaped, so no file name can close the element or open a comment
     data = data.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     page_title = meta["title"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # the syntax colours of the line view (highlight.js, see scripts/vendor_highlight.sh), only with the files' text
+    highlight = ""
+    if _has_source(tree):
+        highlight = resources.files("aisignoff").joinpath("highlight.min.js").read_text(encoding="utf-8")
+        if re.search("<!--|</?script", highlight, re.IGNORECASE):  # would end the <script> element early
+            raise ValueError("highlight.min.js can't be inlined: rebuild it with scripts/vendor_highlight.sh")
     # one pass, so a title can't contain the data placeholder
-    fill = {"__AISIGNOFF_TITLE__": page_title, "__AISIGNOFF_DATA__": data}
-    return re.sub("__AISIGNOFF_(?:TITLE|DATA)__", lambda m: fill[m.group(0)], template)
+    fill = {"__AISIGNOFF_TITLE__": page_title, "__AISIGNOFF_DATA__": data, "__AISIGNOFF_HIGHLIGHT__": highlight}
+    return re.sub("__AISIGNOFF_(?:TITLE|DATA|HIGHLIGHT)__", lambda m: fill[m.group(0)], template)

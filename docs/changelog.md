@@ -2,6 +2,10 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## Unreleased
+
+- Added: syntax colours in the line view of `report --html --with-source`, like GitHub's in light and dark mode. The report inlines a bundle of [highlight.js](https://highlightjs.org) 11.11.1 (about 105 KB) for 24 languages, only when it embeds the files' text; `scripts/vendor_highlight.sh` rebuilds it.
+
 ## 0.19.3
 
 The fixes of the independent reviews of 0.19.2 ([reviews/2026-11-21-pull57-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-pull57-codex.md)) and of `history.py` ([reviews/2026-11-21-history-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-history-codex.md)): a binary file replaced with text, and the cache.

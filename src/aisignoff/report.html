@@ -10,12 +10,17 @@
   --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --text: #1f2328; --muted: #59636e;
   --accent: #0969da; --undeclared: #cf222e; --unreviewed: #c4cbd3; --hover: #eaeef2;
   color-scheme: light;
+  /* syntax colours of the line view: GitHub's (highlight.js github.css and github-dark.css) */
+  --sx-keyword: #d73a49; --sx-title: #6f42c1; --sx-constant: #005cc5; --sx-string: #032f62; --sx-builtin: #e36209;
+  --sx-comment: #6a737d; --sx-tag: #22863a; --sx-bullet: #735c0f; --sx-add-bg: #f0fff4; --sx-del: #b31d28; --sx-del-bg: #ffeef0;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #e6edf3; --muted: #9198a1;
     --accent: #4493f8; --undeclared: #f85149; --unreviewed: #5a626c; --hover: #21262d;
     color-scheme: dark;
+    --sx-keyword: #ff7b72; --sx-title: #d2a8ff; --sx-constant: #79c0ff; --sx-string: #a5d6ff; --sx-builtin: #ffa657;
+    --sx-comment: #8b949e; --sx-tag: #7ee787; --sx-bullet: #f2cc60; --sx-add-bg: #033a16; --sx-del: #ffdcd7; --sx-del-bg: #67060c;
   }
 }
 * { box-sizing: border-box; }
@@ -116,6 +121,22 @@ td.name .dir { font-weight: 600; }
 .code .tx { padding-right: 16px; }
 .code .row.changed { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .code .row.hl { box-shadow: inset 0 0 0 1px var(--accent); }
+.code .hljs-doctag, .code .hljs-keyword, .code .hljs-meta .hljs-keyword, .code .hljs-template-tag,
+.code .hljs-template-variable, .code .hljs-type, .code .hljs-variable.language_ { color: var(--sx-keyword); }
+.code .hljs-title, .code .hljs-title.class_, .code .hljs-title.class_.inherited__, .code .hljs-title.function_ { color: var(--sx-title); }
+.code .hljs-attr, .code .hljs-attribute, .code .hljs-literal, .code .hljs-meta, .code .hljs-number, .code .hljs-operator,
+.code .hljs-variable, .code .hljs-selector-attr, .code .hljs-selector-class, .code .hljs-selector-id { color: var(--sx-constant); }
+.code .hljs-regexp, .code .hljs-string, .code .hljs-meta .hljs-string { color: var(--sx-string); }
+.code .hljs-built_in, .code .hljs-symbol { color: var(--sx-builtin); }
+.code .hljs-comment, .code .hljs-code, .code .hljs-formula { color: var(--sx-comment); }
+.code .hljs-name, .code .hljs-quote, .code .hljs-selector-tag, .code .hljs-selector-pseudo { color: var(--sx-tag); }
+.code .hljs-subst { color: var(--text); }
+.code .hljs-section { color: var(--sx-constant); font-weight: bold; }
+.code .hljs-bullet { color: var(--sx-bullet); }
+.code .hljs-emphasis { font-style: italic; }
+.code .hljs-strong { font-weight: bold; }
+.code .hljs-addition { color: var(--sx-tag); background: var(--sx-add-bg); }
+.code .hljs-deletion { color: var(--sx-del); background: var(--sx-del-bg); }
 .code .skip { color: var(--muted); padding: 2px 8px 2px 5.5em; background: var(--surface); cursor: pointer; font-family: inherit; }
 .code .skip:hover { color: var(--accent); }
 .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
@@ -164,6 +185,7 @@ footer a { color: var(--accent); }
 <footer>Levels: <a href="https://industrial-mathematics-group.github.io/aisignoff/#the-levels">aisignoff documentation</a>. Excluded files are not shown.</footer>
 <div id="tip"></div>
 <script type="application/json" id="data">__AISIGNOFF_DATA__</script>
+<script>__AISIGNOFF_HIGHLIGHT__</script>
 <script>
 "use strict";
 const { meta, tree } = JSON.parse(document.getElementById("data").textContent);
@@ -539,6 +561,53 @@ function scrollToLine(k, remember = true) {
   row.classList.add("hl");
   box.scrollTop = row.offsetTop - box.clientHeight / 3;
 }
+// syntax colours (highlight.js, inlined only with --with-source): the language from the file's name or
+// its #! line, the whole file highlighted at once (strings and comments can span lines) and the result
+// cut into lines, each closing the spans still open at its end and reopening them on the next line
+const LANGUAGE_BY_EXT = { py: "python", pyi: "python", pyw: "python", jl: "julia",
+  f: "fortran", for: "fortran", f77: "fortran", f90: "fortran", f95: "fortran", f03: "fortran", f08: "fortran",
+  m: "matlab", tex: "latex", sty: "latex", cls: "latex", bib: "latex", toml: "ini", ini: "ini", cfg: "ini",
+  yml: "yaml", yaml: "yaml", json: "json", sh: "bash", bash: "bash", zsh: "bash", md: "markdown", markdown: "markdown",
+  c: "c", h: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", hh: "cpp", hxx: "cpp", cu: "cpp", r: "r",
+  rs: "rust", go: "go", js: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript",
+  html: "xml", htm: "xml", xml: "xml", svg: "xml", css: "css", mk: "makefile", cmake: "cmake",
+  sql: "sql", diff: "diff", patch: "diff" };
+const LANGUAGE_BY_NAME = { makefile: "makefile", gnumakefile: "makefile", "cmakelists.txt": "cmake", dockerfile: "dockerfile",
+  containerfile: "dockerfile" };
+const SHEBANG = /^#!.*\b(python|julia|bash|sh|zsh)[\d.]*\b/;
+function languageOf(path, first) {
+  const name = path.split("/").pop().toLowerCase(), dot = name.lastIndexOf(".");
+  const shebang = SHEBANG.exec(first || "");
+  const lang = LANGUAGE_BY_NAME[name] || (dot > 0 ? LANGUAGE_BY_EXT[name.slice(dot + 1)] : null)
+    || (shebang && (shebang[1] === "python" || shebang[1] === "julia" ? shebang[1] : "bash"));
+  return lang && window.hljs && hljs.getLanguage(lang) ? lang : null;
+}
+const highlighted = new Map();  // path -> HTML of each line, or null
+function highlightLines(n, src) {
+  if (highlighted.has(n.path)) return highlighted.get(n.path);
+  let out = null;
+  const lang = languageOf(n.path, src[0]);
+  if (lang) {
+    try {
+      // highlight.js escapes the text, so its output holds nothing but <span class="..."> and </span> tags
+      const html = hljs.highlight(src.join("\n"), { language: lang, ignoreIllegals: true }).value;
+      const open = [];
+      let line = "";
+      out = [];
+      for (const [t] of html.matchAll(/<span class="[^"]*">|<\/span>|\n|[^<\n]+/g)) {
+        if (t === "\n") { out.push(line + "</span>".repeat(open.length)); line = open.join(""); }
+        else { line += t; if (t === "</span>") open.pop(); else if (t[0] === "<") open.push(t); }
+      }
+      out.push(line);
+      if (out.length !== src.length) out = null;
+    } catch (e) { out = null; }
+  }
+  highlighted.set(n.path, out);
+  return out;
+}
+
+const colouredLine = html => { const e = el("span", { class: "tx" }); e.innerHTML = html; return e; };
+
 const MAX_ROWS = 20000, CONTEXT = 3;
 function drawLines(n) {
   const out = [];
@@ -595,6 +664,7 @@ function drawLines(n) {
     for (const k of changed) for (let j = k - CONTEXT; j <= k + CONTEXT; j++) if (j >= 1 && j <= src.length) show.add(j);
   }
   const code = el("div", { class: "code" });
+  const colours = highlightLines(n, src);
   const rows = [];
   let skipped = 0;
   const flushSkip = () => {
@@ -613,7 +683,7 @@ function drawLines(n) {
       el("span", { class: "ln" }, link ? el("a", { href: link, target: "_blank", rel: "noopener", text: String(k) }) : String(k)),
       el("span", { class: "lv", style: `background:${partColour(p)}`, title: partText(p) }),
       el("span", { class: "mk", text: changed.has(k) ? "+" : "" }),
-      el("span", { class: "tx", text: src[k - 1] })));
+      colours ? colouredLine(colours[k - 1]) : el("span", { class: "tx", text: src[k - 1] })));
   }
   flushSkip();
   code.append(...rows);

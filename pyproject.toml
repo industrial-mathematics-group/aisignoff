@@ -40,7 +40,7 @@ Changelog = "https://industrial-mathematics-group.github.io/aisignoff/changelog/
 where = ["src"]
 
 [tool.setuptools.package-data]
-aisignoff = ["report.html", "guides/*.md"]
+aisignoff = ["report.html", "highlight.min.js", "guides/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

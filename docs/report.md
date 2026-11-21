@@ -69,12 +69,14 @@ writes a single HTML file, like a coverage report for AI use. It needs no server
 
 `--with-source` puts the code into the report: share it only with people who may read the repository. Symlinks are never followed.
 
+With `--with-source` the report also carries [highlight.js](https://highlightjs.org) (about 105 KB, BSD-3-Clause) for the syntax colours of the line view. The language comes from the file's name or its `#!` line: Python, Julia, Fortran, MATLAB, LaTeX, TOML and INI, YAML, JSON, shell, Markdown, C, C++, R, Rust, Go, JavaScript, TypeScript, HTML and XML, CSS, Make, CMake, Dockerfile, SQL and diffs. Other files are shown uncoloured.
+
 What it shows:
 
 - **Sunburst.** Each ring is a folder level, each arc as large as its files or lines. Click a folder to zoom in, the centre to go back up.
 - **Folder table.** The folders and files of the current folder, with a bar per axis. Sort by a column, for example *Human review* to find the least-reviewed folder.
 - **File details.** A file's levels, the names behind them, where they come from and any problems. On GitHub Actions, file names link to the file at that commit.
-- **Lines.** A strip of the whole file coloured by each line's level, and with `--with-source` the text itself with the level in the margin. Hover the margin for where a declaration comes from.
+- **Lines.** A strip of the whole file coloured by each line's level, and with `--with-source` the text itself with the level in the margin, in GitHub's syntax colours. Hover the margin for where a declaration comes from.
 - **Changes.** With `--since`, a *Changed* column, a switch to show only what changed, and the changed lines marked `+` in the file details.
 - **Find and links.** Type part of a path to jump to it. The address keeps the view, so a link opens the same folder, file and line.
 
