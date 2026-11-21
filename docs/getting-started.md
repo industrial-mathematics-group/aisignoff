@@ -72,7 +72,7 @@ When code is developed through pull requests, let each pull request declare the 
 
 4. Check out the whole history in CI (`fetch-depth: 0`), and add the [description check](ci.md#checking-the-pull-request-description) so an incomplete description fails before the merge.
 
-Existing lines keep the file-level declarations until they change. When everything passes, record the result with a [snapshot](snapshots.md) so it stays as it is. The full model is in [Declaring lines](history.md).
+Existing lines keep the file-level declarations until they change. When everything passes, pin the version of aisignoff your CI uses, so that the levels stay as they are until you raise it on purpose. The full model is in [Declaring lines](history.md).
 
 ## AI agents
 

@@ -123,4 +123,4 @@ The same tables make up the attestation files of the [review folder](history.md#
 
 ## SIGNOFF.snapshot.json
 
-Written by [`aisignoff freeze`](snapshots.md) next to `SIGNOFF.toml`, format `"format": 1`. Don't edit it by hand: `lint` checks it by working it out again.
+Written by `aisignoff freeze` up to 0.16. Since 0.17 it is no longer read, and `lint` fails while it is there: move what it says into `SIGNOFF.toml` with [`unfreeze.py`](migrating.md#to-017-no-snapshots) and delete it.

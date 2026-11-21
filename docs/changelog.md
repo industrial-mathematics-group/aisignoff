@@ -2,6 +2,18 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.17.0
+
+Every line is worked out from the whole history again, and a cache makes that fast: `aisignoff freeze` and its snapshot are gone. See [Upgrading](migrating.md#to-017-no-snapshots).
+
+- **Breaking:** `aisignoff freeze` and `SIGNOFF.snapshot.json` are removed. A snapshot kept the finished levels of every line, not the commit each line came from, so a review recorded after it missed the lines it was about: an attestation of a commit didn't reach them, and a whole-file review recorded before the freeze was applied again on top of it, which could replace newer findings (a major finding could show as F0 after a freeze). `lint` fails while a `SIGNOFF.snapshot.json` is there; [`unfreeze.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/unfreeze.py) moves what it says into `SIGNOFF.toml` as `[[commits]]` entries and deletes it.
+- New **blame cache** in `.git/aisignoff`: what `git blame` found at a commit of the default branch, so that the next run only blames the commits since. It holds facts about the history only, never levels, and gives the same results as a run without it; `AISIGNOFF_NO_CACHE=1` turns it off. On pytest's history (186k lines), `lint` takes 3 s instead of 15 s. Keep it in CI with `actions/cache`: see [The blame cache](cache.md).
+- A `[[commits]]` entry for an old commit counts as soon as it lands; no `freeze --reset` is needed any more.
+- A commit of the default branch whose message has the ticked boxes of the pull request template before version 4 is read as it was meant (its A1 box, the self-check, is A0) instead of failing. A pull request description with that template still fails.
+- `[history] require-trailers-since` also accepts the commits up to it as they are: `lint` no longer warns that they look like pull requests and declare nothing. This replaces `freeze --allow-warnings` for that.
+- A binary file or symlink that a commit only renamed keeps the levels of the commit that last changed its content.
+- `convert-to-version-4.py` keeps the AI reviews of the commit messages so far with `[[commits]]` entries, instead of needing a snapshot first.
+
 ## 0.16.0
 
 Reviews get rules of their own: a review is a record about the content, not content, so it lands in the review folder, needs no declaration, and never changes an earlier review. See [The review folder](history.md#the-review-folder).
@@ -142,7 +154,7 @@ The first release candidate for 1.0. It fixes what the 1.0 readiness review foun
 
 ## 0.14.0
 
-- A second snapshot no longer fails `lint` when a line moved, or came back as it was, between the two. `lint` now checks a changed `SIGNOFF.snapshot.json` by [working it out again](snapshots.md) at its commit, in a temporary worktree, instead of comparing it with the snapshot before it. This catches any hand edit, including names, new lines and the archive.
+- A second snapshot no longer fails `lint` when a line moved, or came back as it was, between the two. `lint` now checks a changed `SIGNOFF.snapshot.json` by [working it out again](cache.md#snapshots-up-to-016) at its commit, in a temporary worktree, instead of comparing it with the snapshot before it. This catches any hand edit, including names, new lines and the archive.
 - New `aisignoff freeze --check` runs that check on its own.
 - New `aisignoff freeze --reset FILE...` works files out from history again instead of keeping their frozen levels: to correct a frozen generation with a `[[commits]]` entry, or to apply a changed annotation. It replaces removing a file's entry from the snapshot by hand, which `lint` now rejects.
 - The `[[commits]]` and `[[attestations]]` entries that `freeze --prune` archived count wherever levels are worked out from history: files the snapshot doesn't have (also ones included later), files worked out again, and files whose blob doesn't match.
@@ -160,14 +172,14 @@ The first release candidate for 1.0. It fixes what the 1.0 readiness review foun
 ## 0.13.0
 
 - **Breaking:** an attestation records reviews only. `attest -g` is gone, and an `AI-Generation` in an existing `[[attestations]]` entry no longer counts (`lint` warns). Correct the generation of a commit with a `[[commits]]` entry.
-- New `aisignoff freeze --prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into an `archive` in `SIGNOFF.snapshot.json`: [the snapshot has their levels](snapshots.md), so `SIGNOFF.toml` starts afresh after each freeze.
+- New `aisignoff freeze --prune` moves the `[[commits]]` and `[[attestations]]` entries of `SIGNOFF.toml` into an `archive` in `SIGNOFF.snapshot.json`: [the snapshot has their levels](cache.md#snapshots-up-to-016), so `SIGNOFF.toml` starts afresh after each freeze.
 - `lint` fails when a snapshot changes lines that the snapshot before it already had, other than raising a review that an attestation gives. This catches a snapshot edited by hand.
 - `lint` warns about commits that look like pull requests ("Merge pull request #12 …", "… (#12)") and declare nothing, in one line (`--strict` fails).
 
 ## 0.12.0
 
 - **Breaking:** [one owner per line](history.md#one-owner-per-line). The commit that lands a line on the default branch (a direct commit, a squash commit, or a pull request's merge commit) declares it. Commits and pull requests inside it no longer declare reviews. A commit inside a merge can still say a higher `AI-Generation` for its lines; a lower one, such as G0 in a pull request declared G3, needs a `[[commits]]` entry, since it takes the AI review requirement off the lines. This replaces "generation from the most specific declaration, reviews from the highest" of 0.10, the warnings about raised reviews, and the special handling of pull requests merged into each other. See [Upgrading](migrating.md#from-011-or-earlier-with-history) to keep the levels of existing code.
-- New [`aisignoff freeze`](snapshots.md) writes `SIGNOFF.snapshot.json`, the levels of every line as of a commit of the default branch. Lines that don't change keep them, whatever later versions or settings would work out, and history is only read from that commit on.
+- New [`aisignoff freeze`](cache.md#snapshots-up-to-016) writes `SIGNOFF.snapshot.json`, the levels of every line as of a commit of the default branch. Lines that don't change keep them, whatever later versions or settings would work out, and history is only read from that commit on.
 - **Breaking:** lines that aren't on the default branch yet (a feature branch, a pull request's merge preview, uncommitted changes) are the diff against it, and fail nothing on their own. Without a declaration for the change they show the generation their commits say, and their reviews as undeclared. The merge preview is no longer recognised by its subject and `GITHUB_EVENT_NAME`. New setting `default-branch` in `[history]`.
 - New `lint --declare-from FILE`, `report --declare-from FILE` and `diff --declare-from FILE` read a pull request description as its merge or squash commit's message will be read; `lint` then checks that it is complete. `diff` accepts `TODO` levels. A declaration for a pull request into another branch than the default one isn't applied. [`signoff-pr-diff.yml`](ci.md#example-workflows) no longer imports aisignoff's Python modules.
 - **Breaking:** a pull request template with no generation or human review box ticked, and a level line left empty (`Human-Review:`), are a `TODO` that `lint` reports, instead of silently taking the file-level declaration.

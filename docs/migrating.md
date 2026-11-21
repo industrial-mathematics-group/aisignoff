@@ -1,6 +1,16 @@
 # Upgrading
 
-Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. A [snapshot](snapshots.md) keeps the levels of existing lines through any upgrade.
+Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. Every line is worked out from the whole history on each run, so a release that changes how a line is read can change the levels of existing lines; the changelog says when.
+
+## To 0.17: no snapshots
+
+0.17 removes `aisignoff freeze` and `SIGNOFF.snapshot.json`. Every line is worked out from the whole history again, and a [cache](cache.md) in `.git/aisignoff` keeps that fast. A [[commits]] entry or an attestation now counts for every line it is about, however old. `lint` fails while a `SIGNOFF.snapshot.json` is there, because its levels and archived entries would otherwise be lost without notice.
+
+1. **Move what the snapshot says into `SIGNOFF.toml`** with [`unfreeze.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/unfreeze.py), with 0.17 installed, at the repository root on a branch of the default branch: `python unfreeze.py` (`--dry-run` shows the change only). It puts the entries of the snapshot's archive back into `SIGNOFF.toml`, adds a `[[commits]]` entry for each commit whose lines the snapshot gave other levels than the history does, lists the lines that still differ, and deletes the snapshot. Look over the result, then commit both in one pull request.
+2. **Settle what `lint` reports.** Entries that came back from the archive are checked again: one for a commit inside a pull request counts only for `AI-Generation`, so delete it if it says nothing else. Commits that look like pull requests and declare nothing are a warning again; declare them with `[[commits]]` entries, or accept every commit up to one with `[history] require-trailers-since`.
+3. **Keep the cache in CI** with the `actions/cache` step in [The blame cache](cache.md#in-ci), so that `lint` stays fast on a long history.
+
+Commits of the default branch whose message has the ticked boxes of the pull request template before version 4 are now read as they were meant (the self-check is A0) instead of failing; a pull request description with that template still fails.
 
 ## A1 gives its findings
 
@@ -17,7 +27,6 @@ The reviewer only reviews, and its findings are recorded instead of blocking the
 - **A major or critical finding no longer fails `lint`.** It shows as F2 or F3 on the lines its review covered, until a later review of those lines finds them fixed. Fixing what a review found is the author's work, in the same pull request or a later one; have it reviewed again to bring the lines to F0.
 - **Remove `[review]` `recheck`** from `SIGNOFF.toml` (`lint` warns while it is there), and `--recheck` from `aisignoff init` calls in workflows.
 - **Existing history is read as it is.** Commits that gave `AI-Review-Findings:` with A2 or A3 give their lines those findings; older commits leave theirs at F-.
-- **With a snapshot,** the frozen lines are at F- (a snapshot written before has no findings). To take the findings of the commits behind them, work the files out again with `aisignoff freeze --reset FILE…` and commit the snapshot; or attest a reviewed file with `aisignoff attest FILE -a A2 --findings none --ai-reviewed-by …`.
 - **Report links** with `axis=gap` open the generation axis now.
 
 ## To 1.0.0rc8
@@ -58,30 +67,28 @@ The check of a review also reads no file any more: A2 and A3 give `AI-Review-Fin
 
 Two built-in rules are gone: G1–G3 no longer need an AI review, and G0 content can have any level. In `[policy]`, `ai = "A1"` becomes `"A0"` and `ai = "A2"` becomes `"A1"`; for G0, where A1 meant a new session, both become `"A1"`.
 
-Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
+Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of commit messages and pull request descriptions (so the old pull request template keeps working). A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
 
 Change over in one pull request per repository, once your workflows pin 1.0.0rc6 or later (0.15.0 is later: see [Versions](compatibility.md#versions)):
 
-1. **With `[history]`, write a snapshot:** `aisignoff freeze` on the default branch, landed as usual ([Snapshots](snapshots.md)). Commit messages can't be rewritten, and from version 4 on they are read on the new scale: the snapshot keeps what the commits so far declare, as taken over.
-2. **Convert the file** with [`convert-to-version-4.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/convert-to-version-4.py): `python convert-to-version-4.py` at the repository root (`--dry-run` shows the change only). It rewrites the levels and `[policy]` with the table, sets `version = 4`, keeps comments and layout, and writes nothing if the result wouldn't be read as the same declarations.
-3. **Change the AI review boxes of the pull request template** in the same pull request, to the wording in [Pull request descriptions](history.md#pull-request-descriptions). With version 4, a ticked A1 box that still says "checked its own work" is an error. Do the same for the issue form of the signoff request, if you use it.
-4. **Look at each A3:** it now says that the reviewer produced new evidence and left a record.
+1. **Convert the file** with [`convert-to-version-4.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/convert-to-version-4.py): `python convert-to-version-4.py` at the repository root (`--dry-run` shows the change only). It rewrites the levels and `[policy]` with the table, sets `version = 4`, keeps comments and layout, and writes nothing if the result wouldn't be read as the same declarations. With `[history]`, commit messages can't be rewritten, and from version 4 on their trailers are read on the new scale: for each commit of the default branch whose AI review would read differently, it adds a `[[commits]]` entry with the level as it was meant. The ticked boxes of the old template need none: a landed commit's are read as they were meant.
+2. **Change the AI review boxes of the pull request template** in the same pull request, to the wording in [Pull request descriptions](history.md#pull-request-descriptions). With version 4, a ticked A1 box that still says "checked its own work" is an error. Do the same for the issue form of the signoff request, if you use it.
+3. **Look at each A3:** it now says that the reviewer produced new evidence and left a record.
 
 The pull request that changes over is read on the scale of the default branch, like any rule of that branch: trailers on the old scale, and the ticked boxes of today's template on today's. Replace the AI review boxes in its description with the new ones by hand, because GitHub fills in the template of the default branch. Since it changes `version`, which sets the scale, a maintainer lands it: on the default branch directly, or with `--allow-policy-change` ([Checking the pull request description](ci.md#checking-the-pull-request-description)). The check fails a change to version 4 that leaves the level of an existing entry as it was written, because that would raise it. It compares the level each file gets, so it also finds an entry whose path is written another way.
 
-After the change, commit messages from before it that the snapshot doesn't hold are read on the new scale: lines of a file that `freeze --reset` works out again, and commits that land from branches opened before. Correct those with a `[[commits]]` entry.
+After the change, commits that land from branches opened before it are read on the new scale. Correct those with a `[[commits]]` entry.
 
 ## From 0.11 or earlier, with `[history]`
 
-0.12 introduced [one owner per line](history.md#one-owner-per-line): a review declared by a commit inside a pull request, or by a pull request merged into another one, no longer counts. Some lines of existing code can report other levels after the upgrade. To keep what 0.11 reported, write a snapshot with 0.11 before upgrading, using [`freeze-from-0.11.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/freeze-from-0.11.py):
+0.12 introduced [one owner per line](history.md#one-owner-per-line): a review declared by a commit inside a pull request, or by a pull request merged into another one, no longer counts. Some lines of existing code can report other levels after the upgrade. To keep what 0.11 reported, write what 0.11 says with [`freeze-from-0.11.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/freeze-from-0.11.py), then turn it into `[[commits]]` entries with [`unfreeze.py`](#to-017-no-snapshots) and the current aisignoff:
 
 ```bash
-git switch --detach origin/main
-uv run --no-project --with aisignoff==0.11.0 python freeze-from-0.11.py
-git switch -c freeze && git add SIGNOFF.snapshot.json && git commit -m "Freeze the declarations of 0.11"
+git switch -c keep-0.11 origin/main
+uv run --no-project --with aisignoff==0.11.0 python freeze-from-0.11.py   # writes SIGNOFF.snapshot.json
+python unfreeze.py                                                        # with the current aisignoff
+git add SIGNOFF.toml && git commit -m "Keep the declarations of 0.11"
 ```
-
-Land this snapshot while your CI still runs 0.11, and raise the version your workflows pin in a later pull request. A newer aisignoff checks a changed snapshot by working it out again under its own rules, and a snapshot written under 0.11's rules can't be compared, so it fails as a change. Once it is on the default branch, it is accepted as it is.
 
 Without it, run `aisignoff lint` after upgrading and settle what it reports: move `[[commits]]` review entries for commits inside pull requests to the merge commit (or attest the file), and declare merged templates without a ticked generation or human review box with a `[[commits]]` entry.
 

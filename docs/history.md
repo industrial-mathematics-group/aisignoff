@@ -15,11 +15,10 @@ Nothing else has to change at first. Lines whose commit declares nothing keep th
 
 Every line has **one owner**, and the owner declares it:
 
-1. **Frozen.** A line unchanged since the [snapshot](snapshots.md) has the levels the snapshot recorded.
-2. **Owner.** Otherwise its owner is the commit that landed it on the default branch, as `git blame --first-parent` finds it: a commit made there directly, a squash commit, or the merge commit of a pull request. The owner's message declares the levels, and a [`[[commits]]` entry](#correcting-a-commit) corrects them. Commits and pull requests *inside* a merge declare nothing, with one exception:
-3. **Generation of a commit inside a merge.** The commit on the branch that wrote a line can say a *higher* `AI-Generation` for it, such as an agent's G3 commit in a pull request declared G1. Its message can't lower it; only a `[[commits]]` entry for that commit can (a hand-written commit in an AI-written pull request), because G0 takes the AI review requirement off a line.
-4. **Reviews.** Each review is the higher of the owner's level and an [attestation](#raising-a-review-attestations) whose checked content had the line. On a tie, the attestation's names.
-5. **Nothing declared.** An owner whose message declares nothing leaves its lines to the file-level declaration, unless [`undeclared = "error"`](#commits-that-declare-nothing) makes that a failure.
+1. **Owner.** Its owner is the commit that landed it on the default branch, as `git blame --first-parent` finds it: a commit made there directly, a squash commit, or the merge commit of a pull request. The owner's message declares the levels, and a [`[[commits]]` entry](#correcting-a-commit) corrects them. Commits and pull requests *inside* a merge declare nothing, with one exception:
+2. **Generation of a commit inside a merge.** The commit on the branch that wrote a line can say a *higher* `AI-Generation` for it, such as an agent's G3 commit in a pull request declared G1. Its message can't lower it; only a `[[commits]]` entry for that commit can (a hand-written commit in an AI-written pull request), because G0 takes the AI review requirement off a line.
+3. **Reviews.** Each review is the higher of the owner's level and an [attestation](#raising-a-review-attestations) whose checked content had the line. On a tie, the attestation's names.
+4. **Nothing declared.** An owner whose message declares nothing leaves its lines to the file-level declaration, unless [`undeclared = "error"`](#commits-that-declare-nothing) makes that a failure.
 
 Why the landing commit? The lines that `git blame --first-parent` gives to a commit of the default branch are exactly the diff its pull request showed the reviewer, whether it landed as a merge or a squash, and in whatever order stacked pull requests were merged. The pull request description is the one statement made about exactly those lines.
 
@@ -27,10 +26,7 @@ For one line and one axis:
 
 ```mermaid
 flowchart TD
-    start(["One line, one axis"]) --> frozen{"Unchanged since<br/>the snapshot?"}
-    frozen -- "yes" --> snap["The snapshot's level"]
-    frozen -- "no" --> owner["The owner: the commit that landed<br/>the line on the default branch"]
-    snap --> att
+    start(["One line, one axis"]) --> owner["The owner: the commit that landed<br/>the line on the default branch"]
     owner --> gives{"Does the owner<br/>give this axis?"}
     gives -- "yes" --> att(["Generation: its level, or a higher one that the<br/>commit that wrote the line says inside a merge.<br/>Reviews: the higher of it and an attestation"])
     gives -- "no" --> other{"Does it give<br/>another axis?"}
@@ -164,7 +160,7 @@ By default (`undeclared = "baseline"`), a landing commit whose message declares 
 undeclared = "error"
 ```
 
-`lint` then fails on lines whose owner declares nothing (a declaration can also come from a `[[commits]]` entry, or for reviews from an attestation). This catches a forgotten template or merge setting. Combine it with a [snapshot](snapshots.md), which keeps older, undeclared commits out of the check, or use `require-trailers-since = "<commit>"` to require it only for the commits after one commit of the default branch. Both need the whole history: in a shallow clone or outside git, `lint` fails rather than passing without the check.
+`lint` then fails on lines whose owner declares nothing (a declaration can also come from a `[[commits]]` entry, or for reviews from an attestation). This catches a forgotten template or merge setting. Use `require-trailers-since = "<commit>"` instead to require it only for the commits after one commit of the default branch: older, undeclared commits are then accepted as they are, and `lint` no longer warns about them. Both need the whole history: in a shallow clone or outside git, `lint` fails rather than passing without the check.
 
 Even with the default, `lint` warns (and `lint --strict` fails) where an undeclared owner is probably a mistake:
 
@@ -193,7 +189,7 @@ Reviewed-by = "Jane Doe"
 - It corrects the commit that **owns** the lines: for a pull request, its merge or squash commit. The same works for old commits without a declaration.
 - For a commit inside a merged pull request, only `AI-Generation` counts, and it may be lower than the pull request's. `lint` warns about review levels there.
 - An entry for a commit that isn't in the history of `HEAD` (rebased or squashed away) declares nothing, and `lint` says so.
-- Entries don't change lines a [snapshot](snapshots.md) has frozen; `aisignoff freeze --reset FILE` applies them there.
+- An entry counts as soon as it lands, for every line its commit owns, however old.
 - An entry that gives `AI-Review` replaces the commit's review, findings line included: give `AI-Review-Findings` there too, or the commit's lines are at F- ([Findings](levels.md#findings-f0-to-f3)).
 
 ## Raising a review: attestations
@@ -219,7 +215,7 @@ Reviewed-by = "Jane Doe"
 - **It covers the lines that content had.** Lines changed afterwards fall back to their own commit, so an attestation never covers code written after the review and can stay in the file. A review is the highest of the attestation's, the owner's and, for lines whose owner declares nothing, the file-level declaration's: an attestation never lowers a review.
 - **It follows the content.** The blob survives a squash merge and a rename (`git mv`). The same content in another file, such as a copy, isn't covered.
 - **It checks itself.** An attestation whose content never landed on the branch, or whose path was renamed away and created again, is reported by `lint`.
-- **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. That also works for content from before a snapshot. Such a review is as old as the content it checked, however late it is recorded: where two reviews cover a line, the findings (and the reviewer, on a tie of levels) come from the review of the newer content.
+- **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. Such a review is as old as the content it checked, however late it is recorded: where two reviews cover a line, the findings (and the reviewer, on a tie of levels) come from the review of the newer content.
 - Attestations count only with `[history]`, and not for files under `precedence = "override"`, which `attest` refuses.
 
 ### The lines of one commit
@@ -241,7 +237,7 @@ AI-Review-Findings = "none"
 - **It covers the lines that commit landed** on the default branch and that are still there: the lines `git blame --first-parent` gives to it. A later change takes its lines out, as it does for the commit's own declaration.
 - **Without a path**, it covers the commit's lines in every file; with `path` (or files on the command line), only in those.
 - **Its lines are as the review saw them,** so it is as new as any review of them. Where two reviews cover a line, the one recorded later counts ([below](#the-review-folder)).
-- The commit must be one of the default branch's history; lines a [snapshot](snapshots.md) has frozen keep the snapshot's levels.
+- The commit must be one of the default branch's history, however old.
 
 Each attestation gives either `blob` or `commit`.
 

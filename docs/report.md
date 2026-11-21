@@ -159,7 +159,7 @@ raw.githubusercontent.com only serves public repositories.
 | `errors` | list of problems (empty when valid) |
 | `parts` | only with `[history]`: a list of runs of lines with one declaration |
 
-Each part has the six level and name keys above, `Findings` (and `AI-Review-Findings` where given), `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `frozen`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
+Each part has the six level and name keys above, `Findings` (and `AI-Review-Findings` where given), `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
 
 With `--declare-from`, `report --json` also has `pull_request`: `applies` (`false` for a pull request into another branch than the default one, whose description declares nothing), the six level and name keys of what the description declares, `AI-Review-Findings` (its findings line as written, `null` without one), `source` and `errors` (what [`lint`](ci.md#checking-the-pull-request-description) would report about the description).
 

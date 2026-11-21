@@ -165,20 +165,6 @@ def test_a_commits_entry_corrects_the_findings(landed):
     assert findings(landed)[2:5] == ["F3"] * 3
 
 
-def test_the_snapshot_keeps_the_findings(landed, capsys):
-    capsys.readouterr()
-    assert main(["--root", str(landed), "freeze"]) == 0
-    commit(landed, "freeze", UNREVIEWED.replace("G3\nAssisted-by: Claude Opus (Anthropic)", "G0"))
-    snapshot = json.loads((landed / "SIGNOFF.snapshot.json").read_text())
-    assert snapshot["rules"] == 3
-    assert any(d.get("AI-Review-Findings") == "major" for d in snapshot["declarations"])
-    assert findings(landed)[2:5] == ["F2"] * 3
-    assert lint(landed, capsys)[0] == 0
-    edit_lines(landed, [3], "fixed")
-    commit(landed, "fix after the freeze", UNREVIEWED)
-    assert findings(landed)[2:5] == ["F-", "F2", "F2"]
-
-
 def test_a_misspelt_findings_line_leaves_the_lines_unreviewed(repo, capsys):
     write(repo, "reviews/r.md", "# review\n")
     edit_lines(repo, [1])

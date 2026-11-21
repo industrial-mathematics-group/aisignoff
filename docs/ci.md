@@ -23,16 +23,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the whole history, for [history]
+      - uses: actions/cache@v4   # what git blame found, so that a run only blames the commits since
+        with:
+          path: .git/aisignoff
+          key: aisignoff-${{ github.sha }}
+          restore-keys: aisignoff-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.16.0"
+      - run: pip install "aisignoff==0.17.0"
       - run: aisignoff lint
 ```
 
 Then require the check in the branch protection of the default branch, so no undeclared file is merged. Pin the version, so that a new release can't change your check unannounced, and raise the pin when you update.
 
-With [line-level declarations](history.md), check out the whole history (`fetch-depth: 0`). That also fetches the default branch, which aisignoff needs to tell which lines have landed. Without `[history]`, a shallow checkout is enough.
+With [line-level declarations](history.md), check out the whole history (`fetch-depth: 0`). That also fetches the default branch, which aisignoff needs to tell which lines have landed. Without `[history]`, a shallow checkout is enough. The `actions/cache` step keeps the [blame cache](cache.md) from run to run, which makes `lint` fast on a long history; without it, each run blames the whole history.
 
 `lint --strict` also fails on warnings: annotations that match no file (for example after a rename), undeclared reverts, `git pull` merges and commits that look like pull requests, and attestations that can't count.
 
@@ -183,7 +188,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.16.0   # the same version as in your workflows
+    rev: v0.17.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

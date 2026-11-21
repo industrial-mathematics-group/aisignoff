@@ -43,7 +43,7 @@ aisignoff works at two depths, and you can start with the first:
 ## Where to go next
 
 - [Quick start](getting-started.md): from nothing to a checked repository.
-- [Declaring lines](history.md): the declaration model with `[history]`, and [snapshots](snapshots.md) that keep it stable.
+- [Declaring lines](history.md): the declaration model with `[history]`, worked out from the whole history, and the [blame cache](cache.md) that keeps it fast.
 - [CI and workflows](ci.md): checks, pull request descriptions, merge methods, merge queues.
 - [Reports](report.md): summaries, the folder report, `diff` and badges.
 - Reference: [commands](commands.md), [`SIGNOFF.toml`](signoff-toml.md), [compatibility](compatibility.md), [changelog](changelog.md).

@@ -1,7 +1,7 @@
 """Changing a repository over from SIGNOFF.toml version 3 (the AI review scale before 1.0.0rc6) to
-version 4: what is read at version 3, the snapshot that keeps it, and examples/convert-to-version-4.py."""
+version 4: what is read at version 3, and examples/convert-to-version-4.py, which keeps the AI reviews
+of the commit messages so far with [[commits]] entries."""
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
@@ -36,15 +36,12 @@ def test_a_repository_keeps_its_levels_through_the_change_to_version_4(repo, cap
     assert code == 0 and "version = 3" in out and "convert-to-version-4.py" in out   # a note, no failure
     assert run(repo, capsys, "attest", "solver.py", "-a", "A1", "--ai-reviewed-by", "N, new session")[0] == 2
 
-    # 1. freeze with the new aisignoff, still at version 3: the commit messages so far are kept as read
-    assert run(repo, capsys, "freeze")[0] == 0
-    data = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
-    assert data["rules"] == 3 and not any("self-check" in json.dumps(d) for d in data["declarations"])
-    commit(repo, "freeze", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A0")
-    # 2. convert the file
+    # convert the file: the commit messages so far keep their AI review through [[commits]] entries
     monkeypatch.chdir(repo)
     converter().main([])
-    assert "version = 4" in (repo / "SIGNOFF.toml").read_text() and "Wrote SIGNOFF.toml" in capsys.readouterr().out
+    toml = (repo / "SIGNOFF.toml").read_text()
+    assert "version = 4" in toml and "Wrote SIGNOFF.toml" in capsys.readouterr().out
+    assert toml.count("[[commits]]") == 2 and "self-check" not in toml.split("[[commits]]", 1)[1]
     commit(repo, "version 4", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A0")
     assert levels(repo) == before
     code, out = run(repo, capsys, "lint", "--strict")
@@ -56,37 +53,6 @@ def test_a_repository_keeps_its_levels_through_the_change_to_version_4(repo, cap
     assert code == 1 and "self-check" in out
     with pytest.raises(SystemExit, match="not version 3"):
         converter().main([])
-
-
-def test_a_snapshot_of_the_rules_before_is_read_on_todays_scale(repo, capsys):
-    edit_lines(repo, [2])
-    commit(repo, "reviewed", OLD.format(a="A1", by="M, new session"))
-    assert run(repo, capsys, "freeze")[0] == 0
-    path = repo / "SIGNOFF.snapshot.json"
-    data = json.loads(path.read_text())
-    data["rules"] = 1   # as 1.0.0rc5 wrote it: a self-check as A1, a new session as A2
-    old = [d for d in data["declarations"] if d["AI-Review"] == "A1"]
-    assert len(old) == 1
-    old[0].update({"AI-Review": "A2"})
-    data["declarations"].append({**old[0], "AI-Review": "A1", "AI-Reviewed-by": ["M, self-check by the generating session"]})
-    runs = data["files"]["solver.py"]["runs"]
-    first = next(r for r in runs if r[2] != data["declarations"].index(old[0]))
-    first[2] = len(data["declarations"]) - 1
-    path.write_text(json.dumps(data, indent=1) + "\n")
-    commit(repo, "freeze with 1.0.0rc5", "AI-Generation: G0\nHuman-Review: H1\nReviewed-by: J\nAI-Review: A0")
-    edit_lines(repo, [10])
-    commit(repo, "later", OLD.format(a="A1", by="M, new session"))
-    now = levels(repo)
-    assert now[1] == "G3 H1 A1" and now[first[0] - 1] == "G3 H1 A0"
-    code, out = run(repo, capsys, "lint")
-    assert code == 0, out
-    # the next freeze writes it on today's scale
-    edit_lines(repo, [9])
-    commit(repo, "and later", OLD.format(a="A1", by="M, new session"))
-    assert run(repo, capsys, "freeze")[0] == 0
-    data = json.loads(path.read_text())
-    assert data["rules"] == 3 and "self-check" not in json.dumps(data["declarations"])
-    assert levels(repo)[1] == "G3 H1 A1"
 
 
 TOML_3 = '''version = 3   # the format

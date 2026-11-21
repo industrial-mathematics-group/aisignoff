@@ -54,7 +54,7 @@ With `precedence = "override"` on the annotation, the annotation alone counts: s
 
 ## What aisignoff reads
 
-Declarations come from two places only: `SIGNOFF.toml` (with its [snapshot](snapshots.md), `SIGNOFF.snapshot.json`) and git, that is commit messages, the pull request description passed to [`lint --declare-from`](ci.md#checking-the-pull-request-description), diffs and blame. Nothing in the content of a file can declare, raise or lower anything.
+Declarations come from two places only: `SIGNOFF.toml` and git, that is commit messages, the pull request description passed to [`lint --declare-from`](ci.md#checking-the-pull-request-description), diffs and blame. Nothing in the content of a file can declare, raise or lower anything.
 
 The files themselves are opened for three things, none of which reads a declaration: to count their lines (and to see that a file is binary), to show their text in the [folder report](report.md#the-interactive-report) with `--with-source`, and to pass `.git-blame-ignore-revs` on to git.
 
@@ -62,7 +62,7 @@ The files themselves are opened for three things, none of which reads a declarat
 
 - **In a git repository:** tracked files plus untracked files that aren't ignored, so `.gitignore` is respected. If git can't be run there, aisignoff stops rather than ignoring `.gitignore`.
 - **Outside git:** every file below the root.
-- **Never:** `SIGNOFF.toml` itself, `SIGNOFF.snapshot.json`, and anything that matches `exclude`.
+- **Never:** `SIGNOFF.toml` itself, a `SIGNOFF.snapshot.json` left from 0.16 or earlier, and anything that matches `exclude`.
 
 !!! tip
     Exclude the folder of committed AI reviews (`reviews/` by convention): the reviews need no declaration themselves.

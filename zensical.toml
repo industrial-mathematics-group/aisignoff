@@ -22,7 +22,7 @@ nav = [
     { "Levels and rules" = "levels.md" },
     { "Declaring files" = "files.md" },
     { "Declaring lines" = "history.md" },
-    { "Snapshots" = "snapshots.md" },
+    { "The blame cache" = "cache.md" },
   ] },
   { "CI and workflows" = "ci.md" },
   { "Reports" = "report.md" },
