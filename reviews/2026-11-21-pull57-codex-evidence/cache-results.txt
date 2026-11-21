@@ -1,0 +1,17 @@
+v0.19.2 cold start
+before edit: H1
+after edit, cache enabled: H3
+after edit, cache disabled: H3
+v0.19.1 cache reused by v0.19.2
+before edit: H1
+after edit in v0.19.1: H1
+after edit, cache enabled: H1
+after edit, cache disabled: H3
+leading newline in v0.19.1
+before edit: H1
+after edit, cache enabled: H1
+after edit, cache disabled: H3
+leading newline in v0.19.2
+before edit: H1
+after edit, cache enabled: H1
+after edit, cache disabled: H3
