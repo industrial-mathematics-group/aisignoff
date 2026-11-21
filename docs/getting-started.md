@@ -73,3 +73,7 @@ When code is developed through pull requests, let each pull request declare the 
 4. Check out the whole history in CI (`fetch-depth: 0`), and add the [description check](ci.md#checking-the-pull-request-description) so an incomplete description fails before the merge.
 
 Existing lines keep the file-level declarations until they change. When everything passes, record the result with a [snapshot](snapshots.md) so it stays as it is. The full model is in [Declaring lines](history.md).
+
+## AI agents
+
+`aisignoff init` adds a section to `AGENTS.md` that most coding agents read on their own: before committing, run `aisignoff guide --role dev`; to review a change, run `aisignoff guide --role review`. Each prints a one-page brief for that role, for the installed version and this repository's settings. In a repository that already has `SIGNOFF.toml`, add the section with `aisignoff guide --agents-md`, and for setups that load skills by role, write the same briefs as Claude skills with `aisignoff guide --skills`. See [`guide`](commands.md#guide).

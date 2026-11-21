@@ -60,7 +60,7 @@ Two built-in rules are gone: G1–G3 no longer need an AI review, and G0 content
 
 Raising the version you pin changes nothing by itself. aisignoff reads `SIGNOFF.toml` with `version = 3` as before and takes its levels over with this table: those of the file, of commit messages and pull request descriptions (so the old pull request template keeps working), and of a snapshot. A description with the ticked boxes of today's template is read on today's scale already, so the template can change first. Reports show today's levels, and `lint` adds a note. `annotate` and `attest` refuse until the file is version 4.
 
-Change over in one pull request per repository, once your workflows pin 1.0.0rc6 or later:
+Change over in one pull request per repository, once your workflows pin 1.0.0rc6 or later (0.15.0 is later: see [Versions](compatibility.md#versions)):
 
 1. **With `[history]`, write a snapshot:** `aisignoff freeze` on the default branch, landed as usual ([Snapshots](snapshots.md)). Commit messages can't be rewritten, and from version 4 on they are read on the new scale: the snapshot keeps what the commits so far declare, as taken over.
 2. **Convert the file** with [`convert-to-version-4.py`](https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/convert-to-version-4.py): `python convert-to-version-4.py` at the repository root (`--dry-run` shows the change only). It rewrites the levels and `[policy]` with the table, sets `version = 4`, keeps comments and layout, and writes nothing if the result wouldn't be read as the same declarations.

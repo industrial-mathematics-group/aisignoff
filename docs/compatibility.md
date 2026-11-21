@@ -1,6 +1,6 @@
 # Compatibility
 
-aisignoff is at a release candidate for 1.0 (1.0.0rc10). From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers, so you know what to rely on when you pin a version in a workflow or a pre-commit hook. A release candidate may still change these formats before 1.0.0, with a note in the [changelog](changelog.md).
+aisignoff is at 0.15.0. While the format still changes, it stays below 1.0: a 0.x release may change what this page lists, with a **Breaking** note in the [changelog](changelog.md), so pin an exact version in a workflow or a pre-commit hook. From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers.
 
 ## What 1.x will keep stable
 
@@ -22,6 +22,10 @@ From 1.0, a minor or patch release (1.1, 1.0.1, …) won't break any of these; b
 - Warnings. A new warning may appear in a minor release, so `lint --strict`, which fails on warnings, can become stricter. Plain `lint` doesn't fail on a repository it accepted before, unless that repository relied on a bug that let an invalid declaration through.
 - The Python modules inside the package. aisignoff is a command-line tool; importing it from Python isn't a supported interface.
 - Supported Python versions. A minor release may drop a Python version that has reached its end of life. It currently needs Python 3.11 or later.
+
+## Versions
+
+aisignoff went from 0.14 to release candidates for 1.0 (1.0.0rc1 to 1.0.0rc10) and then back to 0.x with 0.15.0, since the format was still changing almost every release. The order of the releases is 0.14, 1.0.0rc1 to 1.0.0rc10, 0.15.0: 0.15.0 has everything the release candidates have. The release candidates are yanked on PyPI, so `pip install aisignoff` and `pip install --pre aisignoff` choose 0.15.0 or later, and an exact pin such as `aisignoff==1.0.0rc10` still installs. These docs name the release candidate that brought a change, as the changelog does; "1.0.0rc6 or later" includes 0.15.0. To change over, pin `0.15.0` where you pinned a release candidate: a version range such as `>=1.0.0rc6` doesn't include it.
 
 ## Older versions
 

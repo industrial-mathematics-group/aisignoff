@@ -1,4 +1,4 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge | guide."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from . import __version__
+from . import __version__, guide
 from .config import FILENAME, VERSION, ConfigError, config_path, load
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN,
@@ -172,6 +172,31 @@ def cmd_init(args) -> int:
         ]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Created {target}")
+    if not args.no_agents_md:
+        for message in guide.point_agents(root):
+            print(message)
+    return 0
+
+
+# ---------------------------------------------------------------- guide
+def cmd_guide(args) -> int:
+    root = Path(args.root)
+    if not (args.role or args.skills or args.agents_md):
+        raise UsageError("give --role dev or --role review (or --skills, --agents-md)")
+    if args.skills or args.agents_md:
+        if not root.is_dir():
+            raise UsageError(f"project root {root} is not a directory")
+        if args.agents_md:
+            for message in guide.point_agents(root) or ["AGENTS.md is up to date"]:
+                print(message)
+        if args.skills:
+            directory = Path(args.skills)
+            if not directory.is_absolute():
+                directory = root / directory
+            for path in guide.write_skills(directory):
+                print(f"Wrote {path}")
+    if args.role:
+        print(guide.full(args.role, root), end="")
     return 0
 
 
@@ -967,6 +992,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("init", help=f"create {FILENAME}")
     _add_values(p, required=False)
     p.add_argument("--history", action="store_true", help="turn on [history]: line-level declarations from git history")
+    p.add_argument("--no-agents-md", action="store_true", help="don't add the section that points AI agents to "
+                   "'aisignoff guide' to AGENTS.md (and to CLAUDE.md, if it exists)")
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("lint", help="check that every file has a valid declaration")
@@ -1040,6 +1067,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--weight", choices=["files", "lines"], default="files")
     _add_landed(p)
     p.set_defaults(func=cmd_badge)
+
+    p = sub.add_parser("guide", help="what an AI agent needs to know: the developer's or the reviewer's brief")
+    p.add_argument("--role", choices=guide.ROLES, help="dev: the agent that writes the change and declares it; "
+                   "review: the independent AI reviewer")
+    p.add_argument("--agents-md", action="store_true", help="add the section that points AI agents to this "
+                   "command to AGENTS.md (created if missing) and to CLAUDE.md (if it exists), or update it")
+    p.add_argument("--skills", nargs="?", const=".claude/skills", metavar="DIR", help="write both guides as "
+                   "Claude skills, aisignoff-dev and aisignoff-review (default DIR: .claude/skills)")
+    p.set_defaults(func=cmd_guide)
 
     args = parser.parse_args(argv)
     try:
