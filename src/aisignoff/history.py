@@ -106,6 +106,28 @@ def _git_error(root: Path, *args: str) -> str:
     return r.stderr.decode("utf-8", "replace") if r.returncode else ""
 
 
+def present(root: Path, path: str) -> bool:
+    """Whether the work tree has this file as git tracks it: a file, or a symlink, which git keeps
+    as its target text whether or not the target exists (never follow it)."""
+    full = root / path
+    return full.is_symlink() or full.is_file()
+
+
+def hash_file(root: Path, path: str) -> str | None:
+    """The blob git would store for the work tree's file: for a symlink, the blob of its target
+    text, as git stores it (hash-object would read what it points to, or fail when that's missing)."""
+    full = root / path
+    if full.is_symlink():
+        try:
+            target = os.fsencode(os.readlink(full))
+        except OSError:
+            return None
+        out = _git(root, "hash-object", "-t", "blob", "--stdin", check=False, stdin=target)
+    else:
+        out = _git(root, "hash-object", "--", path, check=False)
+    return out.strip() or None if out else None
+
+
 def unavailable_reason(root: Path) -> str | None:
     """Why history can't be used here (None if it can)."""
     inside = _git(root, "rev-parse", "--is-inside-work-tree", check=False)
@@ -954,11 +976,11 @@ class History:
         names = self._names_since(a.path)  # the attested file's names, the current one last
         path = names[-1]
         moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
-        if (self.root / a.path).is_file() and moves and moves[-1][0] == a.path:
+        if present(self.root, a.path) and moves and moves[-1][0] == a.path:
             problems.append(f"{where}: {a.path} was renamed to {moves[-1][1]}, and a new {a.path} created "
                             f"since; set the path of the file that was checked")
             return None
-        if not (self.root / path).is_file():
+        if not present(self.root, path):
             if self._existed(path):
                 return "gone"
             problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
@@ -990,7 +1012,7 @@ class History:
         path = None
         if a.path is not None:
             path = self._names_since(a.path)[-1]
-            if not (self.root / path).is_file():
+            if not present(self.root, path):
                 if self._existed(path):
                     return "gone"
                 problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
@@ -1055,7 +1077,7 @@ class History:
             names = _git(self.root, "-c", "core.quotePath=false", "diff-tree", "--root", "--no-commit-id", "--name-only",
                          "-r", "-z", "--relative", "-m", "--first-parent", sha, check=False) or ""
             now = {self._names_since(n)[-1] for n in names.split("\0") if n}
-            self._excluded_touch[sha] = any(any(matches(p, n) for p in self.config.exclude) and (self.root / n).is_file()
+            self._excluded_touch[sha] = any(any(matches(p, n) for p in self.config.exclude) and present(self.root, n)
                                             for n in now)
         return self._excluded_touch[sha]
 
@@ -1286,7 +1308,7 @@ class History:
         for old, new in reversed(renames):
             if new == names[0] and old not in names:
                 names.insert(0, old)
-        if not (self.root / path).is_file():
+        if not present(self.root, path):
             for old, new in renames:
                 if old == names[-1] and new not in names:
                     names.append(new)
@@ -1303,8 +1325,8 @@ class History:
         as it was there, if it had that content then or before; the same content again later (an edit
         reverted) is a later version of the file. Its last commit is newest only if the content
         stayed until now."""
-        current = _git(self.root, "hash-object", "--", path, check=False)
-        is_current = bool(current and current.strip() == blob)
+        current = hash_file(self.root, path)
+        is_current = current == blob
         if is_current and at is None:
             return self.newest, None
         if not self.order:
@@ -1496,14 +1518,16 @@ class History:
     def _touched_since(self, start: str) -> set[str] | None:
         """The paths (from the top of the repository) that a first-parent commit after start changed,
         or added or deleted under a rename; None if git can't say."""
+        # -z: the names as they are, which the cache's keys are (quoted, a name with a non-ASCII
+        # character or a newline would miss its key, and the cache keep a stale commit)
         out = _git(self.root, "log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-only",
-                   "--format=", f"{start}..{self.base}", check=False)
+                   "-z", "--format=", f"{start}..{self.base}", check=False)
         if out is None:  # git older than 2.31: every parent of a merge, which lists more
-            out = _git(self.root, "log", "--first-parent", "-m", "--no-renames", "--name-only", "--format=",
+            out = _git(self.root, "log", "--first-parent", "-m", "--no-renames", "--name-only", "-z", "--format=",
                        f"{start}..{self.base}", check=False)
         if out is None:
             return None
-        return {line for line in out.splitlines() if line}
+        return {name.lstrip("\n") for name in out.split("\0") if name.strip("\n")}
 
     def _last_content_change(self, old: str) -> str:
         """The first-parent commit that last changed a file's content, under this name or one it had before."""
@@ -1513,14 +1537,18 @@ class History:
             sha = (_git(self.root, "log", "-1", "--first-parent", "--format=%H", rev, "--", name, check=False) or "").strip()
             if not sha:
                 break
-            raw = _git(self.root, "diff-tree", "-r", "-M", "--raw", "--no-abbrev", "--no-commit-id", f"{sha}^", sha,
-                       check=False)
+            raw = _git(self.root, "diff-tree", "-r", "-M", "--raw", "-z", "--no-abbrev", "--no-commit-id", f"{sha}^",
+                       sha, check=False)
             moved = None
-            for row in (raw or "").splitlines():
-                meta, _, paths = row.partition("\t")
-                parts = paths.split("\t")
-                if meta.split()[-1:] == ["R100"] and len(parts) == 2 and parts[1] == name:
+            fields = (raw or "").split("\0")  # -z: ":meta", then one name, or two for a rename or copy
+            k = 0
+            while k < len(fields) and fields[k].startswith(":"):
+                status = fields[k].split()[-1]
+                count = 2 if status[:1] in ("R", "C") else 1
+                parts = fields[k + 1:k + 1 + count]
+                if status == "R100" and len(parts) == 2 and parts[1] == name:
                     moved = parts[0]
+                k += 1 + count
             if moved is None:
                 break
             name, rev = moved, f"{sha}^"

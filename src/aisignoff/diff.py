@@ -99,6 +99,11 @@ def _header_path(text: str) -> str | None:
     return None if p == "/dev/null" else p[2:]
 
 
+# the empty blob, in SHA-1 and SHA-256 repositories
+EMPTY_BLOBS = frozenset({"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                         "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"})
+
+
 def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """(old path, new path) -> (removed line numbers at BASE, added line numbers now).
 
@@ -110,16 +115,24 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
 
     The file names come from the header of each file's block (from 'diff --git' to its first
     hunk) only: a removed line "-- comment" reads "--- comment" in the hunk, like a header."""
-    out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color",
+    out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color", "--full-index",
                "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", *(["-w"] if ignore_whitespace else []), base, "--")
     result: dict = {}
     old = new = None
     removed: list[int] = []
     added: list[int] = []
+    blobs: tuple[str, str] = ("", "")
     in_header = False
 
     def flush():
+        nonlocal removed, added
         if old is not None or new is not None:
+            # an empty file is one unit, as everywhere else, though git shows no hunk for it: added or
+            # deleted empty, or emptied, or written into
+            if old is not None and not removed and blobs[0] in EMPTY_BLOBS:
+                removed = [1]
+            if new is not None and not added and blobs[1] in EMPTY_BLOBS:
+                added = [1]
             result[(old, new)] = (removed, added)
 
     for line in out.split("\n"):
@@ -127,6 +140,7 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
             flush()
             old, new = _git_header_paths(line[len("diff --git "):])
             removed, added = [], []
+            blobs = ("", "")
             in_header = True
         elif line.startswith("@@ "):
             in_header = False
@@ -137,6 +151,9 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
             added += range(int(start), int(start) + int(count or 1))
         elif not in_header:
             continue  # a line of a hunk
+        elif line.startswith("index ") and ".." in line:
+            a, _, b = line[len("index "):].split(" ")[0].partition("..")
+            blobs = (a, b)
         elif line.startswith("new file mode"):
             old = None
         elif line.startswith("deleted file mode"):
