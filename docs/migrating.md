@@ -2,6 +2,15 @@
 
 Check the [changelog](changelog.md) for **Breaking** changes before raising the version your workflows pin. Every line is worked out from the whole history on each run, so a release that changes how a line is read can change the levels of existing lines; the changelog says when.
 
+## To 0.18: who writes what
+
+0.18 splits the records by who writes them: `SIGNOFF.toml` is the file a person signs off, and the review folder holds the AI reviews. Nothing that is there today changes its meaning.
+
+1. **Raise the pin to 0.18** in your workflows, and update the signoff request and `@signoff` assistant workflows if you copied them: they pass `attest --signoff` to keep writing into `SIGNOFF.toml`.
+2. **Scripts and agents that run `attest -a`** without `-H` now get a new file in `reviews/`; commit it with the change, in a pull request of its own as a review. Add `--signoff` where a person records the review in `SIGNOFF.toml`.
+3. **Give `SIGNOFF.toml` a code owner** and require their review ([Who writes what](signoff-toml.md#who-writes-what)), so that a change to it needs a person's approval.
+4. **Optionally run `aisignoff gc --dry-run`** on the default branch to see which records cover no line any more, and `aisignoff gc` in a pull request to delete them.
+
 ## To 0.17: no snapshots
 
 0.17 removes `aisignoff freeze` and `SIGNOFF.snapshot.json`. Every line is worked out from the whole history again, and a [cache](cache.md) in `.git/aisignoff` keeps that fast. A [[commits]] entry or an attestation now counts for every line it is about, however old. `lint` fails while a `SIGNOFF.snapshot.json` is there, because its levels and archived entries would otherwise be lost without notice.

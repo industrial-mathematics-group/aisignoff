@@ -57,7 +57,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "0.17.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.18.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   request:
@@ -284,7 +284,8 @@ jobs:
           options += [f"--findings={findings}"] if findings else []
 
           if kind in ("annotate", "attest"):
-              r = run("aisignoff", kind, *options, "--", *paths, check=False)
+              # the requester signs it off: it goes into SIGNOFF.toml, also an AI review (--signoff)
+              r = run("aisignoff", kind, *options, *(["--signoff"] if kind == "attest" else []), "--", *paths, check=False)
               if r.returncode:
                   reject([f"`aisignoff {kind}` refused the request."], r.stdout + r.stderr)
           else:

@@ -45,9 +45,11 @@ Format::
     [review]
     dir = "reviews"                      # optional: the review folder (default reviews)
 
-The review folder holds the reviews: their reports, the evidence of A3, and attestation files
-(*.toml with [[attestations]] tables only, which may give only the AI review). It needs no
-declaration, and a change may only add files to it.
+SIGNOFF.toml is the file a person signs off: the rules, the annotations, a person's reviews and
+the corrections of a commit. The review folder holds the AI reviews: their reports, the evidence
+of A3, and record files (*.toml) with [[attestations]] tables that give an AI review (A1-A3) and
+its findings, nothing else. It needs no declaration, and a change may only add files to it (or delete a record file that
+no longer covers any line).
 """
 from __future__ import annotations
 
@@ -145,7 +147,7 @@ class Config:
     commits: list[CommitEntry] = field(default_factory=list)
     attestations: list[Attestation] = field(default_factory=list)
     review_dir: str = REVIEW_DIR  # the review folder, relative to the project root
-    # the [[attestations]] of the attestation files in the review folder, by path
+    # the [[attestations]] of the record files in the review folder, by path
     review_attestations: list[Attestation] = field(default_factory=list)
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
@@ -203,14 +205,12 @@ def load(root: Path) -> Config:
     if data is None:
         return Config(path=None)
     config = parse(data, config_path(root))
-    config.review_attestations = load_review_attestations(root, config)
+    config.review_attestations = load_review_records(root, config)
     return config
 
 
-def load_review_attestations(root: Path, config: Config) -> list[Attestation]:
-    """The [[attestations]] of the attestation files (*.toml) in the review folder, by path. An
-    attestation file records an independent AI review: it holds [[attestations]] tables and nothing
-    else, and each gives the AI review (A1-A3) with its names and findings, never another axis."""
+def load_review_records(root: Path, config: Config) -> list[Attestation]:
+    """The [[attestations]] of the record files (*.toml) in the review folder, by path."""
     folder = root / config.review_dir if config.review_dir else None
     if folder is None or not folder.is_dir():
         return []
@@ -220,26 +220,38 @@ def load_review_attestations(root: Path, config: Config) -> list[Attestation]:
             continue
         name = file.relative_to(root).as_posix()
         try:
-            data = tomllib.loads(file.read_text(encoding="utf-8"))
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+            text = file.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
             raise ConfigError(f"{name}: invalid TOML: {e}") from e
-        if set(data) - {"attestations"}:
-            raise ConfigError(f"{name}: an attestation file in the review folder holds [[attestations]] tables "
-                              f"only, not {', '.join(sorted(set(data) - {'attestations'}))}")
-        entries = _attestations(data, name, False)  # always on today's scale
-        if not entries:
-            raise ConfigError(f"{name}: an attestation file in the review folder needs [[attestations]] tables")
-        for a in entries:
-            where = f"{name} [[attestations]] entry {a.index}"
-            other = set(a.values) - {AIR, AI_REVIEWED, FINDINGS}
-            if other:
-                raise ConfigError(f"{where}: an attestation file in the review folder records an AI review, so it "
-                                  f"gives {AIR}, {AI_REVIEWED} and {FINDINGS} only, not {', '.join(sorted(other))} "
-                                  f"(a person's review goes into {FILENAME})")
-            if a.values.get(AIR) not in ("A1", "A2", "A3"):
-                raise ConfigError(f"{where}: {AIR} must be A1, A2 or A3 (an independent AI review)")
-        out += entries
+        out += parse_record_file(text, name)
     return out
+
+
+def parse_record_file(text: str, name: str) -> list[Attestation]:
+    """A record file of the review folder: [[attestations]] tables, each an independent AI review
+    (A1-A3) with its names and findings, never another axis. A person's review and the corrections
+    of a commit go into SIGNOFF.toml."""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{name}: invalid TOML: {e}") from e
+    if set(data) - {"attestations"}:
+        raise ConfigError(f"{name}: a record file in the review folder holds [[attestations]] tables only, not "
+                          f"{', '.join(sorted(set(data) - {'attestations'}))} (a [[commits]] entry is a person's "
+                          f"correction: it goes into {FILENAME})")
+    entries = _attestations(data, name, False)  # always on today's scale
+    if not entries:
+        raise ConfigError(f"{name}: a record file in the review folder needs [[attestations]] tables")
+    for a in entries:
+        where = f"{name} [[attestations]] entry {a.index}"
+        other = set(a.values) - {AIR, AI_REVIEWED, FINDINGS}
+        if other:
+            raise ConfigError(f"{where}: a record file in the review folder records an AI review, so it "
+                              f"gives {AIR}, {AI_REVIEWED} and {FINDINGS} only, not {', '.join(sorted(other))} "
+                              f"(a person's review goes into {FILENAME})")
+        if a.values.get(AIR) not in ("A1", "A2", "A3"):
+            raise ConfigError(f"{where}: {AIR} must be A1, A2 or A3 (an independent AI review)")
+    return entries
 
 
 def load_text(text: str, path: Path) -> Config:
@@ -309,15 +321,7 @@ def parse(data: dict, path: Path) -> Config:
     if set(review) - set(REVIEW_KEYS):
         warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - set(REVIEW_KEYS)))}, ignored "
                         "(a typo, or a setting of a later aisignoff?)")
-    commits = []
-    for i, table in enumerate(_tables(data, "commits", name), start=1):
-        where = f"{name} [[commits]] entry {i}"
-        commit = table.get("commit")
-        if not isinstance(commit, str) or not _is_hex(commit, 4):
-            raise ConfigError(f"{where}: 'commit' must be a commit hash (at least 4 hex digits)")
-        values = _parse_values(table, ("commit",), where, old)
-        _check_axes(values, where)
-        commits.append(CommitEntry(index=i, commit=commit.lower(), values=values, filename=name))
+    commits = _commits(data, name, old)
     attestations = _attestations(data, name, old)
     notes = []
     if old:
@@ -328,6 +332,19 @@ def parse(data: dict, path: Path) -> Config:
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
                   commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old,
                   review_dir=review_dir)
+
+
+def _commits(data: dict, name: str, old: bool) -> list[CommitEntry]:
+    out = []
+    for i, table in enumerate(_tables(data, "commits", name), start=1):
+        where = f"{name} [[commits]] entry {i}"
+        commit = table.get("commit")
+        if not isinstance(commit, str) or not _is_hex(commit, 4):
+            raise ConfigError(f"{where}: 'commit' must be a commit hash (at least 4 hex digits)")
+        values = _parse_values(table, ("commit",), where, old)
+        _check_axes(values, where)
+        out.append(CommitEntry(index=i, commit=commit.lower(), values=values, filename=name))
+    return out
 
 
 def _attestations(data: dict, name: str, old: bool) -> list[Attestation]:

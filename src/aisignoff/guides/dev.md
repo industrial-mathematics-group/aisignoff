@@ -26,9 +26,16 @@ per file and per line: AI generation (G0-G3), human review (H0-H3) and AI review
   `AI-Reviewed-by` text and the findings word. Never lower, guess or reword a finding.
 - **Review records for yourself:** no `aisignoff attest`, no `[[commits]]` entry and no annotation
   that raises Human-Review or AI-Review.
-- **The rules:** don't change `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`.
-- **The review folder** (`reviews/` unless `[review] dir` says otherwise): never add, modify or
-  delete a file there. It holds the reviewers' records; a change that edits one fails `lint`.
+- **`SIGNOFF.toml`: never.** It is the file a person signs off: the rules, a person's reviews and
+  the generations only a person can give. (Without `[history]`, `aisignoff annotate` with
+  `-H TODO` is the one exception, see below.)
+- **The review folder** (`reviews/` unless `[review] dir` says otherwise): never modify or delete a
+  file there. It holds the reviewers' records; a change that edits one fails `lint`.
+
+## When a landed commit is declared wrong
+
+Don't correct it yourself: a `[[commits]]` entry is a person's word, in `SIGNOFF.toml`. Tell the
+person responsible which commit it is and what you think it should say.
 
 ## Where the declaration goes
 

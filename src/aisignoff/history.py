@@ -519,6 +519,9 @@ class History:
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         self.cache = cache.open(self) if cache is not None and self.base else None
+        self.gone: list = []  # attestations of files deleted since: they cover no line
+        self.attestation_keys: list[tuple] = []  # (attestation, the file it is listed under, its tuple)
+        self.origins: dict[str, set[tuple]] = {}  # the different origins of the lines of each file resolved
         self.attestations = self._load_attestations()
 
     # ------------------------------------------------------------ the default branch
@@ -915,59 +918,117 @@ class History:
             where = f"{a.filename} [[attestations]] entry {a.index}"
             if a in self.config.review_attestations:
                 self._review_record(a, where)
-            if a.commit:
-                self._load_scoped(a, where, out, seq)
-                continue
-            names = self._names_since(a.path)  # the attested file's names, the current one last
-            path = names[-1]
-            moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
-            if (self.root / a.path).is_file() and moves and moves[-1][0] == a.path:
-                self.problems.append(f"{where}: {a.path} was renamed to {moves[-1][1]}, and a new {a.path} created "
-                                     f"since; set the path of the file that was checked")
-                continue
-            if not (self.root / path).is_file():
-                self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
-                continue
-            until, commit = self._blob_until(set(names), path, a.blob)
-            if until is None:
-                self.problems.append(f"{where}: the checked content of {a.path} ({a.blob[:7]}) is neither in the "
-                                     f"history of this file on this branch nor its current content; run 'aisignoff attest' "
-                                     f"again")
-                continue
-            annotation = self.config.match(path)
-            if annotation is not None and annotation.precedence == "override":
-                self._warnings.append(f'{where}: {path} is declared by an annotation with precedence = "override", '
-                                      "so the attestation doesn't count; change the annotation instead")
-            pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
-            if pieces.pop(0, None) is not None:
-                self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
-                                      "count; correct the generation of a commit with a [[commits]] entry")
-            if pieces:
-                out.setdefault(path, []).append((until, commit, pieces, a.blob, self._content_age(until, commit),
-                                                 None, seq))
+            got = self._attestation(a, where, seq, self.problems, self._warnings)
+            if got == "gone":
+                self.gone.append(a)
+            elif got is not None:
+                self.attestation_keys.append((a, got[0], got[1]))
+                if got[1][2]:
+                    out.setdefault(got[0], []).append(got[1])
         return out
 
-    def _load_scoped(self, a, where: str, out: dict, seq: int) -> None:
+    def _attestation(self, a, where: str, seq: int, problems: list, warnings: list):
+        """(the file it is listed under, the tuple of _load_attestations) of one attestation, "gone"
+        when the file it names was deleted (it covers no line any more, which is no error), or None
+        when it is wrong, which is added to problems."""
+        if a.commit:
+            return self._scoped(a, where, seq, problems, warnings)
+        names = self._names_since(a.path)  # the attested file's names, the current one last
+        path = names[-1]
+        moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
+        if (self.root / a.path).is_file() and moves and moves[-1][0] == a.path:
+            problems.append(f"{where}: {a.path} was renamed to {moves[-1][1]}, and a new {a.path} created "
+                            f"since; set the path of the file that was checked")
+            return None
+        if not (self.root / path).is_file():
+            if self._existed(path):
+                return "gone"
+            problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
+            return None
+        until, commit = self._blob_until(set(names), path, a.blob)
+        if until is None:
+            problems.append(f"{where}: the checked content of {a.path} ({a.blob[:7]}) is neither in the "
+                            f"history of this file on this branch nor its current content; run 'aisignoff attest' "
+                            f"again")
+            return None
+        annotation = self.config.match(path)
+        if annotation is not None and annotation.precedence == "override":
+            warnings.append(f'{where}: {path} is declared by an annotation with precedence = "override", '
+                            "so the attestation doesn't count; change the annotation instead")
+        pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
+        if pieces.pop(0, None) is not None:
+            warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
+                            "count; correct the generation of a commit with a [[commits]] entry")
+        return path, (until, commit, pieces, a.blob, self._content_age(until, commit), None, seq)
+
+    def _scoped(self, a, where: str, seq: int, problems: list, warnings: list):
         """An attestation of a commit: of the lines it landed on the default branch, in one file or all."""
         sha = self._resolve(a.commit)
         if sha is None or sha not in self.order:
-            self.problems.append(f"{where}: {a.commit} isn't a commit of the default branch's history (the "
-                                 "merge or squash commit of a pull request, or a commit made there directly); an "
-                                 "attestation of a commit covers the lines that commit landed there")
-            return
+            problems.append(f"{where}: {a.commit} isn't a commit of the default branch's history (the "
+                            "merge or squash commit of a pull request, or a commit made there directly); an "
+                            "attestation of a commit covers the lines that commit landed there")
+            return None
         path = None
         if a.path is not None:
             path = self._names_since(a.path)[-1]
             if not (self.root / path).is_file():
-                self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
-                return
+                if self._existed(path):
+                    return "gone"
+                problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
+                return None
         pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
         if pieces.pop(0, None) is not None:
-            self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
-                                  "count; correct the generation of a commit with a [[commits]] entry")
-        if pieces:
-            # the lines it covers are as the review saw them: as new as any content of the file
-            out.setdefault(path, []).append((None, None, pieces, None, float(self.newest), sha, seq))
+            warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
+                            "count; correct the generation of a commit with a [[commits]] entry")
+        # the lines it covers are as the review saw them: as new as any content of the file
+        return path, (None, None, pieces, None, float(self.newest), sha, seq)
+
+    def _existed(self, path: str) -> bool:
+        """Whether a file of this path was ever in the history of HEAD: an attestation of it then
+        covers no line any more, since the file was deleted, rather than naming a file by mistake."""
+        return bool(_git(self.root, "log", "-1", "--format=%H", self.head or "HEAD", "--", path, check=False))
+
+    # ------------------------------------------------------------ records that cover no line any more
+    def _touched(self) -> set[str]:
+        """The commits that own or wrote a line of the files resolved so far."""
+        out = set()
+        for origins in self.origins.values():
+            for o in origins:
+                if o[0] in ("landed", "released"):
+                    out.update(x for x in o[1:3] if x)
+                elif o[0] == "pending" and o[1]:
+                    out.add(o[1])
+        return out
+
+    def _covers_any(self, key: str | None, t: tuple) -> bool:
+        files = self.origins.values() if key is None else [self.origins.get(key, ())]
+        return any(self._covers(t, o) for origins in files for o in origins)
+
+    def dead_records(self) -> list:
+        """The [[attestations]] and [[commits]] entries (of SIGNOFF.toml and the review folder) that
+        cover no line of the files resolved so far: the file was deleted, every line it checked has
+        changed since, or the commit owns and wrote no line any more. They change nothing, and can
+        be deleted without changing a level; git history keeps them. Call it after every file was
+        resolved. An entry that is wrong (it names no commit or file of the history) is a problem
+        of lint instead, and not listed."""
+        touched = self._touched()
+        out = list(self.gone)
+        out += [a for a, key, t in self.attestation_keys if not self._covers_any(key, t)]
+        for entry in self.config.commits:
+            sha = self._resolve(entry.commit)
+            if sha is not None and sha in self.corrections and sha not in touched:
+                out.append(entry)
+        return out
+
+    def is_dead(self, attestations: list, name: str) -> bool:
+        """Whether every entry of a record file that isn't loaded (one a change deletes) covers no
+        line: then deleting it changes no level."""
+        for a in attestations:
+            got = self._attestation(a, f"{name} [[attestations]] entry {a.index}", -1, [], [])
+            if got is None or (got != "gone" and self._covers_any(*got)):
+                return False
+        return True
 
     def _review_record(self, a, where: str) -> None:
         """An attestation file of the review folder records an independent AI review like a pull
@@ -1319,7 +1380,9 @@ class History:
         attestations = self._of_file(path)
         keys: list[tuple] = []
         memo: dict[tuple, tuple] = {}
-        for origin in self.line_origins(path):
+        origins = self.line_origins(path)
+        self.origins[path] = set(origins)  # which records cover a line: see dead_records
+        for origin in origins:
             if origin not in memo:
                 memo[origin] = self._line_pieces(origin, attestations, fb)
             keys.append(memo[origin])

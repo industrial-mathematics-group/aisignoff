@@ -74,7 +74,7 @@ Appends one annotation for all `PATHS` (files, folders or quoted globs). The lev
 aisignoff lint [--strict] [--max-files N] [--declare-from FILE [--author NAME] [--base REV [--allow-policy-change]] | --landed]
 ```
 
-Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a commit message with an invalid `AI-Review-Findings:` line; a finding of any severity passes ([Findings](levels.md#findings-f0-to-f3)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, attestation files of the review folder without their findings or report, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a `SIGNOFF.snapshot.json` left from 0.16 or earlier. Lines that haven't landed fail nothing on their own.
+Fails if any file lacks a valid declaration or falls below the policy, or if no files were found. It also fails on a commit message with an invalid `AI-Review-Findings:` line; a finding of any severity passes ([Findings](levels.md#findings-f0-to-f3)). Problems are grouped, with up to `N` files listed for each (default 10). With `[history]`, it checks every line, and also fails on `[[commits]]` and `[[attestations]]` entries that point nowhere, record files of the review folder without their findings or report, `[[commits]]` entries that break the built-in rules or the policy, entries in `.git-blame-ignore-revs` that aren't commits, and a `SIGNOFF.snapshot.json` left from 0.16 or earlier. Lines that haven't landed fail nothing on their own.
 
 `--strict` also fails on warnings: annotations that match no file; reverts, `git pull` merges and commits that look like pull requests that own lines without declaring them; review levels in a `[[commits]]` entry for a commit inside a pull request; attestations of files under `precedence = "override"` or with an `AI-Generation`.
 
@@ -113,11 +113,28 @@ The levels of the lines changed between the merge base of `BASE` and `HEAD`, and
 ## attest
 
 ```bash
-aisignoff attest PATHS [-H H] [-a A [--findings SEVERITY]] [--reviewed-by …] [--ai-reviewed-by …] [--at REV]
+aisignoff attest PATHS -H H --reviewed-by … [--at REV]                                  # into SIGNOFF.toml
+aisignoff attest PATHS -a A --findings SEVERITY --ai-reviewed-by … [--at REV] [--to reviews/FILE.toml | --signoff]
 aisignoff attest [PATHS] --commit REV -a A --findings SEVERITY --ai-reviewed-by … [--to reviews/FILE.toml]
 ```
 
-Appends one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. An AI review of A1, A2 or A3 also gives `--findings` (`none`, `trivial`, `minor`, `major` or `critical`), which sets the [findings level](levels.md#findings-f0-to-f3) of every line of the file. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. `--commit REV` attests only the lines that commit of the default branch landed (a pull request's merge or squash commit), in the files given or, without any, in all of them. `--to FILE` writes a new attestation file in the [review folder](history.md#the-review-folder) instead of appending to `SIGNOFF.toml`: for an AI review (`-a A1`–`A3`) only, and never into a file that exists. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
+Writes one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. An AI review of A1, A2 or A3 also gives `--findings` (`none`, `trivial`, `minor`, `major` or `critical`), which sets the [findings level](levels.md#findings-f0-to-f3) of every line of the file. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. `--commit REV` attests only the lines that commit of the default branch landed (a pull request's merge or squash commit), in the files given or, without any, in all of them. A person's review (`-H`, also with `-a`) is appended to `SIGNOFF.toml`. An AI review on its own goes into a new record file of the [review folder](history.md#the-review-folder), `reviews/<date>-<commit or file>.toml` (numbered if that exists), or the one `--to FILE` names, never into a file that exists; `--signoff` appends it to `SIGNOFF.toml` instead, for a person who records it there. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
+
+## correct
+
+```bash
+aisignoff correct REV [-g G] [-H H] [-a A [--findings SEVERITY]] [names…]
+```
+
+Appends a `[[commits]]` entry for the commit `REV` to `SIGNOFF.toml` ([Correcting a commit](history.md#correcting-a-commit)): a person's correction of its declaration, axis by axis. `TODO` is refused.
+
+## gc
+
+```bash
+aisignoff gc [--dry-run]
+```
+
+Deletes the records that cover no line any more: the `[[attestations]]` and `[[commits]]` entries of `SIGNOFF.toml`, and the record files of the review folder all of whose entries cover none. An entry covers no line when its file was deleted, every line of the content it checked has changed since, or its commit owns and wrote no line of a declared file any more. Deleting them changes no level, and git history keeps them. A record file with one entry that still covers a line stays as it is. `--dry-run` only lists them. Run it on an up-to-date default branch, and land the result in a pull request: the check before the merge lets a change delete a record file of the review folder that covers no line. Needs `[history]` and fails while `lint` reports a problem with the records. See [Records that cover no line](history.md#records-that-cover-no-line).
 
 ## badge
 

@@ -76,7 +76,7 @@ A review of A1 gives the same line, without a report: `AI-Reviewed-by` names the
 
 In a pull request template, the same line stands below the AI review boxes. It belongs to A1, A2 and A3: next to A0 it isn't read, so it can be left empty or say `n/a`. With several such lines, the most severe value counts. The reports themselves are in the [review folder](history.md#the-review-folder) (`reviews/`), which needs no declaration.
 
-A review can also land later, in a pull request of its own that only adds files to the review folder: its report and an attestation file that names what it reviewed, whole files or the lines of a commit. Such a pull request declares nothing, and no change may modify or delete an earlier review's files ([The review folder](history.md#the-review-folder)).
+A review can also land later, in a pull request of its own that only adds files to the review folder: its report and a record file that names what it reviewed, whole files or the lines of a commit. Such a pull request declares nothing, and no change may modify or delete an earlier review's files ([The review folder](history.md#the-review-folder)).
 
 A finding is recorded, not a threshold: a change with a major finding can be merged, and its lines show the finding until a later review finds it fixed ([Findings](#findings-f0-to-f3)).
 
@@ -94,7 +94,7 @@ The four levels follow the severity of IEEE Std 1044-2009, the standard classifi
 What `lint` checks:
 
 - **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A1, A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity. A2 and A3 also need their report: `AI-Reviewed-by` names the reviewing model and then a link or a file inside the repository that the change adds. A report that was there before, such as an earlier review's, doesn't count, and a change that modifies or deletes a file of the review folder fails. Nothing is read from the report.
-- **An attestation file** in the review folder is checked the same way, for each entry: its findings, and for A2 and A3 a report that exists or a link.
+- **A record file** in the review folder is checked the same way, for each entry: its findings, and for A2 and A3 a report that exists or a link.
 - **Any severity passes.** An invalid value (`AI-Review-Findings: high`) fails, in a pull request description and in a landed commit's message.
 - A landed commit with a line that looks like the findings line but isn't (`AI-Review-Finding:`) gets a warning (`lint --strict` fails on it): its lines stay at F-.
 - With `merge-method = "rebase"`, the description lands nowhere and isn't checked, and commit messages need neither the line nor the report. In a repository still on `version = 3`, the line and the report are checked for the ticked boxes of today's template, not for trailers on the old scale.
