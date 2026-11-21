@@ -4,7 +4,7 @@ Check the [changelog](changelog.md) for **Breaking** changes before raising the 
 
 ## A1 gives its findings
 
-From the release after 1.0.0rc9, a review of A1 gives its findings like A2 and A3, so that there is a reference for what a different model finds:
+From 1.0.0rc10 on, a review of A1 gives its findings like A2 and A3, so that there is a reference for what a different model finds:
 
 - **A pull request that declares A1 needs the line `AI-Review-Findings:`** with `none` or a severity (no report). If your pull request template has the line only next to the A2 and A3 boxes, or says it can be left empty for A1, change it. `attest -a A1` needs `--findings`.
 - **Existing history is read as it is.** A landed A1 commit without the line leaves its lines at F-, as before; an A1 commit that gave the line now gives its lines those findings.

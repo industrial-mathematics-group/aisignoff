@@ -2,7 +2,7 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
-## Unreleased
+## 1.0.0rc10
 
 Fixes from an independent review of 1.0.0rc9, and A1 gives its findings.
 
