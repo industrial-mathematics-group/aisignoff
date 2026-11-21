@@ -2,6 +2,12 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.20.0
+
+Syntax colours in the folder report's line view.
+
+- Added: syntax colours in the line view of `report --html --with-source`, like GitHub's in light and dark mode. The report inlines a bundle of [highlight.js](https://highlightjs.org) 11.11.1 (about 105 KB) for 24 languages, only when it embeds the files' text; `scripts/vendor_highlight.sh` rebuilds it.
+
 ## 0.19.4
 
 The fix of the independent review of 0.19.3 ([reviews/2026-11-21-history-0193-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-history-0193-codex.md)): text files whose patch git leaves out.

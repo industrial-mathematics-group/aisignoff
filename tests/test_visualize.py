@@ -104,7 +104,7 @@ def test_html_report_embeds_tree_safely(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert "<title>AI signoff · A &amp; &lt;B&gt;</title>" in html
     assert "__AISIGNOFF" not in html
-    assert html.count("</script>") == 2   # only the two real ones: file names can't close the element
+    assert html.count("</script>") == 3   # only the three real ones: file names can't close the element
     data = re.search(r'<script type="application/json" id="data">(.*?)</script>', html, re.S).group(1)
     parsed = json.loads(data)
     assert parsed["meta"]["title"] == "A & <B>"
@@ -142,4 +142,17 @@ def test_cli_tree_usage_errors(repo, capsys, args):
 def test_template_is_package_data():
     from importlib import resources
     text = resources.files("aisignoff").joinpath("report.html").read_text(encoding="utf-8")
-    assert "__AISIGNOFF_DATA__" in text and "__AISIGNOFF_TITLE__" in text
+    assert "__AISIGNOFF_DATA__" in text and "__AISIGNOFF_TITLE__" in text and "__AISIGNOFF_HIGHLIGHT__" in text
+    highlight = resources.files("aisignoff").joinpath("highlight.min.js").read_text(encoding="utf-8")
+    assert "BSD 3-Clause License" in highlight   # the licence travels with the bundle
+    assert not re.search("<!--|</?script", highlight, re.I)   # nothing that would end its <script> early
+
+
+def test_html_report_inlines_highlighting_only_with_source(repo, tmp_path_factory):
+    out = tmp_path_factory.mktemp("out")
+    assert main(["--root", str(repo), "report", "--html", str(out / "plain.html")]) == 0
+    assert main(["--root", str(repo), "report", "--html", str(out / "source.html"), "--with-source"]) == 0
+    plain, source = (out / "plain.html").read_text(encoding="utf-8"), (out / "source.html").read_text(encoding="utf-8")
+    assert "globalThis.hljs" not in plain and "<script></script>" in plain
+    assert "globalThis.hljs" in source and "__AISIGNOFF" not in source
+    assert source.count("</script>") == 3
