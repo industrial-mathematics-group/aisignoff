@@ -4,13 +4,14 @@ With `[history]`, aisignoff works out every line from the whole history on every
 
 | Repository | Commits | Lines | Without the cache | With it, after the default branch moved on | With it, at the same commit |
 |---|---|---|---|---|---|
-| pytest | 17,928 | 186k | 14.7 s | 5.3 s | 3.0 s |
+| pytest | 17,928 | 186k | 14.7 s | 5.3 s (200 commits) | 3.0 s |
+| Django | 35,130 | 1.1M | 7.7 min | 17 s (300 commits) | 6.6 s |
 
-Measured with aisignoff 0.17.0 on 4 cores, 200 commits of the default branch after the cached one; the results with and without the cache were the same for every line.
+Measured with aisignoff 0.17.0 on 4 cores; the results with and without the cache were the same for every line.
 
 ## What it holds
 
-The cache is in the repository's git folder, `.git/aisignoff/`, one file per commit of the default branch (the newest three are kept). For each line of each file it holds the commit `git blame` gives it, with the line's number and path there, and for each merge commit the commits it brought in. These are facts about the history alone, never levels: a changed `SIGNOFF.toml`, a new attestation or a new review counts on the next run as it would without the cache.
+The cache is in the repository's git folder, `.git/aisignoff/`, one file per commit of the default branch (the newest three are kept). For each line of each file it holds the commit `git blame` gives it, with the line's number and path there, for each merge commit the commits it brought in, and for each binary or empty file and symlink the commit that last changed it. These are facts about the history alone, never levels: a changed `SIGNOFF.toml`, a new attestation or a new review counts on the next run as it would without the cache.
 
 A run uses the newest cached commit on the default branch's first-parent history. `git blame` then stops there, and a line from before it is what blame found at that commit: blame passes a line that a commit didn't change on to the commit's parent, so what comes after doesn't change where it ends up. A file the cache doesn't have, or a line it can't place, is blamed over the whole history as without it.
 

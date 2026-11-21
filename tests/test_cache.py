@@ -159,3 +159,28 @@ def test_decode_of_a_bad_entry_is_no_hit(data, tmp_path):
     f = tmp_path / "blame-x.json.gz"
     f.write_bytes(data)
     assert cache.CacheRun._read(f) is None
+
+
+def test_binary_files_and_symlinks_are_cached_and_follow_their_changes(repo):
+    (repo / "logo.png").write_bytes(b"\x89PNG\x00one")
+    (repo / "other.bin").write_bytes(b"\x00same")
+    commit(repo, "AI images", G3)
+    same(repo)
+    # changed, renamed only (R100), and untouched after the cached commit
+    (repo / "logo.png").write_bytes(b"\x89PNG\x00two")
+    commit(repo, "a person redraws the logo", D("G0", "H3", "A0"))
+    git(repo, "mv", "other.bin", "moved.bin")
+    commit(repo, "move it", D("G0", "H2", "A0"))
+    got = same(repo)
+    assert json.loads(got[("logo.png", 1)][0])["AI-Generation"] == "G0"
+    assert json.loads(got[("moved.bin", 1)][0])["AI-Generation"] == "G3"  # the rename keeps its content's commit
+    # content changed and changed back: the commit that changed it back
+    (repo / "logo.png").write_bytes(b"\x89PNG\x00one")
+    commit(repo, "AI puts the old logo back", G3)
+    assert json.loads(same(repo)[("logo.png", 1)][0])["AI-Generation"] == "G3"
+    # a run after an unrelated commit keeps every file's commit for the next one
+    edit_lines(repo, [4], "later")
+    commit(repo, "unrelated", D("G0", "H2", "A0"))
+    lines(repo)
+    with gzip.open(max(files(repo), key=lambda f: f.stat().st_mtime), "rt") as fh:
+        assert {"logo.png", "moved.bin"} <= set(json.load(fh)["units"])

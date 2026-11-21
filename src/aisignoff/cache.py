@@ -90,6 +90,9 @@ class CacheRun:
         self._new: dict[tuple[str, bool], list[Row]] = {}  # this run's blames at base
         self._sides: dict[str, list[str]] = {}  # merge -> the commits it brought in, newest first
         self._sides_changed = False
+        self._units: dict[str, str] = {}  # binary or empty file or symlink -> the commit that last changed its content
+        self._new_units: dict[str, str] = {}
+        self._touched: set[str] | None = None  # paths (from the top of the repository) that a first-parent commit since start changed
         self._lock = threading.Lock()
         self.lock = threading.RLock()  # for History, while it reads the messages of the listed commits
         found = []
@@ -106,6 +109,10 @@ class CacheRun:
                     self._sides = {shas[int(m)]: [shas[i] for i in side] for m, side in (data.get("sides") or {}).items()}
                 except (TypeError, ValueError, IndexError, AttributeError):
                     self._sides = {}
+                try:
+                    self._units = {path: shas[i] if i >= 0 else "" for path, i in (data.get("units") or {}).items()}
+                except (TypeError, ValueError, IndexError, AttributeError):
+                    self._units = {}
                 break
 
     @staticmethod
@@ -159,11 +166,32 @@ class CacheRun:
         with self._lock:
             self._sides.pop(merge, None)
 
+    # the commit that last changed a binary or empty file or a symlink ("" for none on the default branch)
+    def unit(self, path: str, touched) -> str | None:
+        """The cached commit of a file at the default branch's commit, if no first-parent commit since
+        the cached one changed that path; touched() lists those paths, and is called once."""
+        with self._lock:
+            if path in self._new_units:
+                return self._new_units[path]
+            if self.start is None or path not in self._units:
+                return None
+            if self.start != self.base:
+                if self._touched is None:
+                    self._touched = touched(self.start)
+                if self._touched is None or path in self._touched:
+                    return None
+                self._new_units[path] = self._units[path]  # kept for the default branch's commit
+            return self._units[path]
+
+    def record_unit(self, path: str, sha: str) -> None:
+        with self._lock:
+            self._new_units[path] = sha
+
     def save(self) -> None:
         """Write the cache for the default branch's commit: this run's blames, and those of the
         cached commit if it is the same one. Never fails a run: a cache that can't be written is
         left out."""
-        if not self._new and not self._sides_changed:
+        if not self._new and not self._sides_changed and not self._new_units:
             return
         entries: dict[tuple[str, bool], list[Row]] = {}
         if self.start == self.base:
@@ -180,8 +208,11 @@ class CacheRun:
             files.setdefault(path, {})["fp" if fp else "wr"] = _encode(rows, shas, names)
         sides = {str(shas.setdefault(m, len(shas))): [shas.setdefault(s, len(shas)) for s in side]
                  for m, side in sorted(self._sides.items())}
+        units = dict(self._units) if self.start == self.base else {}
+        units.update(self._new_units)
+        units = {path: shas.setdefault(sha, len(shas)) if sha else -1 for path, sha in sorted(units.items())}
         data = {"format": FORMAT, "key": self.key, "commit": self.base, "shas": list(shas), "names": list(names),
-                "files": files, "sides": sides}
+                "files": files, "sides": sides, "units": units}
         tmp = None
         try:
             self.folder.mkdir(parents=True, exist_ok=True)

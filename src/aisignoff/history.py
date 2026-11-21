@@ -30,7 +30,7 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .model import (AXES, FINDINGS, FINDINGS_REVIEWS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration,
@@ -1212,22 +1212,48 @@ class History:
                         return ("released", owner, writer if writer != owner else None)
             return ("pending", writer)
         # the last commit that changed its content, following renames: a commit that only moved it
-        # (R100) leaves it to the one before, as blame does for the lines of a text file
-        out = _git(self.root, "log", "--first-parent", "--diff-merges=first-parent", "--follow", "-M", "--raw",
-                   "--no-abbrev", "--format=%x1e%H", self.base, "--", old, check=False)
-        if out is None:  # git older than 2.31
-            out = _git(self.root, "log", "--first-parent", "-m", "--follow", "-M", "--raw", "--no-abbrev",
-                       "--format=%x1e%H", self.base, "--", old, check=False) or ""
-        sha = ""
-        for record in out.split("\x1e"):
-            rows = [r for r in record.strip().splitlines() if r.strip()]
-            raw = [r for r in rows[1:] if r.startswith(":")]
-            if rows and not (raw and all(r.split("\t")[0].split()[-1] == "R100" for r in raw)):
-                sha = rows[0].strip()
-                break
+        # (R100) leaves it to the one before, as blame does for the lines of a text file. One
+        # 'git log -1' per name, which stops at the first commit, instead of --follow over the whole history.
+        cached = self.cache.unit(self.prefix + old, self._touched_since) if self.cache is not None else None
+        sha = cached if cached is not None else self._last_content_change(old)
+        if cached is None and self.cache is not None:
+            self.cache.record_unit(self.prefix + old, sha)
         if sha not in self.order:
             return ("landed", None, None)
         return ("landed", sha, None)
+
+    def _touched_since(self, start: str) -> set[str] | None:
+        """The paths (from the top of the repository) that a first-parent commit after start changed,
+        or added or deleted under a rename; None if git can't say."""
+        out = _git(self.root, "log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-only",
+                   "--format=", f"{start}..{self.base}", check=False)
+        if out is None:  # git older than 2.31: every parent of a merge, which lists more
+            out = _git(self.root, "log", "--first-parent", "-m", "--no-renames", "--name-only", "--format=",
+                       f"{start}..{self.base}", check=False)
+        if out is None:
+            return None
+        return {line for line in out.splitlines() if line}
+
+    def _last_content_change(self, old: str) -> str:
+        """The first-parent commit that last changed a file's content, under this name or one it had before."""
+        sha, name, rev, seen = "", old, self.base, set()
+        while name and rev and (name, rev) not in seen:
+            seen.add((name, rev))
+            sha = (_git(self.root, "log", "-1", "--first-parent", "--format=%H", rev, "--", name, check=False) or "").strip()
+            if not sha:
+                break
+            raw = _git(self.root, "diff-tree", "-r", "-M", "--raw", "--no-abbrev", "--no-commit-id", f"{sha}^", sha,
+                       check=False)
+            moved = None
+            for row in (raw or "").splitlines():
+                meta, _, paths = row.partition("\t")
+                parts = paths.split("\t")
+                if meta.split()[-1:] == ["R100"] and len(parts) == 2 and parts[1] == name:
+                    moved = parts[0]
+            if moved is None:
+                break
+            name, rev = moved, f"{sha}^"
+        return sha
 
     def _of_file(self, path: str) -> list[tuple]:
         """The attestations of a file, in the order they were recorded: its own, and the attestations
