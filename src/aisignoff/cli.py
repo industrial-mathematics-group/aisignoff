@@ -1,4 +1,4 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | attest | diff | badge | guide."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | correct | gc | diff | badge | guide."""
 from __future__ import annotations
 
 import argparse
@@ -329,7 +329,8 @@ def _pull_request(project: Project, args) -> dict | None:
         out["applies"] = False  # it doesn't go into the default branch: the pull request that lands it there declares it
         return out
     base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
-    review_only, problems = review_folder_changes(project.root, base, project.config.review_dir)
+    review_only, problems = review_folder_changes(project.root, base, project.config.review_dir,
+                                                  _dead_record_file(project, base))
     if review_only:
         # a review: it only adds records to the review folder, so it has no lines to declare. What it
         # attests is in its attestation files, which lint checks with the others
@@ -364,6 +365,47 @@ def _pull_request(project: Project, args) -> dict | None:
                             "or let the check pass it with --allow-policy-change")
     out["problems"] = problems
     return out
+
+
+def _dead_record_file(project: Project, base: str | None):
+    """For the check before the merge: whether a record file of the review folder that the change
+    deletes covers no line any more (as of the change), so that it may be deleted."""
+    history = project.history
+    if history is None or not base:
+        return None
+    from .config import parse_record_file
+
+    def dead(path: str) -> bool:
+        text = _git_out(project.root, "show", f"{base}:./{path}", strip=False)
+        if text is None:
+            return False
+        try:
+            attestations, commits = parse_record_file(text, path)
+        except ConfigError:
+            return False
+        return history.is_dead(attestations, commits, path)
+    return dead
+
+
+def dead_records(project: Project) -> tuple[list, list[str]]:
+    """The entries of SIGNOFF.toml that cover no line any more, and the record files of the review
+    folder all of whose entries cover none. Only after every file was resolved."""
+    if project.history is None:
+        return [], []
+    dead = project.history.dead_records()
+    ids = {id(e) for e in dead}
+    own = [e for e in dead if e.filename == FILENAME]
+    files: dict[str, bool] = {}
+    for e in project.config.review_attestations + project.config.review_commits:
+        files[e.filename] = files.get(e.filename, True) and id(e) in ids
+    return own, sorted(f for f, all_dead in files.items() if all_dead)
+
+
+def _describe_entry(e) -> str:
+    if not hasattr(e, "blob"):
+        return f"[[commits]] entry {e.index} ({e.commit[:7]})"
+    what = " ".join(x for x in (e.path, e.commit[:7] if e.commit else None) if x)
+    return f"[[attestations]] entry {e.index} ({what})"
 
 
 def _description_only(project: Project, args) -> int:
@@ -411,6 +453,12 @@ def cmd_lint(args) -> int:
     waiting = _waiting(results)
     if waiting:
         print(f"! {waiting}")
+    own, files = dead_records(project)
+    if own or files:
+        listed = [f"{FILENAME} {_describe_entry(e)}" for e in own] + files
+        more = f" and {len(listed) - 3} more" if len(listed) > 3 else ""
+        print(f"! {len(listed)} record(s) cover no line any more: {', '.join(listed[:3])}{more}. They change no "
+              "level; 'aisignoff gc' deletes them (git history keeps them)")
 
     bad = sum(1 for r in results if r.errors)
     print()
@@ -654,11 +702,24 @@ def _review_target(project: Project, name: str) -> Path:
     return target
 
 
-def _write_review(root: Path, target: Path, block: list[str]) -> Path:
-    """Write a new attestation file; remove it again if the result isn't a valid one."""
+def _new_record_name(project: Project, what: str) -> Path:
+    """A new record file in the review folder: <date>-<what>.toml, numbered if that exists."""
+    import datetime
+    import re
+    stem = f"{datetime.date.today().isoformat()}-{re.sub(r'[^A-Za-z0-9._-]+', '-', what)[:40].strip('-') or 'record'}"
+    folder = project.root / project.config.review_dir
+    target, n = folder / f"{stem}.toml", 1
+    while target.exists():
+        n += 1
+        target = folder / f"{stem}-{n}.toml"
+    return target
+
+
+def _write_review(root: Path, target: Path, block: list[str], head: list[str] | None = None) -> Path:
+    """Write a new record file; remove it again if the result isn't a valid one."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    head = ["# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:",
-            "# a later review goes into a new file."]
+    head = head or ["# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:",
+                    "# a later review goes into a new file."]
     target.write_text("\n".join(head + block) + "\n", encoding="utf-8")
     try:
         load(root)
@@ -722,6 +783,16 @@ def cmd_attest(args) -> int:
     if not args.paths and not args.commit:
         raise UsageError("give the files to attest, or --commit")
     target_file = None
+    if args.signoff and args.to:
+        raise UsageError(f"give --to (a record file of the review folder) or --signoff ({FILENAME}), not both")
+    if HUM not in values and not args.to and not args.signoff:
+        # an AI review is a record of the AI side: a new file in the review folder, never SIGNOFF.toml
+        if not project.config.review_dir:
+            raise UsageError('an AI review is recorded in the review folder, and [review] dir is "": record it in '
+                             'a pull request description instead, or set a review folder')
+        what = (_git_out(root, "rev-parse", "--short=7", "--verify", "--quiet", f"{args.commit}^{{commit}}") or args.commit
+                if args.commit else Path(args.paths[0]).stem if args.paths else "review")
+        args.to = str(_new_record_name(project, what))
     if args.to:
         target_file = _review_target(project, args.to)
         if HUM in values:
@@ -791,6 +862,125 @@ def cmd_attest(args) -> int:
           + f" in {_shown(root, target)}")
     if not project.config.history.enabled:
         print("note: attestations count only with [history] enabled in SIGNOFF.toml")
+    return 0
+
+
+# ---------------------------------------------------------------- correct
+def cmd_correct(args) -> int:
+    """A [[commits]] entry: the AI side (raising the generation to G3) goes into a new record file of
+    the review folder, everything else, a person's word, into SIGNOFF.toml."""
+    project = _open(args.root)
+    _refuse_version_3(project.config)
+    root = project.root
+    sha = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}")
+    if not sha:
+        raise UsageError(f"{args.commit} is not a commit")
+    values = _values(args)
+    if not any(k in values for k in (GEN, HUM, AIR)):
+        raise UsageError("give at least one level to correct (-g, -H or -a)")
+    if any(v == TODO or (isinstance(v, list) and TODO in v) for v in values.values()):
+        raise UsageError("a correction records what is known: TODO isn't allowed")
+    for level, names in ((GEN, ASSISTED), (HUM, REVIEWED), (AIR, AI_REVIEWED)):
+        if names in values and level not in values:
+            raise UsageError(f"{names} without {level}")
+    ai_side = set(values) <= {GEN, ASSISTED} and values.get(GEN) == "G3"
+    block = ["", "[[commits]]", f'commit = "{sha}"'] + [f"{k} = {_toml_value(v)}" for k, v in values.items()]
+    if ai_side and not args.to_signoff:
+        if ASSISTED not in values:
+            raise UsageError("AI-Generation G3 needs --assisted-by: the model that wrote the lines")
+        if not project.config.review_dir:
+            raise UsageError(f'[review] dir is "": write the correction into {FILENAME} with --signoff')
+        target = _review_target(project, args.to) if args.to else _new_record_name(project, sha[:7])
+        target = _write_review(root, target, block, [
+            "# A correction of the AI side, recorded by 'aisignoff correct': it raises the generation of a commit.",
+            "# The review folder keeps it as it is; a generation in SIGNOFF.toml, a person's word, wins."])
+    else:
+        if args.to:
+            raise UsageError(f"--to is for the AI side (-g G3 with --assisted-by only); a person's correction goes "
+                             f"into {FILENAME}")
+        target = _append_toml(root, block)
+    print(f"Corrected {sha[:7]} ({' '.join(values[k] for k in (GEN, HUM, AIR) if k in values)}) in "
+          f"{_shown(root, target)}")
+    return 0
+
+
+# ---------------------------------------------------------------- gc
+def remove_tables(text: str, kind: str, indices: set[int]) -> str:
+    """SIGNOFF.toml without the [[kind]] tables of these 1-based positions. A table runs from its
+    header to the next header; comment lines right above the next header stay with that one."""
+    import re
+    lines = text.splitlines(keepends=True)
+    header = re.compile(r"^\s*\[")
+    own = re.compile(r"^\s*\[\[\s*" + kind + r"\s*\]\]")
+    starts = [i for i, line in enumerate(lines) if header.match(line)]
+    drop: set[int] = set()
+    n = 0
+    for k, start in enumerate(starts):
+        if not own.match(lines[start]):
+            continue
+        n += 1
+        if n not in indices:
+            continue
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        while end - 1 > start and lines[end - 1].lstrip().startswith("#"):
+            end -= 1
+        drop.update(range(start, end))
+    kept = [line for i, line in enumerate(lines) if i not in drop]
+    out: list[str] = []
+    for line in kept:  # no runs of blank lines where tables were
+        if line.strip() or not out or out[-1].strip():
+            out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    return "".join(out).rstrip("\n") + "\n"
+
+
+def cmd_gc(args) -> int:
+    project = _open(args.root)
+    if not project.config.history.enabled:
+        raise UsageError("gc needs [history]: without it, every entry counts as written")
+    try:
+        project.results()
+    except ProjectError as e:
+        raise UsageError(str(e))
+    if not project.history_used:
+        raise UsageError("gc needs the whole git history (a shallow clone?)")
+    if project.history_problems:
+        for p in project.history_problems:
+            print(f"✗ {printable(p)}")
+        raise UsageError("fix the problems lint reports first")
+    own, files = dead_records(project)
+    if not own and not files:
+        print("Every record covers a line. Nothing to delete.")
+        return 0
+    for e in own:
+        print(f"{'would delete' if args.dry_run else 'deleted'} {FILENAME} {_describe_entry(e)}")
+    for f in files:
+        print(f"{'would delete' if args.dry_run else 'deleted'} {f}")
+    if args.dry_run:
+        return 0
+    if own:
+        path = project.config.path
+        old = path.read_text(encoding="utf-8")
+        text = old
+        for kind, cls in (("attestations", True), ("commits", False)):
+            text = remove_tables(text, kind, {e.index for e in own if hasattr(e, "blob") == cls})
+        path.write_text(text, encoding="utf-8")
+        try:  # exactly those entries are gone, the rest as they were
+            new = load(project.root)
+            before = project.config
+            want_a = [a.values for a in before.attestations if not any(a is e for e in own)]
+            want_c = [c.values for c in before.commits if not any(c is e for e in own)]
+            if [a.values for a in new.attestations] != want_a or [c.values for c in new.commits] != want_c \
+                    or [a.values for a in new.annotations] != [a.values for a in before.annotations]:
+                raise ConfigError("the entries left over aren't the ones expected")
+        except ConfigError as e:
+            path.write_text(old, encoding="utf-8")
+            raise UsageError(f"{e}; {FILENAME} was left unchanged")
+    for f in files:
+        (project.root / f).unlink()
+    print(f"Deleted {len(own)} entr{'y' if len(own) == 1 else 'ies'} of {FILENAME} and {len(files)} record file(s). "
+          "Their levels are unchanged; git history keeps them.")
     return 0
 
 
@@ -959,9 +1149,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--at", metavar="REV", help="attest the files as they were at this commit instead")
     p.add_argument("--commit", metavar="REV", help="attest only the lines this commit of the default branch landed "
                    "(a pull request's merge or squash commit), not the whole files")
-    p.add_argument("--to", metavar="FILE", help="write into an attestation file in the review folder (a new file, "
-                   "such as reviews/pull12.toml) instead of SIGNOFF.toml: for an AI review (-a) only")
+    p.add_argument("--to", metavar="FILE", help="for an AI review (-a only): the new record file in the review folder, "
+                   "such as reviews/pull12.toml (default: <date>-<commit or file>.toml); a person's review (-H) goes "
+                   "into SIGNOFF.toml")
+    p.add_argument("--signoff", action="store_true", help="write an AI review into SIGNOFF.toml, the file a person "
+                   "signs off, instead of the review folder (for a person who records it)")
     p.set_defaults(func=cmd_attest)
+
+    p = sub.add_parser("correct", help="correct the declaration of a commit with a [[commits]] entry ([history])")
+    p.add_argument("commit", metavar="REV", help="the commit that landed the lines (a pull request's merge or squash "
+                   "commit), or for -g only a commit inside it")
+    _add_values(p, required=False)
+    p.add_argument("--to", metavar="FILE", help="with -g G3 and --assisted-by only: the new record file in the "
+                   "review folder (default: <date>-<commit>.toml)")
+    p.add_argument("--signoff", dest="to_signoff", action="store_true", help=f"write -g G3 into {FILENAME} too, "
+                   "instead of the review folder")
+    p.set_defaults(func=cmd_correct)
+
+    p = sub.add_parser("gc", help="delete the records that cover no line any more ([history])")
+    p.add_argument("--dry-run", action="store_true", help="only list them")
+    p.set_defaults(func=cmd_gc)
 
     p = sub.add_parser("diff", help="declarations of the lines changed since a commit")
     p.add_argument("base", help="the commit, branch or tag to compare with, e.g. origin/main")

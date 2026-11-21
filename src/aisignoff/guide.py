@@ -12,7 +12,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from . import __version__
-from .config import ConfigError, load
+from .config import FILENAME, ConfigError, load
 
 ROLES = ("dev", "review")
 SKILL_DESCRIPTIONS = {
@@ -76,8 +76,9 @@ def repository_notes(root: Path) -> list[str]:
     else:
         out.append("- No minimum review levels (`[policy]`).")
     if config.review_dir:
-        out.append(f"- The review folder is `{config.review_dir}/`: it needs no declaration, and a change may only "
-                   "add files to it.")
+        out.append(f"- The review folder is `{config.review_dir}/`, the AI side: it needs no declaration, a change may "
+                   "only add files to it, and its record files (`*.toml`) can only make a declaration stricter. "
+                   f"`{FILENAME}` is the file a person signs off.")
     else:
         out.append("- No review folder (`[review] dir = \"\"`).")
     if config.exclude:

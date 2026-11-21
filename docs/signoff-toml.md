@@ -1,6 +1,6 @@
 # SIGNOFF.toml reference
 
-`SIGNOFF.toml` sits in the repository root. Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
+`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections only a person can make. What agents record goes into the [review folder](history.md#the-review-folder) instead, which can only make a declaration stricter ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
 
 ```toml
 version = 4
@@ -39,6 +39,24 @@ Human-Review = "H2"
 Reviewed-by = "Jane Doe"
 ```
 
+## Who writes what
+
+| | `SIGNOFF.toml` | Record files in the review folder (`reviews/*.toml`) |
+|---|---|---|
+| Written by | a person, or a workflow a person approves (`attest -H`, `correct`, `annotate`) | agents and reviewers (`attest -a`, `correct -g G3`) |
+| Holds | everything below | `[[attestations]]` with an AI review (A1–A3), and `[[commits]]` that raise a commit's generation to G3 |
+| Never holds | | a human review, `Reviewed-by`, the generations G0–G2 |
+| Grows | as fast as a person signs off | add-only, one file per review or correction |
+
+- **A generation that `SIGNOFF.toml` gives wins.** A record file only raises a commit to G3, and not a commit whose `AI-Generation` a `[[commits]]` entry of `SIGNOFF.toml` gives: a person decided it, and `lint` notes that the record doesn't count.
+- **AI reviews count in the order they were recorded,** `SIGNOFF.toml` first, then the record files by the commit that added them; the later review of the same lines gives their findings.
+- **Make it hold on GitHub:** give `SIGNOFF.toml` a code owner and require their review, so that a change to it needs a person's approval. aisignoff can't tell who edited a file.
+
+```text
+# .github/CODEOWNERS (with "Require review from Code Owners" in the branch protection or ruleset)
+/SIGNOFF.toml  @your-login
+```
+
 ## Top level
 
 | Key | Value |
@@ -68,7 +86,7 @@ Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overridi
 
 | Key | Value |
 |---|---|
-| `dir` | the review folder, relative to the project root: `"reviews"` by default, `""` for none. Its files need no declaration, a change may only add files to it, and its `.toml` files are attestation files. See [The review folder](history.md#the-review-folder) |
+| `dir` | the review folder, relative to the project root: `"reviews"` by default, `""` for none. Its files need no declaration, a change may only add files to it, and its `.toml` files are record files ([Who writes what](#who-writes-what)). See [The review folder](history.md#the-review-folder) |
 
 1.0.0rc8 had `[review]` with `recheck`, the severity from which a finding failed `lint`. Findings are now recorded and block nothing ([Findings](levels.md#findings-f0-to-f3)), so `recheck` is no longer read: `lint` warns until it is removed.
 
@@ -105,7 +123,9 @@ Declares or corrects the declaration of one commit, axis by axis. See [Correctin
 | `commit` | a commit hash, at least 4 hex digits, required |
 | declaration keys | at least one level; a name only next to its level |
 
-`lint` checks each entry as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't bring a line below the policy.)
+In a record file of the review folder, an entry gives `AI-Generation = "G3"` and `Assisted-by` only, and raises the commit's generation ([Who writes what](#who-writes-what)). [`aisignoff correct`](commands.md#correct) writes either kind.
+
+`lint` checks each entry of `SIGNOFF.toml` as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't bring a line below the policy.)
 
 ## `[[attestations]]`
 
@@ -119,7 +139,9 @@ Raises the reviews of one file, as of the content that was checked, or of the li
 | `Human-Review`, `AI-Review` and their names | at least one review level; a name only next to its level. An `AI-Generation` here doesn't count |
 | `AI-Review-Findings` | with `AI-Review` A1, A2 or A3: what that review found, for every line the entry covers (`aisignoff attest --findings`) |
 
-The same tables make up the attestation files of the [review folder](history.md#the-review-folder), which give only `AI-Review` (A1–A3), `AI-Reviewed-by` and `AI-Review-Findings`.
+The same tables make up the record files of the [review folder](history.md#the-review-folder), where they give only `AI-Review` (A1–A3), `AI-Reviewed-by` and `AI-Review-Findings`.
+
+An entry whose file was deleted, or whose lines have all changed since, covers no line any more. That is no error: `lint` notes it, and [`aisignoff gc`](commands.md#gc) deletes it.
 
 ## SIGNOFF.snapshot.json
 

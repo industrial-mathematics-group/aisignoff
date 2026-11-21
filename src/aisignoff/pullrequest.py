@@ -180,10 +180,12 @@ def change_files(root: Path, base: str | None) -> set[str] | None:
     return {f for f in (changed + "\0" + new).split("\0") if f}
 
 
-def review_folder_changes(root: Path, base: str | None, review_dir: str) -> tuple[bool, list[str]]:
+def review_folder_changes(root: Path, base: str | None, review_dir: str, may_delete=None) -> tuple[bool, list[str]]:
     """What a change does to the review folder REVIEW_DIR since BASE: (whether it only adds files
     there, so that it is a review and declares no lines; the problems). The folder keeps every
-    review as it was recorded: a change may add files to it, never modify, delete or rename one."""
+    review as it was recorded: a change may add files to it, never modify, delete or rename one.
+    The one exception: may_delete(path) says whether a record file (*.toml) the change deletes
+    covers no line any more, so that deleting it changes no level (git history keeps it)."""
     from .history import _git
     from .diff import _unquote
     if not base or not review_dir:
@@ -200,7 +202,8 @@ def review_folder_changes(root: Path, base: str | None, review_dir: str) -> tupl
     verbs = {"M": "modifies", "D": "deletes", "T": "changes the type of"}
     problems = [f"the change {verbs.get(status, 'changes')} {path}: the review folder ({review_dir}/) keeps every "
                 "review as it was recorded, so a change may only add files to it. Record a new review in a new file"
-                for status, path in inside if status != "A"]
+                for status, path in inside if status != "A"
+                and not (status == "D" and path.endswith(".toml") and may_delete is not None and may_delete(path))]
     review_only = bool(changes) and len(inside) == len(changes) and not problems
     return review_only, problems
 

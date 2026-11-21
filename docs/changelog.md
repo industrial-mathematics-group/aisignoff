@@ -2,6 +2,17 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.18.0
+
+Who writes what: `SIGNOFF.toml` is the file a person signs off, and the review folder the AI side, which can only make a declaration stricter. Agents no longer add to `SIGNOFF.toml`, and records that cover no line any more can be deleted. See [Who writes what](signoff-toml.md#who-writes-what) and [Upgrading](migrating.md#to-018-who-writes-what).
+
+- **Breaking:** `attest -a` without `-H` writes a new record file in the review folder (`reviews/<date>-<commit or file>.toml`, or the one `--to` names) instead of appending to `SIGNOFF.toml`. `--signoff` appends it to `SIGNOFF.toml`, for a person who records it there; the signoff request and `@signoff` assistant examples pass it.
+- Record files of the review folder (the attestation files of 0.16) may also hold `[[commits]]` entries that raise a commit's generation to G3, with `Assisted-by` and nothing else. A generation that a `[[commits]]` entry of `SIGNOFF.toml` gives wins over them. A human review, `Reviewed-by` and the generations G0–G2 are refused there.
+- New `aisignoff correct REV`: writes a `[[commits]]` entry, raising to G3 into a record file of the review folder, everything else into `SIGNOFF.toml`.
+- New `aisignoff gc`: deletes the entries of `SIGNOFF.toml` and the record files of the review folder that cover no line any more (a deleted file, content that has changed since, a commit that owns no line). `lint` notes how many there are. The check before the merge lets a change delete such a record file from the add-only review folder.
+- Fixed: an attestation of a file that was deleted since failed `lint`. In a record file of the review folder, which no change may edit, that could never be fixed. It now covers no line, which `lint` notes; an attestation of a path that was never in the history still fails.
+- `guide --role dev` says that an agent never writes `SIGNOFF.toml`, and how it raises a landed commit to G3.
+
 ## 0.17.0
 
 Every line is worked out from the whole history again, and a cache makes that fast: `aisignoff freeze` and its snapshot are gone. See [Upgrading](migrating.md#to-017-no-snapshots).

@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.17.0"
+      - run: pip install "aisignoff==0.18.0"
       - run: aisignoff lint
 ```
 
@@ -188,7 +188,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.17.0   # the same version as in your workflows
+    rev: v0.18.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

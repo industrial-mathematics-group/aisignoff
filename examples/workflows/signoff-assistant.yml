@@ -38,7 +38,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "0.17.0"      # keep it at signoff-request.yml's
+  AISIGNOFF_VERSION: "0.18.0"      # keep it at signoff-request.yml's
   ANTHROPIC_VERSION: "2.8.0"          # the Anthropic Python SDK
   MODEL: claude-sonnet-5-5            # e.g. claude-opus-5-5 for harder conversations
   MODEL_NAME: Claude Sonnet 5.5 (Anthropic)   # as it is declared in the pull request; change it with MODEL
@@ -420,7 +420,8 @@ jobs:
                   return ["This repository has no SIGNOFF.toml yet; a maintainer creates it once with `aisignoff init`."]
               try:
                   before = run("aisignoff", "lint", check=False).returncode
-                  r = run("aisignoff", kind, *options, "--", *paths, check=False)
+                  r = run("aisignoff", kind, *options, *(["--signoff"] if kind == "attest" else []), "--", *paths,
+                          check=False)
                   if r.returncode:
                       return [f"aisignoff {kind} refuses it:\n{(r.stdout + r.stderr).strip()[-2000:]}"]
                   after = run("aisignoff", "lint", check=False)

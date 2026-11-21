@@ -176,7 +176,7 @@ A `[[commits]]` entry corrects a commit axis by axis, so it can be partial when 
 
 ## Correcting a commit
 
-The history of the default branch isn't rewritten, so a missing or wrong declaration is corrected in `SIGNOFF.toml`:
+The history of the default branch isn't rewritten, so a missing or wrong declaration is corrected in `SIGNOFF.toml`, with [`aisignoff correct`](commands.md#correct) or by hand:
 
 ```toml
 [[commits]]
@@ -191,17 +191,18 @@ Reviewed-by = "Jane Doe"
 - An entry for a commit that isn't in the history of `HEAD` (rebased or squashed away) declares nothing, and `lint` says so.
 - An entry counts as soon as it lands, for every line its commit owns, however old.
 - An entry that gives `AI-Review` replaces the commit's review, findings line included: give `AI-Review-Findings` there too, or the commit's lines are at F- ([Findings](levels.md#findings-f0-to-f3)).
+- **Only raising to G3 is the AI side.** An agent that finds a commit declared less AI than it had records `AI-Generation = "G3"` with `Assisted-by` in a record file of the [review folder](#the-review-folder) (`aisignoff correct REV -g G3 --assisted-by …`). That can only make the declaration stricter, so it needs no person's signoff; a generation that `SIGNOFF.toml` gives for the commit wins over it.
 
 ## Raising a review: attestations
 
 After reviewing whole files, attest them:
 
 ```bash
-aisignoff attest src/solver.py -H H2 --reviewed-by "Jane Doe"
+aisignoff attest src/solver.py -H H2 --reviewed-by "Jane Doe"     # a person's review: into SIGNOFF.toml
 aisignoff attest src/ -a A2 --findings minor --ai-reviewed-by "GPT Sol (OpenAI), reviews/solver.md"   # every declared file below src/
 ```
 
-This appends one `[[attestations]]` entry per file, with the git blob hash of the content you checked:
+This writes one `[[attestations]]` entry per file, with the git blob hash of the content you checked: a person's review into `SIGNOFF.toml`, an AI review into a new record file of the [review folder](#the-review-folder).
 
 ```toml
 [[attestations]]
@@ -243,17 +244,17 @@ Each attestation gives either `blob` or `commit`.
 
 ## The review folder
 
-Reviews are records about the content, not content, so the review folder (`reviews/`, or `[review] dir`) needs no declaration: its files are left out like those of `exclude`. It holds the reports, the evidence of A3 (new tests and scripts, which the author copies into the content in a change of their own if they want to keep them), and **attestation files**: `.toml` files with `[[attestations]]` tables, in the form above, and nothing else.
+Reviews are records about the content, not content, so the review folder (`reviews/`, or `[review] dir`) needs no declaration: its files are left out like those of `exclude`. It is the AI side of the declarations, while `SIGNOFF.toml` is the file a person signs off ([Who writes what](signoff-toml.md#who-writes-what)). It holds the reports, the evidence of A3 (new tests and scripts, which the author copies into the content in a change of their own if they want to keep them), and **record files**: `.toml` files with `[[attestations]]` tables in the form above and `[[commits]]` tables that raise a commit's generation to G3, and nothing else. Neither can lower a level.
 
-That lets a review land in a pull request of its own, without touching `SIGNOFF.toml`:
+That lets a review land in a pull request of its own, without touching `SIGNOFF.toml`. `attest -a` writes a new record file by itself; `--to` names it:
 
 ```bash
 aisignoff attest --commit 6686c01 -a A2 --findings minor \
     --ai-reviewed-by "GPT Sol (OpenAI), reviews/pull14.md" --to reviews/pull14.toml
 ```
 
-- **An AI review only.** An attestation file gives `AI-Review` (A1, A2 or A3), `AI-Reviewed-by` and `AI-Review-Findings`, nothing else; a person's review goes into `SIGNOFF.toml`. `lint` checks each entry like the description of a reviewed pull request: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link.
-- **Add-only.** The folder keeps every review as it was recorded. In the [check before the merge](ci.md#checking-the-pull-request-description), a change that modifies, deletes or renames a file in it fails; `attest --to` writes a new file and refuses one that exists. A later review, such as the one of a fix, goes into a new file.
+- **The AI side only.** An attestation there gives `AI-Review` (A1, A2 or A3), `AI-Reviewed-by` and `AI-Review-Findings`, and a `[[commits]]` entry `AI-Generation = "G3"` and `Assisted-by`, nothing else; a person's review, a `Reviewed-by` and the generations G0–G2 go into `SIGNOFF.toml`. `lint` checks each entry like the description of a reviewed pull request: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link.
+- **Add-only.** The folder keeps every review as it was recorded. In the [check before the merge](ci.md#checking-the-pull-request-description), a change that modifies, deletes or renames a file in it fails; `attest` writes a new file and refuses one that exists. A later review, such as the one of a fix, goes into a new file. The one exception: a change may delete a record file that covers no line any more ([below](#records-that-cover-no-line)).
 - **A review pull request declares nothing.** A pull request that only adds files to the review folder has no lines to declare, so its description needs no declaration; `lint` says it reads it as a review. One that changes anything else is an ordinary change and declares itself.
 - **The later review counts.** Attestation files count in the order they were added on the default branch (those of the change under check last), after the entries of `SIGNOFF.toml`.
 
@@ -274,6 +275,15 @@ AI-Review-Findings = "none"
 ```
 
 The author never clears a finding: that would be a review of their own work.
+
+## Records that cover no line
+
+Every entry of `SIGNOFF.toml` and of the review folder is about lines, and lines go away: a file is deleted, an attested file is rewritten, a commit's lines are all replaced. Such an entry changes no level any more.
+
+- **It is no error.** An attestation of a file that was deleted is not a mistake, and the review folder is add-only, so `lint` only notes how many records cover no line. An entry that names a file or commit that was never in the history is still an error.
+- **`aisignoff gc` deletes them**: the entries of `SIGNOFF.toml`, and the record files of the review folder whose entries all cover no line. The levels stay as they were, and git history keeps every record, so `report` on an older commit still sees them.
+- **What counts as covering:** an attestation of a file covers the lines of the checked content that are still there, an attestation of a commit the lines that commit still owns, and a `[[commits]]` entry its commit if that owns or wrote a line of a declared file.
+- **A deleted record doesn't come back.** A line that comes back later, such as by a revert, belongs to the commit that brought it back. The one way back is a new entry of `.git-blame-ignore-revs`, which gives lines to the commits before it; only a maintainer can change that file, so run `gc` after such a change, not before.
 
 ## Lines that haven't landed yet
 
