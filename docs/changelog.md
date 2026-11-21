@@ -2,7 +2,7 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
-## Unreleased
+## 0.16.0
 
 Reviews get rules of their own: a review is a record about the content, not content, so it lands in the review folder, needs no declaration, and never changes an earlier review. See [The review folder](history.md#the-review-folder).
 
