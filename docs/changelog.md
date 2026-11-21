@@ -2,6 +2,14 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.19.1
+
+The fixes of the independent review of 0.19.0: the order of reviews after a revert, quoted table headers in `SIGNOFF.toml`, and `gc` with excluded files.
+
+- Fixed: reverting an unrelated edit could clear a finding. A review saw the file as it was when it was recorded; when an edit was reverted later, the content it saw counted as the current file, so the review counted after a later review of the same lines and replaced its findings (a critical finding could show as F0). A version of the file now counts as new as when it was replaced, for reviews of a commit and of the whole file alike.
+- Fixed: an `[[attestations]]` or `[[commits]]` header of `SIGNOFF.toml` with a quoted key, such as `[[ "attestations" ]]`, made the entries look as if they hadn't landed: a landed AI review from before findings failed `lint`, and the entries counted before the review folder, so an `attest --signoff` re-review didn't replace an earlier finding there. Quoted keys are read as TOML reads them. Entries that still can't be told apart by line (an inline array) have landed if the default branch's `SIGNOFF.toml` has them, and count before the review folder.
+- Fixed: `gc` deleted the record of a commit that changed only a file that is now excluded, when the file was renamed since or the commit was the repository's first. The record now stays, and the lines keep their findings when the exclusion is lifted.
+
 ## 0.19.0
 
 The fixes of the independent review of 0.18.0 ([reviews/2026-11-21-v0.18.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-v0.18.md)): the order of reviews, the protection of the review folder and the checks of the records. See [Upgrading](migrating.md#to-019-the-order-of-reviews).
