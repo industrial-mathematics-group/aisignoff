@@ -1,6 +1,6 @@
 # Compatibility
 
-aisignoff is at 0.19.2. While the format still changes, it stays below 1.0: a 0.x release may change what this page lists, with a **Breaking** note in the [changelog](changelog.md), so pin an exact version in a workflow or a pre-commit hook. From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers.
+aisignoff is at 0.19.3. While the format still changes, it stays below 1.0: a 0.x release may change what this page lists, with a **Breaking** note in the [changelog](changelog.md), so pin an exact version in a workflow or a pre-commit hook. From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers.
 
 ## What 1.x will keep stable
 

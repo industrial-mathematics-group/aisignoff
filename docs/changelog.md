@@ -2,6 +2,14 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.19.3
+
+The fixes of the independent reviews of 0.19.2 ([reviews/2026-11-21-pull57-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-pull57-codex.md)) and of `history.py` ([reviews/2026-11-21-history-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-history-codex.md)): a binary file replaced with text, and the cache.
+
+- Fixed: when a change replaced a binary file with text, only the first line counted as the change's: the other lines took the levels of the commit that added the binary file. Every line of the text is now the change's, and `diff` counts all of them as added (and all the lines of a text file that a binary file replaces as removed).
+- Fixed: the cache kept a stale commit for a binary or empty file or a symlink whose name starts with a newline. 0.19.2 dropped that first byte of the changed names.
+- Fixed: after an upgrade to 0.19.2, a commit that 0.19.1 had cached wrongly for a file with a non-ASCII name was still used. The cache format changed: a cache from before 0.19.3 is not used, and the first run blames the whole history once. A CI cache restored by `restore-keys` needs no change.
+
 ## 0.19.2
 
 The fixes of the independent review of the 0.19.1 codebase ([reviews/2026-11-21-full-codebase-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-full-codebase-codex.md)): `gc` with quoted table headers, the cache and non-ASCII file names, symlinks, and empty files in `diff`.

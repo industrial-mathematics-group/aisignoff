@@ -30,11 +30,11 @@ A CI run starts from a fresh checkout, so it has no cache unless the workflow ke
           path: .git/aisignoff
           key: aisignoff-${{ github.sha }}
           restore-keys: aisignoff-
-      - run: pip install "aisignoff==0.19.2"
+      - run: pip install "aisignoff==0.19.3"
       - run: aisignoff lint
 ```
 
-`restore-keys` restores the newest cache of an earlier run, the run blames the commits since, and the cache under the new key is saved for the next one. A cache from history that was rewritten, or of another branch, has no commit on this one's history and is not used.
+`restore-keys` restores the newest cache of an earlier run, the run blames the commits since, and the cache under the new key is saved for the next one. A cache from history that was rewritten, or of another branch, has no commit on this one's history and is not used. A cache written in an earlier format is not used either: the first run of a release that changes the format blames the whole history once and saves the cache again, so an upgrade needs no step.
 
 ## Snapshots (up to 0.16)
 

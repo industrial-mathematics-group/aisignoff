@@ -20,7 +20,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-FORMAT = 1
+FORMAT = 2  # 2: unit origins that 0.19.1 and before cached for a quoted name can be stale
 KEEP = 3  # cache files kept, the newest first: one per commit of the default branch
 PREFIX = "blame-"
 SUFFIX = ".json.gz"

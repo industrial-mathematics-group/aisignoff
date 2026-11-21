@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN, GENERATION, HUM, HUMAN, Declaration,
                     axis_level, printable, unset, validate)
-from .history import GIT, comparable, git_env
+from .history import BINARY_PROBE, GIT, comparable, git_env
 from .project import FileResult, Project, line_count
 
 AXES = ((GEN, "Generation", GENERATION), (HUM, "Human review", HUMAN), (AIR, "AI review", AI),
@@ -99,6 +99,14 @@ def _header_path(text: str) -> str | None:
     return None if p == "/dev/null" else p[2:]
 
 
+def _blob_units(root: Path, blob: str) -> int:
+    """The units of a blob, as line_count counts a file: a binary or empty one is one."""
+    data = _git(root, "cat-file", "blob", blob, check=False) if blob.strip("0") else ""
+    if not data or "\x00" in data[:BINARY_PROBE]:
+        return 1
+    return data.count("\n") + (not data.endswith("\n"))
+
+
 # the empty blob, in SHA-1 and SHA-256 repositories
 EMPTY_BLOBS = frozenset({"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
                          "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"})
@@ -167,8 +175,10 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
         elif line.startswith("rename to "):
             new = _unquote(line[len("rename to "):])
         elif line.startswith("Binary files ") and line.endswith(" differ"):
-            # a binary file counts as one line, as everywhere else
-            removed, added = ([1] if old else []), ([1] if new else [])
+            # a binary file counts as one line, as everywhere else; when only one side is binary, the
+            # other side's text lines are all removed or added (none of them is in the other side)
+            removed = list(range(1, _blob_units(root, blobs[0]) + 1)) if old else []
+            added = list(range(1, line_count(root, new) + 1)) if new else []
     flush()
     return result
 
