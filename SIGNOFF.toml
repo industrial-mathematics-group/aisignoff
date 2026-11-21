@@ -17,6 +17,13 @@ Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 
 [[annotations]]
+path = "src/aisignoff/highlight.min.js"
+AI-Generation = "G0"
+Human-Review = "H0"
+AI-Review = "A0"
+Reviewed-by = ["blhackslash <dev@blackslash.win>"]
+
+[[annotations]]
 path = "LICENSE"   # standard MIT text, added by Pascal
 AI-Generation = "G0"
 Human-Review = "H1"
