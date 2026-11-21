@@ -1,0 +1,9 @@
+# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:
+# a later review goes into a new file.
+
+[[attestations]]
+path = "src/aisignoff/cli.py"
+blob = "1c2d4084ea116cab1e7ac3caed215cc88747156f"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "critical"

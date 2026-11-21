@@ -1,0 +1,121 @@
+# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:
+# a later review goes into a new file.
+
+[[attestations]]
+path = ".github/workflows/file-signoff.yml"
+blob = "af1880ad86261f5d1636cc42112bcd11e7e1e0d6"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/ISSUE_TEMPLATE/signoff-request.yml"
+blob = "d768bedb8ca286c47459079b28f4139c2cebcc0f"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/convert-to-version-4.py"
+blob = "97ccb041e7f9c0a068b20b33a9959f2345cc4d00"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/freeze-from-0.11.py"
+blob = "96d5251d0acff6f2957b112c4fb7d6bc0474fd8f"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/inline-tags-to-toml.py"
+blob = "88a1e565b106d5895df773fa96a2ab829451ec93"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/review-report.md"
+blob = "14793ee8573dde60ddc8c1d1d023c356b19dee65"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-assistant.yml"
+blob = "44c67d72b60e49edc087b9109b2edd00c896f6e8"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-badges.yml"
+blob = "b4e35cf5786879c3cf11a2de0949fe7039c151b9"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-lint.yml"
+blob = "263a3307c2f99f0b2449ff76afd74d58c26215d3"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-pr-diff.yml"
+blob = "d2985b244899d99ffc083070c6f2ea89ccbfcb08"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-release.yml"
+blob = "0ea9ca0671b85dca12c2513aa83f4022d8b61c92"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-request.yml"
+blob = "3e42688b7f0b5846ff02c1f88f3d528a01856639"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/config.py"
+blob = "d6b96f17d1af8587ce6a553883eb83992e57ac72"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/model.py"
+blob = "ea9bb7c6f55e2ca53fdfedc940ba1a6e3ef46186"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/project.py"
+blob = "b3a6e42bdae1eb7ad251e568cdffe9a8dc001bc0"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/pullrequest.py"
+blob = "44b81c290a2f3622fced73285aa0e0b81c3a4141"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/visualize.py"
+blob = "4feaf66568d93860567f7d8184aa72801c504485"
+AI-Review = "A1"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"

@@ -1,0 +1,16 @@
+binary before edit, cached: H1
+binary after edit, cached: H1
+binary after edit, uncached: H3
+untracked empty file, added units: 1
+staged empty file, added units: 0
+removed empty file, removed units: 0
+symlink attest --at HEAD: Attested 1 file(s) at A1 as of HEAD in reviews/link-at-head.toml
+symlink lint exit: 0
+! 1 record(s) cover no line any more: reviews/link-at-head.toml. They change no level; 'aisignoff gc' deletes them (git history keeps them)
+symlink attest from working tree exit: 2 aisignoff attest: cannot hash link
+quoted record dry-run: would delete SIGNOFF.toml [[attestations]] entry 1 (dead)
+expected retained paths: ['live']
+projected retained paths: ['dead']
+gc's values-only check accepts projection: True
+live path before projection: H3
+live path after projection: H1

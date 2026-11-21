@@ -1,0 +1,149 @@
+# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:
+# a later review goes into a new file.
+
+[[attestations]]
+path = ".github/workflows/ci.yml"
+blob = "d4b61e07e203f720e7ecc057a0efb7e153e2f58f"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = ".github/workflows/docs.yml"
+blob = "42106f6937fff746e9beb64447384376c34c2976"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = ".github/workflows/pr-signoff.yml"
+blob = "6be62191d500c5c97fc5cacdc25f365b86cc9d1c"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = ".github/workflows/publish.yml"
+blob = "e0b0fa49783a64f7cb671e7d8ff13a33d72cc5cb"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = ".github/workflows/signoff-badges.yml"
+blob = "725b489c5aad9625f74400c70087ec9941625927"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = ".pre-commit-hooks.yaml"
+blob = "80a5d45fbe45405d0d3faebd3ad0068c6363b221"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "MANIFEST.in"
+blob = "50b2f90b1042a0d804e1180acc453679d07ab6b3"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/pre-commit-config.yaml"
+blob = "5b8fc3c532b28bf14484fca8c592ac337f321b65"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/unfreeze.py"
+blob = "9ecd166fda6e46f7e373c9506c4e97e25d885bbe"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-pages.yml"
+blob = "2fffe406c8a7320225c88b5332313c5aae90375d"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "examples/workflows/signoff-pr-files.yml"
+blob = "ffe621cbfba856c2c1da990b7624c8687eabf1eb"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "pyproject.toml"
+blob = "5ecf2d09a8524dcd94a731f4d3979a048af00648"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/__init__.py"
+blob = "84c6f042a6bc7415cfa22ca468c0998de77e6bb6"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/__main__.py"
+blob = "dd8a8c90e6b7af74ed3657ef5b74aaa5ebf0abd4"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/cache.py"
+blob = "a29b2e0cc6c3178635c0829de8368b546e48bce8"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/globbing.py"
+blob = "be2e597db64c26f6eba07be4e869394ee89f5f5e"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/guide.py"
+blob = "9279a826d39aa5b165a279e11aeb3113e61ac14c"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/guides/dev.md"
+blob = "e163a807a2a535568ab13448d44110d07df12ed0"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/guides/review.md"
+blob = "ff88431dc0f962e52d22d42ab53e049ccae9cfdc"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/report.html"
+blob = "183a77060f1c7aa8f18a2d41b61e36db6feff358"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "tests/test_review_019.py"
+blob = "ac941096d4d526b64f192618a7d97feb6ad605a6"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-21-full-codebase-codex.md"]
+AI-Review-Findings = "none"
