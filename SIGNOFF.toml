@@ -22,7 +22,6 @@ AI-Generation = "G0"
 Human-Review = "H0"
 AI-Review = "A0"
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Review-Findings = "none"
 
 [[annotations]]
 path = "LICENSE"   # standard MIT text, added by Pascal
