@@ -524,6 +524,7 @@ class History:
         self.attestation_keys: list[tuple] = []  # (attestation, the file it is listed under, its tuple)
         self.origins: dict[str, set[tuple]] = {}  # the different origins of the lines of each file resolved
         self._ages: dict[tuple, float] = {}  # see _scoped_age
+        self._blob_logs: dict[str, str] = {}  # see _blob_until
         self._excluded_touch: dict[str, bool] = {}  # see _may_cover_excluded
         self.attestations = self._load_attestations()
         self._check_signoff_commits()
@@ -919,17 +920,26 @@ class History:
         in, those that haven't landed last. Of two reviews of the same content, the later one counts."""
         out: dict[str | None, list] = {}
         entries = self._recorded_order(list(self.config.attestations), self.config.review_attestations)
-        for seq, (a, recorded) in enumerate(entries):
+        for seq, (a, recorded, pending) in enumerate(entries):
             where = f"{a.filename} [[attestations]] entry {a.index}"
             if a in self.config.review_attestations:
-                self._review_record(a, where, recorded is None)
-            elif recorded is None:
+                self._review_record(a, where, pending)
+            elif pending:
                 self._signoff_review(a, where)
             got = self._attestation(a, where, seq, self.problems, self._warnings)
             if got == "gone":
                 self.gone.append(a)
             elif got is not None:
-                got = (got[0], got[1] + (recorded,))
+                path, t = got
+                if recorded is None and not pending:
+                    # landed, but the commit that recorded it can't be told (SIGNOFF.toml entries that
+                    # aren't [[attestations]] tables): it was recorded at the commit it reviews or later
+                    recorded = t[5]
+                if t[5] is None and recorded is not None and path is not None:
+                    # a review of the whole file: how new its content was when the review was recorded
+                    t = t[:4] + (self._content_age(*self._blob_until(set(self._names_since(path)), path, t[3],
+                                                                      at=self.order.get(recorded))),) + t[5:]
+                got = (path, t + (recorded,))
                 self.attestation_keys.append((a, got[0], got[1]))
                 if got[1][2]:
                     out.setdefault(got[0], []).append(got[1])
@@ -1034,16 +1044,19 @@ class History:
     def _may_cover_excluded(self, key: str | None, sha: str | None) -> bool:
         """Whether a record may cover lines of an excluded file, which is never resolved, so that
         it can't be told dead: an attestation of an excluded file, or a record of a commit that
-        changed one that is still there. It keeps its levels for when the exclusion is lifted."""
+        changed one that is still there, under the name it had then or the one it was renamed to
+        since. It keeps its levels for when the exclusion is lifted."""
         if key is not None:
             return any(matches(p, key) for p in self.config.exclude)
         if sha is None or not self.config.exclude:
             return False
         if sha not in self._excluded_touch:
-            names = _git(self.root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "--name-only", "-r",
-                         "--relative", "-m", "--first-parent", sha, check=False) or ""
+            # --root: the files of the first commit, which has no parent to compare with
+            names = _git(self.root, "-c", "core.quotePath=false", "diff-tree", "--root", "--no-commit-id", "--name-only",
+                         "-r", "-z", "--relative", "-m", "--first-parent", sha, check=False) or ""
+            now = {self._names_since(n)[-1] for n in names.split("\0") if n}
             self._excluded_touch[sha] = any(any(matches(p, n) for p in self.config.exclude) and (self.root / n).is_file()
-                                            for n in names.splitlines() if n)
+                                            for n in now)
         return self._excluded_touch[sha]
 
     def is_dead(self, attestations: list, name: str) -> bool:
@@ -1108,7 +1121,8 @@ class History:
         return self._changed
 
     def _recorded_order(self, own: list, records: list) -> list[tuple]:
-        """(attestation, the commit of the default branch that recorded it or None) of the entries of
+        """(attestation, the commit of the default branch that recorded it or None, whether it hasn't
+        landed yet) of the entries of
         SIGNOFF.toml (OWN) and of the record files of the review folder (RECORDS), in the order they
         were recorded: by that commit, those that haven't landed last. On a tie (the same commit),
         SIGNOFF.toml first, then the record files by path, each in the order of its entries. Neither
@@ -1121,16 +1135,19 @@ class History:
         added = self._review_order(records)
         rows += [(added.get(a.filename, late), 1, a.filename, a.index, a) for a in records]
         rows.sort(key=lambda r: r[:4])
-        return [(r[4], by_ordinal.get(r[0])) for r in rows]
+        return [(r[4], by_ordinal.get(r[0]), r[0] == late) for r in rows]
 
     _TABLE = re.compile(r"^\s*\[")
+    # an array of tables header, with the key bare, "quoted" or 'quoted', and spaces as TOML allows them
+    _HEADER = r"^[ \t]*\[\[[ \t]*(?:{name}|\"{name}\"|'{name}')[ \t]*\]\][ \t]*(?:#.*)?$"
 
     def _signoff_entry_order(self, count: int, table: str = "attestations") -> list[int]:
         """For each [[attestations]] (or TABLE) entry of SIGNOFF.toml, the ordinal of the commit of the default
         branch that last changed one of its lines (first-parent blame): the commit that recorded it.
         Entries that haven't landed (this change's, or not committed) get one past the newest commit.
-        0 for all when the entries can't be told apart in the file (not written as [[attestations]]
-        tables): they then count before the record files, in the order they are written."""
+        When the entries can't be told apart in the file (not all written as [[attestations]] tables),
+        an entry that the default branch's SIGNOFF.toml has too gets 0: it has landed, and counts
+        before the record files, in the order they are written; the others haven't landed."""
         late = len(self.order) + 1
         path = self.config.path
         if not count or path is None or not self.order:
@@ -1138,11 +1155,11 @@ class History:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except OSError:
-            return [0] * count
-        header = re.compile(rf"^\s*\[\[\s*{table}\s*\]\]")
+            return self._landed_entries(table, late)
+        header = re.compile(self._HEADER.format(name=re.escape(table)))
         starts = [n for n, line in enumerate(lines) if header.match(line)]
         if len(starts) != count:
-            return [0] * count
+            return self._landed_entries(table, late)
         blame = _git(self.root, "blame", "--porcelain", "--first-parent", "--ignore-revs-file=", "--",
                      path.name, check=False)
         if blame is None:
@@ -1167,10 +1184,29 @@ class History:
             out.append(max(at, default=late))
         return out
 
+    def _landed_entries(self, table: str, late: int) -> list[int]:
+        """For the entries of SIGNOFF.toml whose recording commit can't be told: 0 for each entry that
+        the default branch's SIGNOFF.toml has too (it has landed), else one past the newest commit."""
+        entries = self.config.attestations if table == "attestations" else self.config.commits
+        landed: list = []
+        text = _git(self.root, "show", f"{self.base}:./{self.config.path.name}", check=False) if self.base else None
+        if text is not None:
+            from .config import ConfigError, load_text
+            try:
+                base = load_text(text, self.config.path)
+                landed = base.attestations if table == "attestations" else base.commits
+            except ConfigError:
+                pass
+        same = [(getattr(e, "path", None), getattr(e, "blob", None), e.commit, e.values) for e in landed]
+        return [0 if (getattr(e, "path", None), getattr(e, "blob", None), e.commit, e.values) in same else late
+                for e in entries]
+
     def _scoped_age(self, attestation: tuple, path: str) -> float:
         """How new the content of PATH was that an attestation of a commit saw: the content the file
         had at the commit that recorded the review, aged like the content of an attestation of the
-        file (_content_age). A review of a commit and a review of the whole file that saw the same
+        file (_content_age) as of that commit: until that version of the file was replaced, even if
+        the same content returned later (an edit reverted). A review of a commit and a review of the
+        whole file that saw the same
         content then count in the order they were recorded, and a whole-file review of newer content
         counts after the review of the commit."""
         key = (id(attestation), path)
@@ -1187,7 +1223,8 @@ class History:
                     blob = blob.strip()
                     break
             if blob:
-                until, commit = self._blob_until(set(names), path, blob)
+                # the file as it was when the review was recorded, not a later return to the same content
+                until, commit = self._blob_until(set(names), path, blob, at=self.order.get(recorded))
                 if until is not None:
                     age = self._content_age(until, commit)
             else:
@@ -1255,23 +1292,40 @@ class History:
                     names.append(new)
         return names
 
-    def _blob_until(self, names: set[str], path: str, blob: str) -> tuple[int | None, str | None]:
+    def _blob_until(self, names: set[str], path: str, blob: str, at: int | None = None) -> tuple[int | None, str | None]:
         """Where the checked content was the attested file's content, under any of its names. The
         same content in another file doesn't count, so a copy can't extend an attestation to lines
         added since. The current file counts as newest (an attestation written before its commit):
         then every line is the checked content. On the default branch: the ordinal of the last
         commit that still had it. Only elsewhere (a merged branch, or the change that hasn't
-        landed): the commit that wrote it there."""
+        landed): the commit that wrote it there.
+        at: the ordinal of a commit of the default branch (the one that recorded a review): the file
+        as it was there, if it had that content then or before; the same content again later (an edit
+        reverted) is a later version of the file. Its last commit is newest only if the content
+        stayed until now."""
         current = _git(self.root, "hash-object", "--", path, check=False)
-        if current and current.strip() == blob:
+        is_current = bool(current and current.strip() == blob)
+        if is_current and at is None:
             return self.newest, None
         if not self.order:
-            return None, None
+            return (self.newest if is_current else None), None
         log = ["log", "--no-abbrev", "--raw", "--no-renames", "--relative", "-z", "--format=%x1e%H", f"--find-object={blob}"]
-        out = _git(self.root, log[0], "--first-parent", "--diff-merges=first-parent", *log[1:], self.base, check=False)
-        if out is None:  # git older than 2.31
-            out = _git(self.root, log[0], "--first-parent", *log[1:], self.base, check=False) or ""
+        out = self._blob_logs.get(blob)
+        if out is None:
+            out = _git(self.root, log[0], "--first-parent", "--diff-merges=first-parent", *log[1:], self.base, check=False)
+            if out is None:  # git older than 2.31
+                out = _git(self.root, log[0], "--first-parent", *log[1:], self.base, check=False) or ""
+            self._blob_logs[blob] = out
         wrote, removed = self._find_blob(out, names, blob)
+        if at is not None:
+            # a rename writes the content under the new name where it removes it under the old one
+            gone = [r for r in removed if r not in wrote]
+            started = [self.order[s] for s in wrote if self.order.get(s, at + 1) <= at]
+            if started:
+                later = [self.order[r] for r in gone if self.order.get(r, 0) > max(started)]
+                return (min(later) - 1 if later else self.newest if is_current else len(self.order)), None
+        if is_current:
+            return self.newest, None
         for sha in wrote:
             if sha in self.order:
                 later = [self.order[r] for r in removed if self.order.get(r, 0) > self.order[sha]]
