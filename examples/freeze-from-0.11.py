@@ -4,16 +4,17 @@
 aisignoff 0.12 decides a line's levels by simpler rules than 0.11 did (one owner per line: see
 docs/history.md), so some lines of existing code would report other levels after the upgrade.
 This script writes SIGNOFF.snapshot.json with the levels of every line as aisignoff 0.11 works
-them out, in the format of 'aisignoff freeze'. aisignoff 0.12 then keeps them for every line that
-doesn't change, and applies its own rules to what lands afterwards.
+them out, in the format of 'aisignoff freeze' (up to 0.16). aisignoff 0.17 no longer reads it:
+turn it into [[commits]] entries of SIGNOFF.toml with unfreeze.py and the current aisignoff, which
+also deletes it (docs/migrating.md).
 
-Run it once, with aisignoff 0.11 and before upgrading, at a clean checkout of a commit of the
-default branch (on a new branch at that commit if you use pull requests), and commit the file:
+Run it with aisignoff 0.11 at a clean checkout of a commit of the default branch (on a new branch
+at that commit if you use pull requests), then unfreeze.py, and commit SIGNOFF.toml:
 
     uv run --no-project --with aisignoff==0.11.0 python freeze-from-0.11.py
-    # or: python -m venv old && old/bin/pip install aisignoff==0.11.0 && old/bin/python freeze-from-0.11.py
+    python unfreeze.py
 
-Only needed for repositories that use [history]. Later snapshots are 'aisignoff freeze'.
+Only needed for repositories that use [history].
 """
 import json
 import subprocess

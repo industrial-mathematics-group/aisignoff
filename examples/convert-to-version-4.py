@@ -12,15 +12,18 @@ and [policy] loses the built-in rules: 'ai = "A1"' was the self-check that G1-G3
 (now A0, so nothing), and for G0 it meant a new session (now A1).
 
 aisignoff 1.0.0rc6 and later read a version-3 file as exactly what this script writes, so the
-reported levels don't change. Run it with that aisignoff installed, at the repository root:
+reported levels don't change. With [history], the commit messages so far are on the old scale
+too: for each commit of the default branch whose AI review reads differently on today's scale,
+the script adds a [[commits]] entry with the level as it was meant (a template's old boxes are read
+that way without one). Run it with aisignoff installed, at the repository root:
 
-    aisignoff freeze            # with [history]: keeps what the commit messages so far declare
     python convert-to-version-4.py            # or: --dry-run to see the change only
 
 Then change the AI review boxes of your pull request template in the same pull request. The full
 steps are in docs/migrating.md.
 """
 import difflib
+import json
 import re
 import sys
 import tomllib
@@ -99,6 +102,30 @@ def convert(text: str) -> str:
     return "".join(out)
 
 
+def commit_entries(root: Path, before, after) -> str:
+    """[[commits]] entries that keep the AI review of each commit of the default branch as the old
+    scale meant it, where today's scale would read its message otherwise."""
+    if not before.history.enabled:
+        return ""
+    from aisignoff.history import History, unavailable_reason
+    from aisignoff.model import AI_REVIEWED
+    if unavailable_reason(root):
+        sys.exit("[history] is enabled, but the whole git history isn't here (a shallow clone?): fetch it first, so "
+                 "that the commit messages can be kept as they were meant")
+    old = History(root, before)
+    new = History(root, after)
+    corrected = {old._resolve(c.commit) for c in before.commits if "AI-Review" in c.values}
+    out = []
+    for sha in sorted(old.order, key=old.order.get):
+        was, now = old._trailers.get(sha, {}).get(2), new._trailers.get(sha, {}).get(2)
+        if was is None or sha in corrected or (now is not None and (now.level, now.names) == (was.level, was.names)):
+            continue
+        out.append(f'\n[[commits]]   # {old.describe(sha)}: its AI review on the scale before version 4\n'
+                   f'commit = "{sha}"\nAI-Review = "{was.level}"\n'
+                   + (f"{AI_REVIEWED} = {json.dumps(list(was.names), ensure_ascii=False)}\n" if was.names else ""))
+    return "".join(out)
+
+
 def main(argv):
     dry = "--dry-run" in argv
     path = Path(NAME)
@@ -118,6 +145,7 @@ def main(argv):
     if not same or after.version_3:
         sys.exit(f"{NAME} has a layout this script can't convert (nothing was written). Edit it by hand: "
                  "see the table at the top of this script, or docs/migrating.md")
+    new += commit_entries(Path("."), before, after)
     sys.stdout.writelines(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                                NAME, NAME + " (version 4)"))
     if not dry:

@@ -1,5 +1,5 @@
-"""The findings of the review of 0.12: attestations of content from before the snapshot, merge
-queues, a pull request's report, reverts and pulls, and what a snapshot leaves out."""
+"""The findings of the review of 0.12: attestations of older content, merge queues, a pull
+request's report, reverts and pulls."""
 import json
 
 import pytest
@@ -10,7 +10,7 @@ from aisignoff.model import Declaration, counted_level, error_axes, validate
 from test_aisignoff import write
 from test_history import G3, commit, edit_lines, git, repo, result, shares  # noqa: F401
 from test_history_precedence import D, by_line, merge
-from test_history_snapshot import AGENT, freeze, lint, setting
+from test_history_owners import AGENT, lint, setting
 
 
 def run(repo, capsys, *args):
@@ -26,38 +26,30 @@ def levels(repo, path="solver.py"):
 
 
 # ------------------------------------------------------------------ M1
-def test_an_attestation_of_content_from_before_the_snapshot_raises_the_lines_it_had(repo, capsys):
+def test_an_attestation_of_older_content_raises_the_lines_it_had(repo, capsys):
     edit_lines(repo, [2, 3])
     reviewed = commit(repo, "AI change", G3)
     edit_lines(repo, [3, 9], text="later")
     commit(repo, "a later AI change", G3)
-    assert freeze(repo, capsys)[0] == 0
-    commit(repo, "freeze", D("G0", "H2", "A0"))
     assert run(repo, capsys, "attest", str(repo / "solver.py"), "--at", reviewed, "-H", "H3", "--reviewed-by", "Rita")[0] == 0
     commit(repo, "attest", D("G0", "H2", "A0"))
     r, project = result(repo)
     lines = by_line(r)
     # line 2 was in the checked content and hasn't changed; lines 3 and 9 were written after it
-    assert lines[2].declaration.short() == "G3 H3 A1" and lines[2].kinds == ("frozen", "attestation", "frozen")
+    assert lines[2].declaration.short() == "G3 H3 A1" and lines[2].kinds == ("commit", "attestation", "commit")
     assert lines[3].declaration.short() == lines[9].declaration.short() == "G3 H1 A1"
     assert lines[1].declaration.short() == "G0 H3 A0" and project.history_problems == []
-    with_snapshot = levels(repo)
-    git(repo, "rm", "-q", "SIGNOFF.snapshot.json")
-    commit(repo, "without the snapshot", D("G0", "H2", "A0"))
-    assert levels(repo) == with_snapshot  # the same lines as history says
 
 
-def test_an_old_attestation_follows_frozen_lines_through_later_changes(repo, capsys):
+def test_an_old_attestation_follows_its_lines_through_later_changes(repo, capsys):
     edit_lines(repo, [2])
     reviewed = commit(repo, "AI change", G3)
     edit_lines(repo, [5], text="later")
     commit(repo, "a later AI change", G3)
-    assert freeze(repo, capsys)[0] == 0
-    commit(repo, "freeze", D("G0", "H2", "A0"))
     assert run(repo, capsys, "attest", str(repo / "solver.py"), "--at", reviewed, "-H", "H3", "--reviewed-by", "Rita")[0] == 0
     lines = (repo / "solver.py").read_text().splitlines()
-    (repo / "solver.py").write_text("\n".join(["a new first line", *lines]) + "\n")  # the frozen lines move down
-    commit(repo, "attest, and a change after the snapshot", D("G3", "H0", "A1"))
+    (repo / "solver.py").write_text("\n".join(["a new first line", *lines]) + "\n")  # the checked lines move down
+    commit(repo, "attest, and a change after it", D("G3", "H0", "A1"))
     assert levels(repo)[:4] == ["G3 H0 A1", "G0 H3 A0", "G3 H3 A1", "G0 H3 A0"]
     assert levels(repo)[5] == "G3 H1 A1"  # "later 5": not in the checked content
 
@@ -206,65 +198,16 @@ def test_a_stale_base_doesnt_declare_the_default_branchs_own_lines(repo):
 
 
 # ------------------------------------------------------------------ L2, L3, L4, L5
-def test_a_binary_file_keeps_its_frozen_levels_through_a_rename(repo, capsys):
+def test_a_binary_file_keeps_its_levels_through_a_rename(repo, capsys):
     write(repo, "img.bin", "a\0b")
     commit(repo, "a binary file", G3)
-    assert freeze(repo, capsys)[0] == 0
-    commit(repo, "freeze", D("G0", "H2", "A0"))
     git(repo, "mv", "img.bin", "img2.bin")
     commit(repo, "rename")
     r, _ = result(repo, "img2.bin")
-    assert r.parts[0].declaration.short() == "G3 H1 A1" and r.parts[0].kinds == ("frozen",) * 3
+    assert r.parts[0].declaration.short() == "G3 H1 A1" and r.parts[0].kinds == ("commit",) * 3
     write(repo, "img2.bin", "a\0c")
     commit(repo, "change it", D("G0", "H3", "A0"))
     assert result(repo, "img2.bin")[0].parts[0].declaration.short() == "G0 H3 A0"
-
-
-def test_a_file_the_snapshot_doesnt_have_is_resolved_from_history(repo, capsys):
-    toml = (repo / "SIGNOFF.toml").read_text()
-    (repo / "SIGNOFF.toml").write_text(toml.replace("\n[history]", 'exclude = ["gen/**"]\n\n[history]'))
-    write(repo, "gen/a.py", "one\ntwo\n")
-    commit(repo, "generated code", G3)
-    assert freeze(repo, capsys)[0] == 0
-    assert "gen/a.py" not in json.loads((repo / "SIGNOFF.snapshot.json").read_text())["files"]
-    commit(repo, "freeze", D("G0", "H2", "A0"))
-    (repo / "SIGNOFF.toml").write_text((repo / "SIGNOFF.toml").read_text().replace('exclude = ["gen/**"]\n', ""))
-    commit(repo, "include gen/", D("G0", "H2", "A0"))
-    assert levels(repo, "gen/a.py") == ["G3 H1 A1"] * 2  # not the file-level declaration
-    edit_lines(repo, [2], path="gen/a.py")
-    commit(repo, "change it", D("G0", "H3", "A0"))
-    assert levels(repo, "gen/a.py") == ["G3 H1 A1", "G0 H3 A0"]
-
-
-def test_a_snapshot_whose_runs_dont_cover_a_file_is_reported(repo, capsys):
-    edit_lines(repo, [2])
-    commit(repo, "AI change", G3)
-    assert freeze(repo, capsys)[0] == 0
-    path = repo / "SIGNOFF.snapshot.json"
-    data = json.loads(path.read_text())
-    runs = data["files"]["solver.py"]["runs"]
-    assert runs[-1][1] == 10
-    runs[-1][1] = 8  # cut short by hand
-    path.write_text(json.dumps(data))
-    commit(repo, "freeze, edited", D("G0", "H2", "A0"))
-    code, out = lint(repo, capsys)
-    assert code == 1 and "SIGNOFF.snapshot.json doesn't match commit" in out and "solver.py" in out
-    assert levels(repo)[1] == "G3 H1 A1"  # resolved from history meanwhile
-
-
-def test_freeze_shows_the_errors_and_refuses_warnings(repo, capsys):
-    edit_lines(repo, [2])
-    bad = commit(repo, "a change to revert", D("G3", "H1", "A0").replace("AI-Review: A0", "AI-Review: A1"))
-    code, out = freeze(repo, capsys)
-    assert code == 2 and "A1 needs AI-Reviewed-by" in out and "solver.py" in out
-    with open(repo / "SIGNOFF.toml", "a") as f:
-        f.write(f'\n[[commits]]\ncommit = "{bad}"\nAI-Review = "A1"\nAI-Reviewed-by = "M"\n')
-    commit(repo, "correct it", D("G0", "H2", "A0"))
-    git(repo, "revert", "--no-edit", bad)
-    code, out = freeze(repo, capsys)
-    assert code == 2 and "reverts" in out and "--allow-warnings" in out
-    assert not (repo / "SIGNOFF.snapshot.json").exists()
-    assert run(repo, capsys, "freeze", "--allow-warnings")[0] == 0
 
 
 # ------------------------------------------------------------------ 0.11 L2, L4
@@ -323,92 +266,6 @@ def test_the_pull_request_diff_shows_a_todo_on_its_own_axis(repo, capsys):
                      "Findings": {"F-": 1}}
 
 
-# ------------------------------------------------------------------ freezes as baselines
-def frozen_with_entries(repo, capsys):
-    """An AI change, a correction of its commit and an attestation of the file: then frozen with --prune."""
-    edit_lines(repo, [2, 3])
-    sha = commit(repo, "AI change", G3)
-    with open(repo / "SIGNOFF.toml", "a") as f:
-        f.write(f'\n# the model was named wrongly\n[[commits]]\ncommit = "{sha}"\nAI-Review = "A2"\n'
-                'AI-Reviewed-by = "N, fresh session"\n')
-    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-H", "H3", "--reviewed-by", "Rita")[0] == 0
-    commit(repo, "correct and attest", D("G0", "H2", "A0"))
-    before = levels(repo)
-    assert before[1] == "G3 H3 A2" and before[0] == "G0 H3 A0"
-    code, out = run(repo, capsys, "freeze", "--prune")
-    assert code == 0 and "Moved 2 [[commits]] and [[attestations]] entries" in out
-    commit(repo, "freeze", D("G0", "H2", "A0"))
-    return before
-
-
-def test_freeze_prune_moves_the_entries_into_the_snapshots_archive(repo, capsys):
-    before = frozen_with_entries(repo, capsys)
-    toml = (repo / "SIGNOFF.toml").read_text()
-    assert "[[commits]]" not in toml and "[[attestations]]" not in toml and "named wrongly" not in toml
-    assert "[[annotations]]" in toml and "[history]" in toml
-    snapshot = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
-    (item,) = snapshot["archive"]
-    assert item["commits"][0]["AI-Review"] == "A2" and item["attestations"][0]["Reviewed-by"] == ["Rita"]
-    assert item["attestations"][0]["path"] == "solver.py"
-    r, project = result(repo)
-    assert levels(repo) == before and project.history_problems == [] and project.history_warnings == []
-    assert lint(repo, capsys, "--strict")[0] == 0
-    # the next freeze keeps the archive and adds to it
-    edit_lines(repo, [9])
-    commit(repo, "another AI change", G3)
-    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark",
-               "--findings", "none")[0] == 0
-    commit(repo, "attest", D("G0", "H2", "A0"))
-    after = levels(repo)
-    assert after[8] == "G3 H1 A3" and after[1] == "G3 H3 A3"
-    assert run(repo, capsys, "freeze", "--prune")[0] == 0
-    commit(repo, "second freeze", D("G0", "H2", "A0"))
-    snapshot = json.loads((repo / "SIGNOFF.snapshot.json").read_text())
-    assert len(snapshot["archive"]) == 2 and snapshot["archive"][1]["commits"] == []
-    project = result(repo)[1]
-    assert levels(repo) == after and project.history_problems == []
-    assert run(repo, capsys, "freeze")[0] == 0  # without --prune (and nothing to prune): the archive stays
-    assert len(json.loads((repo / "SIGNOFF.snapshot.json").read_text())["archive"]) == 2
-
-
-def test_a_snapshot_edited_by_hand_fails_lint(repo, capsys):
-    frozen_with_entries(repo, capsys)
-    edit_lines(repo, [9])
-    commit(repo, "another AI change", G3)
-    assert run(repo, capsys, "freeze")[0] == 0
-    path = repo / "SIGNOFF.snapshot.json"
-    good = path.read_text()
-    commit(repo, "second freeze", D("G0", "H2", "A0"))
-    assert lint(repo, capsys)[0] == 0
-
-    def edited(old, new):
-        assert old in good
-        path.write_text(good.replace(old, new))
-        code, out = lint(repo, capsys)
-        return code, out
-
-    # any hand edit, of lines the snapshot before it had or of later ones: freeze wouldn't write it
-    for old, new in [('"AI-Review": "A2"', '"AI-Review": "A3"'),
-                     ('"AI-Generation": "G3", "Human-Review": "H3"', '"AI-Generation": "G1", "Human-Review": "H3"'),
-                     ('"Human-Review": "H3"', '"Human-Review": "H1"'),
-                     ('"Human-Review": "H1", "AI-Review": "A1"', '"Human-Review": "H2", "AI-Review": "A1"')]:
-        code, out = edited(old, new)
-        assert code == 1 and "isn't what 'aisignoff freeze' writes" in out and "solver.py" in out, (old, out)
-    path.write_text(good)
-    assert lint(repo, capsys)[0] == 0
-    # raised by an attestation: that is what a new snapshot may do
-    assert run(repo, capsys, "attest", str(repo / "solver.py"), "-a", "A3", "--ai-reviewed-by", "O, benchmark",
-               "--findings", "none")[0] == 0
-    commit(repo, "attest", D("G0", "H2", "A0"))
-    assert run(repo, capsys, "freeze", "--prune")[0] == 0
-    commit(repo, "third freeze", D("G0", "H2", "A0"))
-    code, out = lint(repo, capsys)
-    assert code == 0, out
-    assert levels(repo)[1] == "G3 H3 A3"
-    path.write_text(path.read_text().replace('"Human-Review": "H3"', '"Human-Review": "H1"'))
-    assert lint(repo, capsys)[0] == 1  # also in a file that is the same in both snapshots
-
-
 def test_an_attestation_records_reviews_only(repo, capsys):
     edit_lines(repo, [2])
     commit(repo, "AI change", G3)
@@ -441,6 +298,7 @@ def test_undeclared_commits_that_look_like_pull_requests_are_reported(repo, caps
     assert warning.startswith("2 commit(s) that look like pull requests declare nothing")
     assert "Merge pull request #13" in warning and "(#12)" in warning and "quick fix" not in warning
     assert lint(repo, capsys)[0] == 0 and lint(repo, capsys, "--strict")[0] == 1
-    assert run(repo, capsys, "freeze", "--allow-warnings")[0] == 0  # accepted as they are
-    commit(repo, "freeze", D("G0", "H2", "A0"))
+    # accepted as they are: commits up to require-trailers-since need no declaration
+    setting(repo, f'require-trailers-since = "{git(repo, "rev-parse", "HEAD")}"')
+    commit(repo, "accept the commits so far", D("G0", "H2", "A0"))
     assert result(repo)[1].history_warnings == []

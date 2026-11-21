@@ -26,8 +26,7 @@ per file and per line: AI generation (G0-G3), human review (H0-H3) and AI review
   `AI-Reviewed-by` text and the findings word. Never lower, guess or reword a finding.
 - **Review records for yourself:** no `aisignoff attest`, no `[[commits]]` entry and no annotation
   that raises Human-Review or AI-Review.
-- **The rules:** don't change `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, and never edit
-  `SIGNOFF.snapshot.json` by hand (only `aisignoff freeze` writes it).
+- **The rules:** don't change `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`.
 - **The review folder** (`reviews/` unless `[review] dir` says otherwise): never add, modify or
   delete a file there. It holds the reviewers' records; a change that edits one fails `lint`.
 

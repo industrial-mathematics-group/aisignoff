@@ -45,7 +45,7 @@ Then add [`signoff-lint.yml`](https://github.com/industrial-mathematics-group/ai
 - [Levels and rules](https://industrial-mathematics-group.github.io/aisignoff/levels/): what G, H and A mean and what each requires
 - [Declaring files](https://industrial-mathematics-group.github.io/aisignoff/files/): `SIGNOFF.toml` annotations
 - [Declaring lines](https://industrial-mathematics-group.github.io/aisignoff/history/): one owner per line, pull request descriptions, `[[commits]]` and attestations
-- [Snapshots](https://industrial-mathematics-group.github.io/aisignoff/snapshots/): `aisignoff freeze`, so that levels stay
+- [The blame cache](https://industrial-mathematics-group.github.io/aisignoff/cache/): what keeps the line-by-line check fast on long histories
 - [CI and workflows](https://industrial-mathematics-group.github.io/aisignoff/ci/): example workflows, merge methods, merge queues, pre-commit
 - [Reports](https://industrial-mathematics-group.github.io/aisignoff/report/): the folder report ([aisignoff's own](https://industrial-mathematics-group.github.io/aisignoff/signoff/)), `aisignoff diff` and badges
 - [Command reference](https://industrial-mathematics-group.github.io/aisignoff/commands/), [`SIGNOFF.toml` reference](https://industrial-mathematics-group.github.io/aisignoff/signoff-toml/), [changelog](https://industrial-mathematics-group.github.io/aisignoff/changelog/)

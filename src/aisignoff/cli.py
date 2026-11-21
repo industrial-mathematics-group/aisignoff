@@ -1,4 +1,4 @@
-"""Command-line interface: aisignoff init | lint | report | annotate | attest | freeze | diff | badge | guide."""
+"""Command-line interface: aisignoff init | lint | report | annotate | attest | diff | badge | guide."""
 from __future__ import annotations
 
 import argparse
@@ -548,7 +548,7 @@ def _result_json(r) -> dict:
     out = {"path": r.path, **r.declaration.as_dict(), FINDINGS_AXIS: counted_findings(r.declaration, r.errors),
            "errors": r.errors}
     if r.parts is not None:
-        # kinds: where each axis comes from (commit, branch, attestation, file, declared, frozen; null: nowhere)
+        # kinds: where each axis comes from (commit, branch, attestation, file, declared; null: nowhere)
         out["parts"] = [{"lines": p.lines, "runs": p.runs, **p.declaration.as_dict(),
                          FINDINGS_AXIS: counted_findings(p.declaration, p.errors), "errors": p.errors,
                          "kinds": dict(zip((GEN, HUM, AIR), p.kinds)), "advisory": p.advisory}
@@ -794,162 +794,6 @@ def cmd_attest(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------- freeze
-def _prune_toml(root: Path, annotations: int) -> None:
-    """Remove the [[commits]] and [[attestations]] tables from SIGNOFF.toml, with the comment
-    lines directly above each; the file is restored if the result isn't what was meant."""
-    import re
-    target = config_path(root)
-    old = target.read_text(encoding="utf-8")
-    header = re.compile(r"^\s*\[")
-    doomed = re.compile(r"^\s*\[\[\s*(commits|attestations)\s*\]\]\s*(#.*)?$")
-    kept: list[str] = []
-    skipped: list[str] = []
-    skipping = False
-    for line in old.splitlines():
-        if header.match(line):
-            was, skipping = skipping, bool(doomed.match(line))
-            if skipping:
-                while kept and kept[-1].lstrip().startswith("#"):
-                    kept.pop()
-            elif was:
-                # the comment lines right above this table, after a blank line, are this table's
-                block: list[str] = []
-                while skipped and skipped[-1].lstrip().startswith("#"):
-                    block.insert(0, skipped.pop())
-                if block and (not skipped or not skipped[-1].strip()):
-                    kept.extend(["", *block])
-            skipped = []
-        if skipping:
-            skipped.append(line)
-        else:
-            kept.append(line)
-    text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).rstrip("\n") + "\n"
-    target.write_text(text, encoding="utf-8")
-    try:
-        config = load(root)
-        if config.commits or config.attestations or len(config.annotations) != annotations:
-            raise ConfigError("the entries could not be taken out cleanly")
-    except ConfigError as e:
-        target.write_text(old, encoding="utf-8")
-        raise UsageError(f"{e}; {target.name} was left unchanged, and no snapshot was written")
-
-
-def cmd_freeze(args) -> int:
-    from .history import SNAPSHOT, Snapshot
-    project = _open(args.root)
-    root = project.root
-    if not project.config.history.enabled:
-        raise UsageError("a snapshot records line-by-line declarations: enable [history] in SIGNOFF.toml first")
-    if args.check:
-        if args.reset or args.prune:
-            raise UsageError("--check only checks: it can't go with --reset or --prune")
-        if not (root / SNAPSHOT).is_file():
-            raise UsageError(f"there is no {SNAPSHOT} to check")
-        project.check_snapshot = False
-        _results(project)
-        changed = project.history is None or project.history.snapshot_changed()
-        problems, notes = project.verify_snapshot(changed)
-        if project.history is not None:
-            problems += project.history.snapshot_continuity()
-        for line in project.history_problems + problems:
-            print(f"✗ {printable(line)}")
-        for line in notes:
-            print(f"! {printable(line)}")
-        if not problems and not notes and not project.history_problems:
-            print(f"{SNAPSHOT} is what 'aisignoff freeze' writes at its commit. ✓")
-        return 1 if problems or project.history_problems else 0
-    reset = []
-    for arg in args.reset or ():
-        rel = os.path.relpath(_real(arg), str(root))
-        if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel) or not os.path.isfile(arg):
-            raise UsageError(f"--reset {arg}: give files of the project")
-        reset.append(Path(rel).as_posix())
-    project.reset = set(reset)
-    target = root / SNAPSHOT
-    # a snapshot written but not committed yet (freeze run before): start again from HEAD's, so
-    # that this run has the same start as the check of what it writes; put it back if this fails
-    pending = target.read_text(encoding="utf-8") if target.is_file() else None
-    prefix = (_git_out(root, "rev-parse", "--show-prefix") or "")
-    committed = _git_out(root, "show", f"HEAD:{prefix}{SNAPSHOT}", strip=False)
-    if pending is not None and pending != committed:
-        earlier = Snapshot.parse(pending)
-        dropped = sorted(set(earlier.reset if earlier else ()) - set(reset))
-        if dropped:
-            print(f"note: this starts again from the committed {SNAPSHOT}, so the files of the uncommitted one's "
-                  f"--reset are frozen as before unless given again: {', '.join(dropped)}", file=sys.stderr)
-        if committed is None:
-            target.unlink()
-        else:
-            target.write_text(committed, encoding="utf-8")
-        project = _open(args.root)
-        project.reset = set(reset)
-    try:
-        return _freeze(args, project, reset)
-    except BaseException:
-        if pending is not None and pending != committed:
-            target.write_text(pending, encoding="utf-8")
-        raise
-
-
-def _freeze(args, project, reset: list[str]) -> int:
-    from .history import SNAPSHOT, Snapshot, archive_item
-    root = project.root
-    results = _results(project)
-    history = project.history
-    if history is None:
-        raise UsageError("a snapshot needs the whole git history (not a shallow clone)")
-    if history.base is None:
-        raise UsageError("there is no commit to freeze yet")
-    dirty = [line[3:] for line in (_git_out(root, "status", "--porcelain", "--untracked-files=all", strip=False)
-                                   or "").splitlines()
-             if line[3:].strip('"') != (history.prefix + SNAPSHOT)]
-    if history.head != history.base or dirty:
-        what = "the working tree has changes" if history.head == history.base else \
-            f"HEAD has commits that aren't on the default branch (its newest commit here is {history.base[:7]})"
-        raise UsageError(f"a snapshot is taken of a commit of the default branch, but {what}. Check that commit "
-                         f"out with nothing else changed (git switch --detach {history.base[:7]}), run 'aisignoff "
-                         f"freeze', and commit {SNAPSHOT} from there, on a new branch if you use pull requests")
-    if history.remote_tip and not history.is_ancestor(history.base, history.remote_tip):
-        raise UsageError(f"commit {history.base[:7]} isn't on origin's default branch yet (the local branch has "
-                         "commits that aren't pushed): a snapshot of it would never be on the default branch. Push "
-                         f"first, or freeze at origin's commit (git switch --detach {history.remote_tip[:7]})")
-    bad = [r.path for r in results if r.errors]
-    if bad or project.history_problems:
-        for problem in project.history_problems:
-            print(f"✗ {printable(problem)}", file=sys.stderr)
-        _print_errors(results, 10, file=sys.stderr)
-        raise UsageError("'aisignoff lint' fails here"
-                         + (f" ({len(bad)} file(s))" if bad else "")
-                         + "; a snapshot would keep those errors for good, so fix them first")
-    if project.history_warnings and not args.allow_warnings:
-        for warning in project.history_warnings:
-            print(f"! {printable(warning)}", file=sys.stderr)
-        raise UsageError("'aisignoff lint' has warnings here; a snapshot would keep the levels they are about "
-                         "for good, so settle them first (or pass --allow-warnings)")
-    archive = list(history.snapshot.archive) if history.snapshot else []
-    pruned = 0
-    if args.prune:
-        config = project.config
-        entries = archive_item(history, config)
-        pruned = len(entries["commits"]) + len(entries["attestations"])
-        if pruned:
-            archive.append(entries)
-            _prune_toml(root, len(config.annotations))
-    text, files, lines = Snapshot.render(history.base, __version__, results, history.base_blobs, archive, reset)
-    target = root / SNAPSHOT
-    again = bool(_git_out(root, "ls-files", "--", SNAPSHOT)) or target.exists()
-    target.write_text(text, encoding="utf-8")
-    print(f"{'Updated' if again else 'Wrote'} {SNAPSHOT}: the levels of {lines} lines in {files} files as of commit "
-          f"{history.base[:7]}.")
-    if pruned:
-        print(f"Moved {pruned} [[commits]] and [[attestations]] entries from {project.config.path.name} into its "
-              "archive: the snapshot has their levels. Commit both files together.")
-    print("Commit it. Lines that don't change keep these levels; lines changed after that commit are declared "
-          "by the commits that land them.")
-    return 0
-
-
 # ---------------------------------------------------------------- diff
 def cmd_diff(args) -> int:
     from . import diff
@@ -1136,16 +980,6 @@ def main(argv: list[str] | None = None) -> int:
     _add_declare_from(g)
     p.set_defaults(func=cmd_diff)
 
-    p = sub.add_parser("freeze", help="record the levels of every line as of the default branch's commit ([history])")
-    p.add_argument("--prune", action="store_true", help=f"move the [[commits]] and [[attestations]] entries of "
-                   f"{FILENAME} into the snapshot's archive: their levels are in the snapshot")
-    p.add_argument("--reset", nargs="+", metavar="FILE", help="work these files out from history again (with "
-                   "SIGNOFF.toml and the archive) instead of keeping their frozen levels")
-    p.add_argument("--check", action="store_true", help="check that SIGNOFF.snapshot.json is what freeze writes at its "
-                   "commit (lint does this when the file changed)")
-    p.add_argument("--allow-warnings", action="store_true", help="freeze although lint has warnings (undeclared "
-                   "reverts and merges: their lines keep the file-level declaration)")
-    p.set_defaults(func=cmd_freeze)
 
     p = sub.add_parser("badge", help="write shields.io endpoint JSON files")
     p.add_argument("--out", default="badges", help="output directory (default: badges)")

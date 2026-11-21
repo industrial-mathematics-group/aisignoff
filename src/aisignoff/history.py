@@ -2,21 +2,19 @@
 
 Each line has one owner, and the owner declares it:
 
-1. A line that is unchanged since the commit of the snapshot (SIGNOFF.snapshot.json, written by
-   'aisignoff freeze') has the levels the snapshot recorded.
-2. Otherwise the owner is the commit that landed the line on the default branch
+1. The owner is the commit that landed the line on the default branch
    ('git blame --first-parent'): a commit made there directly, a squash commit, or the merge
    commit of a pull request. Its message declares the levels with "Key: value" lines
    (AI-Generation, Human-Review, ...) or the ticked checkboxes of a pull request template; a
    [[commits]] entry corrects it. Commits and pull requests inside it declare nothing.
-3. One exception, for generation only: inside a merge commit that declares its lines, the
+2. One exception, for generation only: inside a merge commit that declares its lines, the
    commit that wrote a line can say a higher AI-Generation for it (an agent's commit in a pull
    request declared G1). A lower one (a hand-written commit in an AI-written pull request)
    takes a [[commits]] entry for that commit.
-4. A review is the higher of the owner's level (or the file level's, where that declares the
+3. A review is the higher of the owner's level (or the file level's, where that declares the
    line) and an [[attestations]] entry of the file whose content (a git blob) already contained
    the line.
-5. An owner that declares nothing leaves its lines to the file-level declaration (the annotations of
+4. An owner that declares nothing leaves its lines to the file-level declaration (the annotations of
    SIGNOFF.toml), or fails lint with undeclared = "error". One that declares some
    axes but not all, or leaves the template unfilled, is an error.
 
@@ -32,24 +30,14 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, FINDINGS_REVIEWS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration,
+from .model import (AXES, FINDINGS, FINDINGS_REVIEWS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration,
                     canonical_key, findings_problems, findings_value, from_version_3, mentions_self_check, valid_findings,
                     validate, worst_findings)
 
 UNCOMMITTED = "0" * 40
-SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
-SNAPSHOT_FORMAT = 1
-# The rules levels are worked out by. A release that changes the levels some line gets raises it,
-# and a snapshot records the number it was written under: only a snapshot of the same rules is
-# checked by working it out again. One of other rules is accepted as it is on the default
-# branch, and fails as a change. 1: from 0.14.0 on. 2: the AI review scale of SIGNOFF.toml version 4
-# (a snapshot of rules 1 has the scale before it, and is read on today's: Snapshot.read), and a
-# review of the file level that an attestation doesn't reach stays. 3: the findings of the last
-# independent AI review of each line (AI-Review-Findings), which a snapshot of rules 2 doesn't have.
-RULES = 3
 REVERT = re.compile(r"^This reverts commit ([0-9a-f]{7,64})", re.M)
 # GitHub's Revert button: the pull request's description, and the subject of its commits
 REVERT_PR = re.compile(r"^Reverts ([\w.-]+/[\w.-]+#\d+)", re.M)
@@ -74,45 +62,14 @@ GIT = ["git", "-c", "blame.markIgnoredLines=false",
 
 
 def comparable(declaration: dict) -> str:
-    """A snapshot declaration's levels and names as text to compare: not its source, which
-    only says where they came from, in words that may change between versions."""
+    """A declaration's levels and names as text to compare: not its source, which only says
+    where they came from, in words that may change between versions."""
     return json.dumps({k: v for k, v in declaration.items() if k != "source"}, sort_keys=True, ensure_ascii=False)
-
-
-def archive_item(history: "History", config) -> dict:
-    """What 'aisignoff freeze --prune' moves into the archive: the [[commits]] and
-    [[attestations]] entries of SIGNOFF.toml, each commit by its full hash, so that it can't
-    become ambiguous later (an archived entry can't be edited)."""
-    return {"commit": history.base,
-            "commits": [{"commit": history._resolve(c.commit) or c.commit, **c.values} for c in config.commits],
-            "attestations": [attestation_item(a, history._resolve) for a in config.attestations]}
-
-
-def attestation_item(a, resolve=None) -> dict:
-    """An [[attestations]] entry of SIGNOFF.toml as an archive item has it: a commit by its full hash."""
-    where = {"path": a.path, "blob": a.blob} if a.blob else \
-        {"commit": (resolve(a.commit) if resolve else None) or a.commit, **({"path": a.path} if a.path else {})}
-    return {**where, **a.values}
 
 
 def git_env() -> dict[str, str]:
     """The environment for git: English messages, since a few of them are read (ambiguous hashes)."""
     return {**os.environ, "LC_ALL": "C", "LANGUAGE": ""}
-
-
-def full_hashes(item: dict, resolve) -> dict:
-    """An archive item with each [[commits]] entry's commit by its full hash, where it resolves
-    (0.13 archived them as written), so that items compare whatever wrote them."""
-    return {**item, "commits": [{**c, "commit": (resolve(c["commit"]) if isinstance(c.get("commit"), str) else None)
-                                 or c.get("commit")} for c in item.get("commits", [])]}
-
-
-def _entries(item: dict, resolve=None) -> list[str]:
-    """The entries of an archive item (or of SIGNOFF.toml in that shape), as comparable text."""
-    if resolve:
-        item = full_hashes(item, resolve)
-    return [json.dumps({"commits": c}, sort_keys=True) for c in item.get("commits", [])] + \
-        [json.dumps({"attestations": a}, sort_keys=True) for a in item.get("attestations", [])]
 
 
 def _event_default_branch() -> list[str]:
@@ -165,7 +122,7 @@ class Piece:
     level: str | None
     names: tuple[str, ...]
     source: str
-    kind: str  # commit | branch | attestation | file | declared | frozen | required
+    kind: str  # commit | branch | attestation | file | declared | required
     problems: tuple[str, ...] = ()
     # the AI review axis only: its AI-Review-Findings value ("none", "minor", ...), None: none given
     findings: str | None = None
@@ -426,17 +383,22 @@ def parse_checkboxes(text: str, author: str, source: str, version_3: bool = Fals
     return out
 
 
-def parse_message(body: str, author: str, source: str, version_3: bool = False) -> tuple[dict[int, Piece], str | None]:
+def parse_message(body: str, author: str, source: str, version_3: bool = False,
+                  landed: bool = False) -> tuple[dict[int, Piece], str | None]:
     """The declaration in a commit message body or a pull request description: its "Key: value"
     lines, or the ticked checkboxes of a pull request template. One or the other: with both, both
     count (the lines where they overlap) and the second value is the problem to report.
     version_3: the repository's SIGNOFF.toml says version 3, so the AI review is of the scale
     before version 4 and is taken over to today's; ticked boxes of today's template (its A1 box is
     no self-check) are read on today's scale all the same, so that a repository can take the new
-    template before it changes over. The "AI-Review-Findings:" line is the caller's to check
+    template before it changes over. landed: the message is of a commit of the default branch, which
+    can't be changed any more: ticked boxes of the template before version 4 (its A1 box is the
+    self-check) are read on that scale too, as what they meant then; elsewhere they are a problem
+    (use the current template). The "AI-Review-Findings:" line is the caller's to check
     (findings_line)."""
     from_trailers = parse_trailers(body, source)
-    old_boxes = version_3 and old_template(body) is not False
+    old = old_template(body)
+    old_boxes = (version_3 and old is not False) or (landed and old is True)
     from_boxes = parse_checkboxes(body, author.strip(), source, old_boxes)
     both = None
     if from_trailers and from_boxes:
@@ -493,188 +455,16 @@ def format_runs(runs: list[list[int]], limit: int = 3) -> str:
     return ("line " if len(runs) == 1 and runs[0][0] == runs[0][1] else "lines ") + text + more
 
 
-class Snapshot:
-    """SIGNOFF.snapshot.json: the levels of every line as of one commit of the default branch.
-
-        {"format": 1, "aisignoff": "0.12.0", "commit": "<hash>",
-         "declarations": [{"AI-Generation": "G3", ..., "source": "commit 1a2b3c4 (...)"}, ...],
-         "files": {"src/solver.py": {"blob": "<hash>", "runs": [[1, 120, 0], [121, 130, 2]]}}}
-
-    A run is [first line, last line, index into declarations]. Lines that are unchanged since
-    that commit keep these levels whatever a later version of aisignoff would work out for them.
-
-    "archive" (optional) keeps the [[commits]] and [[attestations]] entries that 'freeze --prune'
-    took out of SIGNOFF.toml, one item per freeze: {"commit": "<hash>", "commits": [...],
-    "attestations": [...]}. Their effect is in the levels above; nothing reads them for those,
-    except the check that a frozen review was only raised by an attestation."""
-
-    def __init__(self, commit: str, declarations: list[dict], files: dict[str, dict], archive: list | None = None,
-                 version: str | None = None, reset: list[str] | None = None, rules: int | None = None):
-        self.commit = commit
-        self.declarations = declarations
-        self.files = files
-        self.archive = archive or []
-        self.version = version  # of aisignoff that wrote it
-        self.rules = rules  # the RULES it was written under (None: before they were numbered)
-        self.reset = reset or []  # files this freeze computed from history instead of the snapshot before it
-        self.pieces = [pieces_from_values(d, d.get("source") or "snapshot", "frozen") for d in declarations]
-
-    @classmethod
-    def read(cls, path: Path) -> "Snapshot":
-        """Raises ValueError for a file that isn't a snapshot."""
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise ValueError(f"cannot be read ({e})")
-        if not isinstance(data, dict) or data.get("format") != SNAPSHOT_FORMAT:
-            raise ValueError(f'needs "format": {SNAPSHOT_FORMAT} (written by a newer aisignoff?)')
-        commit, declarations, files = data.get("commit"), data.get("declarations"), data.get("files")
-        if not isinstance(commit, str) or not _SHA.match(commit):
-            raise ValueError('"commit" must be a full commit hash')
-        if not isinstance(declarations, list) or not all(isinstance(d, dict) for d in declarations):
-            raise ValueError('"declarations" must be a list of tables')
-        for d in declarations:
-            for (level, names) in AXES:
-                if not isinstance(d.get(level), str) or not isinstance(d.get(names, []), list) \
-                        or not all(isinstance(n, str) for n in d.get(names, [])):
-                    raise ValueError(f"a declaration without a valid {level}")
-            if FINDINGS in d and not (isinstance(d[FINDINGS], str) and valid_findings(d[FINDINGS])):
-                raise ValueError(f"a declaration with an invalid {FINDINGS}")
-        if not isinstance(files, dict):
-            raise ValueError('"files" must be a table')
-        for name, entry in files.items():
-            runs = entry.get("runs") if isinstance(entry, dict) else None
-            if not isinstance(runs, list) or not isinstance(entry.get("blob"), str):
-                raise ValueError(f"{name}: needs blob and runs")
-            expected = 1
-            for run in runs:
-                if not (isinstance(run, list) and len(run) == 3 and all(type(x) is int for x in run)
-                        and run[0] == expected and run[1] >= run[0] and 0 <= run[2] < len(declarations)):
-                    raise ValueError(f"{name}: runs must cover the lines in order, each with a declaration")
-                expected = run[1] + 1
-        archive = data.get("archive", [])
-        if not isinstance(archive, list) or not all(
-                isinstance(a, dict) and all(isinstance(a.get(k, []), list) and all(isinstance(e, dict) for e in a.get(k, []))
-                                            for k in ("commits", "attestations")) for a in archive):
-            raise ValueError('"archive" must be a list of tables with commits and attestations')
-        reset = data.get("reset", [])
-        if not isinstance(reset, list) or not all(isinstance(r, str) for r in reset):
-            raise ValueError('"reset" must be a list of paths')
-        version = data.get("aisignoff")
-        version = version if isinstance(version, str) else None
-        rules = data.get("rules")
-        if type(rules) is not int:
-            # 0.14 wrote no number, under the rules that became 1
-            rules = 1 if rules is None and version and version.startswith("0.14.") else None
-        if rules is None or rules < 2:
-            # written on the AI review scale before version 4: read on today's
-            declarations = [cls._from_version_3(d) for d in declarations]
-            archive = [{**a, **{k: [cls._from_version_3(e) for e in a.get(k, [])] for k in ("commits", "attestations")
-                               if k in a}} for a in archive]
-        return cls(commit, declarations, files, archive, version, reset, rules)
-
-    @staticmethod
-    def _from_version_3(d: dict) -> dict:
-        if not isinstance(d.get(AIR), str):
-            return d
-        level, names = from_version_3(d[AIR], d.get(AI_REVIEWED) or ())
-        out = {**d, AIR: level}
-        if AI_REVIEWED in d or names:
-            out[AI_REVIEWED] = list(names)
-        return out
-
-    def line_declarations(self) -> dict[str, list[str]]:
-        """path -> the declaration of each line, as comparable text."""
-        texts = [comparable(d) for d in self.declarations]
-        return {path: [texts[i] for a, b, i in entry["runs"] for _ in range(a, b + 1)]
-                for path, entry in self.files.items()}
-
-    @classmethod
-    def parse(cls, text: str) -> "Snapshot | None":
-        """A snapshot from its text (an earlier version of the file, read from git); None if it isn't one."""
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / SNAPSHOT
-            path.write_text(text, encoding="utf-8")
-            try:
-                return cls.read(path)
-            except ValueError:
-                return None
-
-    def blob(self, path: str) -> str | None:
-        entry = self.files.get(path)
-        return entry["blob"] if entry else None
-
-    def lines(self, path: str) -> int:
-        runs = self.files[path]["runs"]
-        return runs[-1][1] if runs else 0
-
-    def lookup(self, path: str, line: int) -> int | None:
-        """The index of the declaration of a line as of the snapshot's commit (None: not recorded)."""
-        entry = self.files.get(path)
-        if entry is None:
-            return None
-        runs = entry["runs"]
-        lo, hi = 0, len(runs)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if runs[mid][1] < line:
-                lo = mid + 1
-            else:
-                hi = mid
-        return runs[lo][2] if lo < len(runs) and runs[lo][0] <= line else None
-
-    @staticmethod
-    def render(commit: str, version: str, results, blobs: dict[str, str], archive: list = (),
-               reset: list[str] = ()) -> tuple[str, int, int]:
-        """The text of a snapshot of the given results (those resolved line by line) at commit,
-        with the number of files and lines in it. One line per declaration, per file and per
-        archived entry, so that a later snapshot shows up as a readable diff."""
-        declarations: list[str] = []
-        index: dict[str, int] = {}
-        files = []
-        lines = 0
-        for r in results:
-            if r.parts is None or r.path not in blobs:
-                continue  # file-level (precedence = "override"): the annotation keeps declaring it
-            runs = []
-            for i, part in enumerate(r.parts):
-                text = json.dumps({**part.declaration.as_dict(), "source": part.declaration.source}, ensure_ascii=False)
-                n = index.setdefault(text, len(declarations))
-                if n == len(declarations):
-                    declarations.append(text)
-                runs += [[a, b, n] for a, b in part.runs]
-            runs.sort()
-            lines += sum(b - a + 1 for a, b, _ in runs)
-            files.append(f" {json.dumps(r.path, ensure_ascii=False)}: "
-                         + json.dumps({"blob": blobs[r.path], "runs": runs}, separators=(", ", ": ")))
-        out = ["{", f' "format": {SNAPSHOT_FORMAT},', f' "aisignoff": {json.dumps(version)},', f' "rules": {RULES},',
-               f' "commit": "{commit}",', *([f' "reset": {json.dumps(sorted(reset), ensure_ascii=False)},'] if reset else []),
-               ' "declarations": [', ",\n".join("  " + d for d in declarations), " ],",
-               ' "files": {', ",\n".join(" " + f for f in files), " }" + ("," if archive else "")]
-        if archive:
-            items = []
-            for a in archive:
-                rows = [f'   "commit": {json.dumps(a.get("commit"))}']
-                for key in ("commits", "attestations"):
-                    entries = ",\n".join("    " + json.dumps(e, ensure_ascii=False) for e in a.get(key, []))
-                    rows.append(f'   "{key}": [' + (f"\n{entries}\n   ]" if entries else "]"))
-                items.append("  {\n" + ",\n".join(rows) + "\n  }")
-            out += [' "archive": [', ",\n".join(items), " ]"]
-        out.append("}")
-        return "\n".join(out) + "\n", len(files), lines
-
-
 class History:
     """Resolves the declaration of each line of a project's files from git history."""
 
     def __init__(self, root: Path, config, declared: dict[int, Piece] | None = None, base: str | None = None,
-                 use_snapshot: bool = True, landed: bool = False, reset: set[str] | None = None):
+                 landed: bool = False, cache=None):
         """declared: the declaration of the change that isn't on the default branch yet (the pull
         request description), None when there is none. base: the commit that change starts from,
         when the caller knows it (aisignoff diff BASE, lint --base). landed: HEAD is a commit of
         the default branch, or will be one as it is (a merge queue's commit, a release branch).
-        reset: files to compute from history instead of the snapshot ('aisignoff freeze --reset')."""
+        cache: the BlameCache to read the origins of earlier runs from and record this run's in."""
         self.root = Path(root)
         self.config = config
         self.policy = config.policy
@@ -689,7 +479,6 @@ class History:
         self._reverts: dict[str, str] = {}  # commit -> the commit its message says it reverts
         self._ancestor: dict[tuple[str, str], bool] = {}
         self._side_cache: dict[str, tuple[bool, int, str | None]] = {}
-        self._since_cache: dict[tuple[str, str], tuple[set[int], set[int]] | None] = {}
         self._noted: set[str] = set()
         self._silent: list[str] = []  # commits that look like pull requests, own lines and declare nothing
         self._renames: list[tuple[str, str]] | None = None
@@ -699,9 +488,6 @@ class History:
         self.landed = landed
         self._declared_given, self._base_given = declared is not None, base is not None
         self.remote_tip: str | None = None  # origin's default branch, if there is one
-        self.reset = set(reset or ())
-        self.archive: list[dict] = []  # of the snapshot: its entries count where it doesn't reach
-        self._frozen_shas: set[str] | None = None
         # landed, on a branch of its own (a release branch): its first-parent commits since the
         # default branch land its lines; what it has of the default branch is resolved as there
         self.release = False
@@ -728,12 +514,11 @@ class History:
         self.head_files = self._tree("HEAD") if self.head else {}
         self.base_blobs = self._tree(self.base) if self.base else {}
         self.changes = self._load_changes()
-        self.snapshot = self._load_snapshot() if use_snapshot else None
-        self.frozen = self.order[self.snapshot.commit] if self.snapshot else 0
         self.corrections = self._load_corrections()
         self._check_entries()
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
+        self.cache = cache.open(self) if cache is not None and self.base else None
         self.attestations = self._load_attestations()
 
     # ------------------------------------------------------------ the default branch
@@ -834,157 +619,6 @@ class History:
             raise HistoryError(str(e))
         return {new: (old, removed, added) for (old, new), (removed, added) in found.items() if new}
 
-    def _load_snapshot(self) -> Snapshot | None:
-        path = self.root / SNAPSHOT
-        if not path.is_file():
-            return None
-        try:
-            snapshot = Snapshot.read(path)
-        except ValueError as e:
-            self.problems.append(f"{SNAPSHOT} {e}; run 'aisignoff freeze' again")
-            return None
-        self.archive = snapshot.archive
-        if snapshot.commit not in self.order:
-            self.problems.append(f"{SNAPSHOT}: its commit {short(snapshot.commit)} is not on the default branch below "
-                                 "HEAD, so the snapshot can't be used; run 'aisignoff freeze' on the default branch")
-            return None
-        tree = self._tree(snapshot.commit)
-        wrong = {p for p in snapshot.files if tree.get(p) != snapshot.blob(p)}
-        lines = self._blob_lines({snapshot.blob(p) for p in snapshot.files if p not in wrong})
-        wrong = sorted(wrong | {p for p in snapshot.files if p not in wrong
-                                and lines.get(snapshot.blob(p)) != snapshot.lines(p)})
-        if wrong:
-            self.problems.append(f"{SNAPSHOT} doesn't match commit {short(snapshot.commit)} ({wrong[0]}"
-                                 + (f" and {len(wrong) - 1} more" if len(wrong) > 1 else "")
-                                 + "): it was edited or belongs to another commit; restore it or run 'aisignoff freeze'. "
-                                 "Until then these files are resolved from history")
-            for p in wrong:
-                del snapshot.files[p]
-        for p in self.reset:  # computed from history again ('aisignoff freeze --reset')
-            snapshot.files.pop(p, None)
-        return snapshot
-
-    def _blob_diff(self, old: str, new: str) -> tuple[set[int], set[int]] | None:
-        """The lines of one content that another doesn't have, and the other way round (None: binary)."""
-        key = (old, new)
-        if key not in self._since_cache:
-            out = _git(self.root, "diff", "--unified=0", "--no-color", "--no-ext-diff",
-                       *(["-w"] if self.config.history.ignore_whitespace else []), old, new, check=False)
-            found = None
-            if out is not None and "\nBinary files " not in "\n" + out:
-                found = (set(), set())
-                for row in out.split("\n"):
-                    if row.startswith("@@ "):
-                        for side, field in zip(found, row.split(" ")[1:3]):
-                            start, _, count = field[1:].partition(",")
-                            side.update(range(int(start), int(start) + int(count or 1)))
-            self._since_cache[key] = found
-        return self._since_cache[key]
-
-    def snapshot_changed(self) -> bool:
-        """Whether SIGNOFF.snapshot.json is another than the default branch's, or HEAD's commit
-        changed it: then lint checks it by working it out again."""
-        path = self.prefix + SNAPSHOT
-        try:
-            text = (self.root / SNAPSHOT).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            return False
-        if self.base and _git(self.root, "show", f"{self.base}:{path}", check=False) != text:
-            return True
-        if not self.head:
-            return False
-        # HEAD's commit, or every commit of the push that CI runs for (GitHub's "before")
-        since = [self._resolve("HEAD^1"), self._pushed_from()]
-        return any(c and _git(self.root, "diff", "--name-only", c, "HEAD", "--", f":/{path}", check=False)
-                   for c in since)
-
-    def _pushed_from(self) -> str | None:
-        """The commit a push to the branch started from, on GitHub Actions (the event's "before"),
-        if HEAD has it: a snapshot changed by any commit of the push is checked, not only the last."""
-        name = os.environ.get("GITHUB_EVENT_PATH")
-        if not name:
-            return None
-        try:
-            with open(name, encoding="utf-8") as f:
-                before = json.load(f).get("before")
-        except (OSError, ValueError, AttributeError):
-            return None
-        if not isinstance(before, str) or not before.strip("0"):
-            return None
-        sha = self._resolve(before)
-        return sha if sha and self.is_ancestor(sha, self.head) else None
-
-    def snapshot_continuity(self) -> list[str]:
-        """Problems of a SIGNOFF.snapshot.json that goes back behind the default branch's: an
-        older commit, or archived entries dropped (they are recorded nowhere else). Entries put
-        back into SIGNOFF.toml may leave the archive, for a snapshot taken afresh."""
-        if not self.base:
-            return []
-        refs = [self.base]
-        if self.head == self.base:
-            # on the default branch itself: the commit below, or every commit of the push CI runs for
-            refs = [r for r in (self._resolve("HEAD^1"), self._pushed_from()) if r]
-        try:
-            now = (self.root / SNAPSHOT).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            now = None
-        for ref in dict.fromkeys(refs):
-            text = _git(self.root, "show", f"{ref}:{self.prefix}{SNAPSHOT}", check=False)
-            old = Snapshot.parse(text) if text else None
-            if old is not None and now != text:
-                problems = self._continuity(old, Snapshot.parse(now) if now is not None else None)
-                if problems:
-                    return problems
-        return []
-
-    def _continuity(self, old: "Snapshot", new: "Snapshot | None") -> list[str]:
-        problems = []
-        if new is not None and new.commit != old.commit and not self.is_ancestor(old.commit, new.commit):
-            problems.append(f"{SNAPSHOT} is of commit {new.commit[:7]}, which is older than the default branch's "
-                            f"snapshot ({old.commit[:7]}) or not on its history: a snapshot only moves forward. "
-                            "Take a new one with 'aisignoff freeze' on the default branch")
-        kept = set()
-        for item in (new.archive if new else []):
-            kept.update(_entries(item, self._resolve))
-        live = {"commits": [{"commit": self._resolve(c.commit) or c.commit, **c.values} for c in self.config.commits],
-                "attestations": [attestation_item(a, self._resolve) for a in self.config.attestations]}
-        kept.update(_entries(live))
-        dropped = sum(1 for item in old.archive for e in _entries(item, self._resolve) if e not in kept)
-        if dropped:
-            what = "deleted" if new is None else "changed"
-            problems.append(f"{SNAPSHOT} was {what}, and that drops {dropped} archived [[commits]] or [[attestations]] "
-                            f"entr{'y' if dropped == 1 else 'ies'} of the default branch's snapshot, which are recorded "
-                            f"nowhere else. Keep its archive, or put the entries back into {self.config.path.name} "
-                            "first")
-        return problems
-
-    def _blob_lines(self, blobs: set[str]) -> dict[str, int]:
-        """blob -> its number of lines, counted as everywhere (a binary or empty file is one)."""
-        if not blobs:
-            return {}
-        try:
-            r = subprocess.run([*GIT, "-C", str(self.root), "cat-file", "--batch"], env=git_env(), capture_output=True,
-                               input="".join(b + "\n" for b in sorted(blobs)).encode())
-        except FileNotFoundError:
-            raise HistoryError("git is not installed")
-        out, data, at = {}, r.stdout, 0
-        while at < len(data):
-            end = data.find(b"\n", at)
-            if end < 0:
-                break
-            header = data[at:end].split()
-            at = end + 1
-            if len(header) != 3 or not header[2].isdigit():
-                continue  # "<name> missing"
-            size = int(header[2])
-            body = data[at:at + size]
-            at += size + 1
-            if not body or b"\x00" in body[:BINARY_PROBE]:
-                out[header[0].decode()] = 1
-            else:
-                out[header[0].decode()] = body.count(b"\n") + (not body.endswith(b"\n"))
-        return out
-
     # ------------------------------------------------------------ commits
     def _load_chain(self) -> None:
         if self.base is None:  # no commit yet
@@ -1003,7 +637,9 @@ class History:
         self.subjects[sha] = subject.strip()
         self.parents[sha] = parents.split()
         body = message.split("\n", 1)[1] if "\n" in message else ""
-        self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3)
+        # an old template's boxes in a commit that has landed are read as they were meant then
+        landed = sha in self.order or bool(self.base and old_template(body) and self.is_ancestor(sha, self.base))
+        self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3, landed)
         ai = self._trailers[sha].get(2)
         if ai is not None and ai.level in FINDINGS_REVIEWS and not self.config.version_3:
             # the findings of the review travel with the AI review: they become the findings level of
@@ -1040,40 +676,11 @@ class History:
         out = _git(self.root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False)
         return out.strip() if out else None
 
-    def _archived(self, key: str) -> list[tuple]:
-        """The entries of one kind ("commits" or "attestations") in the snapshot's archive, as
-        config entries. They count for the lines the snapshot doesn't have (it has their effect
-        on the others): files it leaves out, files reset or resolved from history."""
-        from .config import Attestation, CommitEntry
-        out, n = [], 0
-        for item in self.archive:
-            for raw in item.get(key, []):
-                n += 1
-                values = {k: v for k, v in raw.items() if k not in ("commit", "path", "blob")}
-                where = f"{SNAPSHOT} archive"
-                if key == "commits" and isinstance(raw.get("commit"), str):
-                    out.append(CommitEntry(index=n, commit=raw["commit"], values=values, filename=where))
-                elif key == "attestations" and isinstance(raw.get("path"), str) and isinstance(raw.get("blob"), str):
-                    out.append(Attestation(index=n, path=raw["path"], blob=raw["blob"], values=values, filename=where))
-                elif key == "attestations" and isinstance(raw.get("commit"), str) \
-                        and isinstance(raw.get("path"), (str, type(None))):
-                    out.append(Attestation(index=n, path=raw.get("path"), blob=None, values=values, filename=where,
-                                           commit=raw["commit"]))
-        return out
-
     def _load_corrections(self) -> dict[str, dict[int, Piece]]:
         out: dict[str, dict[int, Piece]] = {}
-        old = 0  # entries of SIGNOFF.toml for commits that the snapshot has
-        for entry, archived in [(e, True) for e in self._archived("commits")] + [(e, False) for e in self.config.commits]:
+        for entry in self.config.commits:
             sha = self._resolve(entry.commit)
             where = f"{entry.filename} [[commits]] entry {entry.index}"
-            if archived and sha is None and "ambiguous" in _git_error(
-                    self.root, "rev-parse", "--verify", f"{entry.commit}^{{commit}}"):
-                self.problems.append(f"{where}: {entry.commit} is ambiguous now, so the archived entry can't be applied. "
-                                     f"Add a [[commits]] entry with its full hash to {self.config.path.name}")
-                continue
-            if archived and (sha is None or (sha not in self.order and not self.is_ancestor(sha, "HEAD"))):
-                continue  # history that was rewritten: the snapshot has what it said
             if sha is None:
                 err = _git_error(self.root, "rev-parse", "--verify", f"{entry.commit}^{{commit}}")
                 what = "is ambiguous; give more digits" if "ambiguous" in err else "is not a commit of this repository"
@@ -1085,20 +692,11 @@ class History:
                 continue
             source = f"{entry.filename} [[commits]] {short(sha)}"
             pieces = pieces_from_values(entry.values, source, "commit")
-            if not archived and self.snapshot and self.is_ancestor(sha, self.snapshot.commit) \
-                    and sha not in self._frozen_entries():
-                old += 1  # added since the snapshot: it doesn't reflect it
-            if not archived and sha not in self.order and sha not in self.pending and set(pieces) - {0} and not (
-                    self.snapshot and self.is_ancestor(sha, self.snapshot.commit)):
+            if sha not in self.order and sha not in self.pending and set(pieces) - {0}:
                 self._warnings.append(f"{where}: {entry.commit} is a commit inside a pull request, so only its "
                                       "AI-Generation counts; reviews are declared by the commit that landed it "
                                       "on the default branch, or by an attestation")
             out.setdefault(sha, {}).update(pieces)
-        if old:
-            self.notes.append(f"{old} [[commits]] entr{'y is' if old == 1 else 'ies are'} for commits from before the "
-                              f"snapshot ({short(self.snapshot.commit)}): they count only for lines it doesn't have, "
-                              "and change no frozen line. Raise the review of frozen lines with 'aisignoff attest', "
-                              "or apply the entries to a file's frozen lines with 'aisignoff freeze --reset FILE'")
         return out
 
     def _check_entries(self) -> None:
@@ -1114,25 +712,6 @@ class History:
             errors = [e for e in validate(d, self.policy) if not e.startswith("missing ")]
             for error in errors:
                 self.problems.append(f"{entry.filename} [[commits]] entry {entry.index} ({entry.commit}): {error}")
-
-    def _frozen_entries(self) -> set[str]:
-        """The commits of the [[commits]] entries in SIGNOFF.toml at the snapshot's commit, whose
-        effect the snapshot has."""
-        if self._frozen_shas is None:
-            self._frozen_shas = set()
-            import tomllib
-            name = self.config.path.name
-            text = _git(self.root, "show", f"{self.snapshot.commit}:{self.prefix}{name}", check=False)
-            try:
-                tables = tomllib.loads(text).get("commits", []) if text else []
-            except tomllib.TOMLDecodeError:
-                tables = []
-            for table in tables if isinstance(tables, list) else []:
-                sha = self._resolve(table["commit"]) if isinstance(table, dict) and isinstance(
-                    table.get("commit"), str) else None
-                if sha:
-                    self._frozen_shas.add(sha)
-        return self._frozen_shas
 
     def _ignore_revs(self) -> list[str]:
         """--ignore-rev options from .git-blame-ignore-revs (or [history] ignore-revs-file).
@@ -1193,23 +772,50 @@ class History:
             parents = self.parents.get(merge, [])
             says, declared, reverts, merges = False, 0, None, []
             if len(parents) > 1:
-                out = _git(self.root, "log", f"--format={self.FORMAT}", merge, f"^{parents[0]}", check=False) or ""
-                for record in _records(out):
-                    if record[0] == merge:
-                        continue
-                    if record[0] not in self._trailers:
-                        self._remember(*record)
-                    pieces = self.commit_pieces(record[0])
-                    reverts = reverts or self._reverts.get(record[0])
-                    if len(self.parents[record[0]]) > 1:
+                for sha in self._brought_in(merge, parents[0]):
+                    pieces = self.commit_pieces(sha)
+                    reverts = reverts or self._reverts.get(sha)
+                    if len(self.parents[sha]) > 1:
                         declared += bool(pieces)
                         if 0 in pieces and pieces[0].level:
-                            merges.append((record[0], pieces[0].level))
+                            merges.append((sha, pieces[0].level))
                     else:
                         says = says or 0 in pieces
                         declared += len(pieces) == len(AXES)
             self._side_cache[merge] = (says, declared, reverts, merges)
         return self._side_cache[merge]
+
+    def _brought_in(self, merge: str, first: str) -> list[str]:
+        """The commits a merge commit brought in (git log MERGE ^FIRST-PARENT, newest first), with
+        their messages read. Which they are never changes, so the blame cache keeps the list; the
+        messages of every listed commit are then read at once, the first time one is needed."""
+        cache = self.cache
+        shas = cache.side(merge) if cache is not None else None
+        if shas is None:
+            out = _git(self.root, "log", f"--format={self.FORMAT}", merge, f"^{first}", check=False) or ""
+            shas = []
+            for record in _records(out):
+                if record[0] == merge:
+                    continue
+                if record[0] not in self._trailers:
+                    self._remember(*record)
+                shas.append(record[0])
+            if cache is not None:
+                cache.record_side(merge, shas)
+            return shas
+        if any(sha not in self._trailers for sha in shas):
+            with cache.lock:
+                wanted = [sha for sha in dict.fromkeys(cache.all_sides()) if sha not in self._trailers]
+                if wanted:
+                    out = _git(self.root, "log", "--no-walk=unsorted", "--stdin", f"--format={self.FORMAT}", check=False,
+                               stdin="".join(f"{sha}\n" for sha in wanted).encode()) or ""
+                    for record in _records(out):
+                        if record[0] not in self._trailers:
+                            self._remember(*record)
+            if any(sha not in self._trailers for sha in shas):  # not all of them could be read: as without the cache
+                cache.forget_side(merge)
+                return self._brought_in(merge, first)
+        return shas
 
     def is_ancestor(self, a: str, b: str) -> bool:
         if (a, b) not in self._ancestor:
@@ -1270,8 +876,6 @@ class History:
         for sha, name in self._ignored:
             # the file is for reformatting: a commit that declares levels gives its lines back to
             # the commits before it, which is a quiet way to lower them
-            if self.snapshot and self.is_ancestor(sha, self.snapshot.commit):
-                continue  # the lines the snapshot has keep their levels anyway
             declares = bool(self.commit_pieces(sha))
             parents = (_git(self.root, "rev-list", "--parents", "-n", "1", sha, check=False) or "").split()[1:]
             why = ("declares levels" if declares else "is a merge" if len(parents) > 1
@@ -1279,99 +883,91 @@ class History:
             if why:
                 out.append(f"{name} lists {self.describe(sha)}, which {why}: blame gives the lines it changed to the "
                            "commits before it, with their levels. List only commits that reformat")
-        if self._silent:
-            silent = sorted(set(self._silent), key=lambda sha: -self.order.get(sha, 0))
+        # commits up to require-trailers-since are accepted as they are
+        silent = [sha for sha in set(self._silent) if self.since is None or self.order.get(sha, 0) > self.since]
+        if silent:
+            silent = sorted(silent, key=lambda sha: -self.order.get(sha, 0))
             more = f" and {len(silent) - 2} more" if len(silent) > 2 else ""
             out.append(f"{len(silent)} commit(s) that look like pull requests declare nothing: "
                        f"{', '.join(self.describe(s) for s in silent[:2])}{more}. Their lines take the file-level "
-                       "declaration. Declare them with [[commits]] entries, or accept the levels as they are with "
-                       "'aisignoff freeze --allow-warnings'")
+                       "declaration. Declare them with [[commits]] entries, or accept them as they are with [history] "
+                       "require-trailers-since = \"<a later commit>\", which requires a declaration from the commits "
+                       "after it")
         return out
 
     # ------------------------------------------------------------ attestations
     def _load_attestations(self) -> dict[str | None, list[tuple]]:
-        """Per file: (until, commit, pieces, blob, archived, age, scope, seq) of each attestation (archived: from the
-        snapshot's archive, which counts only for lines that aren't frozen; age: see _content_age). 'until' is the ordinal of the last
-        commit of the default branch at which the file still was the checked content (newest: it
-        is the file as it is now). The commit is set instead when no commit of the default branch
-        had that content, only a merged branch or the change that hasn't landed (a pull request
-        whose file the default branch changed meanwhile): then the attestation covers the lines
-        whose commit the checked content contained.
+        """Per file: (until, commit, pieces, blob, age, scope, seq) of each attestation (age: see
+        _content_age). 'until' is the ordinal of the last commit of the default branch at which the
+        file still was the checked content (newest: it is the file as it is now). The commit is set
+        instead when no commit of the default branch had that content, only a merged branch or the
+        change that hasn't landed (a pull request whose file the default branch changed meanwhile):
+        then the attestation covers the lines whose commit the checked content contained.
         scope: for an attestation of a commit, the commit (its full hash): it covers the lines that
         commit landed on the default branch and that are still there, as they are now. Those without
         a path are listed under None: they cover the lines of every file.
-        The order is the order they were recorded in, as far as it is known: the snapshot's archive,
-        SIGNOFF.toml, then the attestation files of the review folder by the commit that added them.
-        Of two reviews of the same content, the later one counts."""
+        The order is the order they were recorded in, as far as it is known: SIGNOFF.toml, then the
+        attestation files of the review folder by the commit that added them. Of two reviews of the
+        same content, the later one counts."""
         out: dict[str | None, list] = {}
-        entries = [(e, True) for e in self._archived("attestations")] + [(e, False) for e in self.config.attestations]
-        entries += [(e, False) for e in self._review_order(self.config.review_attestations)]
-        for seq, (a, archived) in enumerate(entries):
+        entries = list(self.config.attestations) + self._review_order(self.config.review_attestations)
+        for seq, a in enumerate(entries):
             where = f"{a.filename} [[attestations]] entry {a.index}"
-            if not archived and a in self.config.review_attestations:
+            if a in self.config.review_attestations:
                 self._review_record(a, where)
             if a.commit:
-                self._load_scoped(a, archived, where, out, seq)
+                self._load_scoped(a, where, out, seq)
                 continue
             names = self._names_since(a.path)  # the attested file's names, the current one last
             path = names[-1]
             moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
             if (self.root / a.path).is_file() and moves and moves[-1][0] == a.path:
-                if archived:
-                    continue
                 self.problems.append(f"{where}: {a.path} was renamed to {moves[-1][1]}, and a new {a.path} created "
                                      f"since; set the path of the file that was checked")
                 continue
             if not (self.root / path).is_file():
-                if archived:
-                    continue
                 self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
                 continue
             until, commit = self._blob_until(set(names), path, a.blob)
             if until is None:
-                if archived:
-                    continue
                 self.problems.append(f"{where}: the checked content of {a.path} ({a.blob[:7]}) is neither in the "
                                      f"history of this file on this branch nor its current content; run 'aisignoff attest' "
                                      f"again")
                 continue
             annotation = self.config.match(path)
-            if annotation is not None and annotation.precedence == "override" and not archived:
+            if annotation is not None and annotation.precedence == "override":
                 self._warnings.append(f'{where}: {path} is declared by an annotation with precedence = "override", '
                                       "so the attestation doesn't count; change the annotation instead")
             pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
-            if pieces.pop(0, None) is not None and not archived:
+            if pieces.pop(0, None) is not None:
                 self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
                                       "count; correct the generation of a commit with a [[commits]] entry")
             if pieces:
-                out.setdefault(path, []).append((until, commit, pieces, a.blob, archived, self._content_age(until, commit),
+                out.setdefault(path, []).append((until, commit, pieces, a.blob, self._content_age(until, commit),
                                                  None, seq))
         return out
 
-    def _load_scoped(self, a, archived: bool, where: str, out: dict, seq: int) -> None:
+    def _load_scoped(self, a, where: str, out: dict, seq: int) -> None:
         """An attestation of a commit: of the lines it landed on the default branch, in one file or all."""
         sha = self._resolve(a.commit)
         if sha is None or sha not in self.order:
-            if not archived:
-                self.problems.append(f"{where}: {a.commit} isn't a commit of the default branch's history (the "
-                                     "merge or squash commit of a pull request, or a commit made there directly); an "
-                                     "attestation of a commit covers the lines that commit landed there")
+            self.problems.append(f"{where}: {a.commit} isn't a commit of the default branch's history (the "
+                                 "merge or squash commit of a pull request, or a commit made there directly); an "
+                                 "attestation of a commit covers the lines that commit landed there")
             return
         path = None
         if a.path is not None:
             path = self._names_since(a.path)[-1]
             if not (self.root / path).is_file():
-                if not archived:
-                    self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
+                self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
                 return
         pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
-        if pieces.pop(0, None) is not None and not archived:
+        if pieces.pop(0, None) is not None:
             self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
                                   "count; correct the generation of a commit with a [[commits]] entry")
         if pieces:
             # the lines it covers are as the review saw them: as new as any content of the file
-            out.setdefault(path, []).append((None, None, pieces, None, archived, float(self.newest), sha,
-                                             seq))
+            out.setdefault(path, []).append((None, None, pieces, None, float(self.newest), sha, seq))
 
     def _review_record(self, a, where: str) -> None:
         """An attestation file of the review folder records an independent AI review like a pull
@@ -1483,43 +1079,14 @@ class History:
                     break
         return wrote, removed
 
-    def _whole_snapshot(self, attestation) -> bool:
-        """Whether the content an attestation checked had every line of the snapshot's file: it
-        was still the file's content at the snapshot's commit, or was written after it."""
-        until, commit = attestation[0], attestation[1]
-        if until == self.newest:
-            return True
-        return self.is_ancestor(self.snapshot.commit, commit) if commit else until >= self.frozen
-
-    def _new_since(self, blob: str, path: str) -> set[int] | None:
-        """The lines of a file as of the snapshot's commit that an (older) content of it didn't
-        have yet. None: all of them (a binary file)."""
-        now = self.snapshot.blob(path)
-        diff = self._blob_diff(blob, now) if now else None
-        return diff[1] if diff is not None else None
-
-    def _frozen(self, path: str, line: int, partial: list[tuple[int, str]]) -> tuple:
-        """The origin of a line that is unchanged since the snapshot (path and line as of its
-        commit): its declaration there, and which of the attestations of older content had it."""
-        had = []
-        for k, blob in partial:
-            new = self._new_since(blob, path)
-            if new is not None and line not in new:
-                had.append(k)
-        return ("frozen", self.snapshot.lookup(path, line), tuple(had))
-
-    def _covers(self, k: int, attestation, origin) -> bool:
-        """Whether the content an attestation (the k-th of its file) checked had a line."""
-        if attestation[6] is not None:  # an attestation of a commit: the lines it landed, as they are
-            return origin[0] in ("landed", "released") and origin[1] == attestation[6]
+    def _covers(self, attestation, origin) -> bool:
+        """Whether the content an attestation checked had a line."""
+        if attestation[5] is not None:  # an attestation of a commit: the lines it landed, as they are
+            return origin[0] in ("landed", "released") and origin[1] == attestation[5]
         until, commit = attestation[0], attestation[1]
         if until == self.newest:
             return True
         kind = origin[0]
-        if kind == "frozen":
-            if attestation[4]:
-                return False  # the snapshot has its effect already
-            return k in origin[2] or self._whole_snapshot(attestation)
         if kind == "released":
             writer = origin[2] or origin[1]
             return bool(commit and self.is_ancestor(writer, commit))
@@ -1556,40 +1123,68 @@ class History:
                 names[current] = _unquote(row[len("filename "):])
         return rows
 
-    def _base_origins(self, path: str, need_writer: bool, partial: list[tuple[int, str]] = ()) -> list[tuple]:
+    def _base_origins(self, path: str, need_writer: bool) -> list[tuple]:
         """Where each line of a file of the default branch (at self.base) comes from:
-        ("frozen", index of its declaration in the snapshot, the attestations of older content
-        that had it) or
-        ("landed", the commit that landed it, the commit that wrote it if that is another one).
-        partial: (index, blob) of the file's attestations of content from before the snapshot."""
-        snapshot = self.snapshot
-        if snapshot and snapshot.blob(path) == self.base_blobs.get(path):  # unchanged since the snapshot
-            return [self._frozen(path, n, partial) for n in range(1, snapshot.lines(path) + 1)]
-        stop = snapshot.commit if snapshot else None
-        landed = self._blame(self.base, path, True, stop)
-        # lines from before the snapshot that it doesn't have (the file was excluded then, or
-        # declared as a whole): from history, as without a snapshot
-        if stop and any(stopped and sha == stop and snapshot.lookup(name.removeprefix(self.prefix), line) is None
-                        for sha, line, stopped, name in landed):
-            full = self._blame(self.base, path, True, None)
-            if len(full) == len(landed):
-                landed = [row if not (row[2] and row[0] == stop and snapshot.lookup(
-                    row[3].removeprefix(self.prefix), row[1]) is None) else full[n] for n, row in enumerate(landed)]
+        ("landed", the commit that landed it, the commit that wrote it if that is another one)."""
+        landed = self._base_blame(path, True)
         merges = {sha for sha, _, stopped, _ in landed if not stopped and len(self.parents.get(sha, [])) > 1}
         written = None
         if need_writer or any(self._side(m)[0] for m in merges):
-            written = self._blame(self.base, path, False, stop)
+            written = self._base_blame(path, False, landed)
             if len(written) != len(landed):
                 written = None
         out = []
         for n, (sha, line, stopped, name) in enumerate(landed):
-            if stopped and stop and sha == stop:
-                out.append(self._frozen(name.removeprefix(self.prefix), line, partial))
-            elif stopped or sha not in self.order:
+            if stopped or sha not in self.order:
                 out.append(("landed", None, None))  # a shallow boundary: older than anything we can see
             else:
                 writer = written[n][0] if written and not written[n][2] else None
                 out.append(("landed", sha, writer if writer != sha else None))
+        return out
+
+    def _base_blame(self, path: str, first_parent: bool, landed: list | None = None) -> list[tuple[str, int, bool, str]]:
+        """The whole history's blame of a file of the default branch at self.base (first_parent: the
+        commits that landed its lines, else those that wrote them), as _blame gives it. With a cache
+        of an earlier run at a first-parent commit of the default branch (the newest one there), git
+        only blames the commits since, and the lines from before come from the cache: blame passes a
+        line that a commit didn't change on to that commit's parent, so the rest is what blame
+        found at the cached commit. landed: the first-parent rows, for a line the cache can't place
+        otherwise (blame of the writers stopped at another commit than the cached one)."""
+        cache = self.cache
+        full = self.prefix + path
+        if cache is None:
+            return self._blame(self.base, path, first_parent, None)
+        rows = cache.rows(self.base, full, first_parent)
+        if rows is not None:
+            return rows
+        start = cache.start
+        if start is not None and start != self.base:
+            rows = self._through_cache(self._blame(self.base, path, first_parent, start), start, first_parent, landed)
+        if rows is None:
+            rows = self._blame(self.base, path, first_parent, None)
+        cache.record(full, first_parent, rows)
+        return rows
+
+    def _through_cache(self, recent: list, start: str, first_parent: bool, landed: list | None) -> list | None:
+        """The rows of a blame that stopped at the cached commit, with the lines from before it taken
+        from the cache; None where the cache doesn't have them (then git blames the whole history)."""
+        cache = self.cache
+        out = []
+        for n, row in enumerate(recent):
+            sha, line, stopped, name = row
+            if not stopped:
+                out.append(row)
+                continue
+            if sha != start:
+                # a writer older than the cached commit, on a branch merged since: the line's place at the
+                # cached commit is where the first-parent blame stopped
+                if first_parent or landed is None or n >= len(landed) or not landed[n][2] or landed[n][0] != start:
+                    return None
+                line, name = landed[n][1], landed[n][3]
+            before = cache.rows(start, name, first_parent)
+            if before is None or not 0 < line <= len(before):
+                return None
+            out.append(before[line - 1])
         return out
 
     def _writers(self, path: str, lines: int) -> list[str | None]:
@@ -1616,19 +1211,49 @@ class History:
                     if owner in self.branch_order:
                         return ("released", owner, writer if writer != owner else None)
             return ("pending", writer)
-        if self.snapshot:  # the content the snapshot has, under this name or one the file had before
-            names = [old]
-            for before, after in reversed(self.renames()):
-                if after == names[-1] and before not in names:
-                    names.append(before)
-            for name in names:
-                if self.snapshot.blob(name) == self.base_blobs.get(old) and self.snapshot.lookup(name, 1) is not None:
-                    return ("frozen", self.snapshot.lookup(name, 1), ())
-        out = _git(self.root, "log", "-1", "--first-parent", "--format=%H", self.base, "--", old, check=False)
-        sha = (out or "").strip()
+        # the last commit that changed its content, following renames: a commit that only moved it
+        # (R100) leaves it to the one before, as blame does for the lines of a text file. One
+        # 'git log -1' per name, which stops at the first commit, instead of --follow over the whole history.
+        cached = self.cache.unit(self.prefix + old, self._touched_since) if self.cache is not None else None
+        sha = cached if cached is not None else self._last_content_change(old)
+        if cached is None and self.cache is not None:
+            self.cache.record_unit(self.prefix + old, sha)
         if sha not in self.order:
             return ("landed", None, None)
         return ("landed", sha, None)
+
+    def _touched_since(self, start: str) -> set[str] | None:
+        """The paths (from the top of the repository) that a first-parent commit after start changed,
+        or added or deleted under a rename; None if git can't say."""
+        out = _git(self.root, "log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-only",
+                   "--format=", f"{start}..{self.base}", check=False)
+        if out is None:  # git older than 2.31: every parent of a merge, which lists more
+            out = _git(self.root, "log", "--first-parent", "-m", "--no-renames", "--name-only", "--format=",
+                       f"{start}..{self.base}", check=False)
+        if out is None:
+            return None
+        return {line for line in out.splitlines() if line}
+
+    def _last_content_change(self, old: str) -> str:
+        """The first-parent commit that last changed a file's content, under this name or one it had before."""
+        sha, name, rev, seen = "", old, self.base, set()
+        while name and rev and (name, rev) not in seen:
+            seen.add((name, rev))
+            sha = (_git(self.root, "log", "-1", "--first-parent", "--format=%H", rev, "--", name, check=False) or "").strip()
+            if not sha:
+                break
+            raw = _git(self.root, "diff-tree", "-r", "-M", "--raw", "--no-abbrev", "--no-commit-id", f"{sha}^", sha,
+                       check=False)
+            moved = None
+            for row in (raw or "").splitlines():
+                meta, _, paths = row.partition("\t")
+                parts = paths.split("\t")
+                if meta.split()[-1:] == ["R100"] and len(parts) == 2 and parts[1] == name:
+                    moved = parts[0]
+            if moved is None:
+                break
+            name, rev = moved, f"{sha}^"
+        return sha
 
     def _of_file(self, path: str) -> list[tuple]:
         """The attestations of a file, in the order they were recorded: its own, and the attestations
@@ -1636,11 +1261,10 @@ class History:
         own, every = self.attestations.get(path, []), self.attestations.get(None, [])
         if not every:
             return own
-        return sorted(own + every, key=lambda a: a[7])
+        return sorted(own + every, key=lambda a: a[6])
 
     def line_origins(self, path: str) -> list[tuple]:
-        """Where each line of a file comes from: ("frozen", ...) and ("landed", ...) as in
-        _base_origins, or ("pending", the commit of the change that wrote it, or None) for a line
+        """Where each line of a file comes from: ("landed", ...) as in _base_origins, or ("pending", the commit of the change that wrote it, or None) for a line
         that isn't on the default branch."""
         if (self.root / path).is_symlink():  # one unit, as git sees it (never read what it points to)
             return [self._unit_origin(path)]
@@ -1655,9 +1279,7 @@ class History:
         if old is None:  # a new file: every line is the change's
             return self._pending_origins(path, lines, [None] * lines)
         attestations = self._of_file(path)
-        partial = [(k, a[3]) for k, a in enumerate(attestations)
-                   if self.snapshot and a[6] is None and not a[4] and not self._whole_snapshot(a)]
-        base = self._base_origins(old, any(a[1] for a in attestations), partial)
+        base = self._base_origins(old, any(a[1] for a in attestations))
         new, gone = set(added), set(removed)
         out: list[tuple | None] = []
         at = 1  # the line of the default branch's file that the next unchanged line is
@@ -1724,12 +1346,8 @@ class History:
     def _line_pieces(self, origin: tuple, attestations: list, fb: dict[int, Piece]) -> tuple[tuple, bool]:
         """One piece per axis for the lines of one origin, and whether they are advisory."""
         # oldest checked content first: the later of two reviews is the review of the newer content
-        attested = [a[2] for a in sorted((a for k, a in enumerate(attestations) if self._covers(k, a, origin)),
-                                         key=lambda a: a[5])]
+        attested = [a[2] for a in sorted((a for a in attestations if self._covers(a, origin)), key=lambda a: a[4])]
         kind = origin[0]
-        if kind == "frozen":
-            owner = self.snapshot.pieces[origin[1]] if origin[1] is not None else {}
-            return self._combine(owner, (None, False), attested, fb, None, "the snapshot"), False
         if kind in ("landed", "released"):
             sha, writer = origin[1], origin[2]
             if sha is None:

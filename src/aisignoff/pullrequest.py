@@ -3,7 +3,7 @@ declares must be complete on its own, the rules of the branch it goes into apply
 those rules itself.
 
 These rules apply to the check before the merge only. How landed commits are read is unchanged, so
-existing history and snapshots keep their levels."""
+existing history keeps its levels."""
 from __future__ import annotations
 
 import re
