@@ -99,12 +99,26 @@ def _header_path(text: str) -> str | None:
     return None if p == "/dev/null" else p[2:]
 
 
-def _blob_units(root: Path, blob: str) -> int:
-    """The units of a blob, as line_count counts a file: a binary or empty one is one."""
+def _blob_units(root: Path, blob: str) -> tuple[int, bool]:
+    """The units of a blob, as line_count counts a file (a binary or empty one is one), and whether
+    it is binary, as the history tells (a NUL among its first bytes)."""
     data = _git(root, "cat-file", "blob", blob, check=False) if blob.strip("0") else ""
-    if not data or "\x00" in data[:BINARY_PROBE]:
-        return 1
-    return data.count("\n") + (not data.endswith("\n"))
+    if "\x00" in data[:BINARY_PROBE]:
+        return 1, True
+    if not data:
+        return 1, False
+    return data.count("\n") + (not data.endswith("\n")), False
+
+
+def _file_is_binary(root: Path, path: str) -> bool:
+    """Whether a file of the work tree is binary, as the history tells (a symlink isn't read)."""
+    if (root / path).is_symlink():
+        return False
+    try:
+        with open(root / path, "rb") as f:
+            return b"\x00" in f.read(BINARY_PROBE)
+    except OSError:
+        return False
 
 
 # the empty blob, in SHA-1 and SHA-256 repositories
@@ -123,8 +137,24 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
 
     The file names come from the header of each file's block (from 'diff --git' to its first
     hunk) only: a removed line "-- comment" reads "--- comment" in the hunk, like a header."""
-    out = _git(root, "-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color", "--full-index",
-               "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", *(["-w"] if ignore_whitespace else []), base, "--")
+    args = ["-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color", "--full-index",
+            "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", *(["-w"] if ignore_whitespace else [])]
+    suppressed: list[tuple[str, str]] = []
+    result = _parse_diff(root, _git(root, *args, base, "--"), suppressed)
+    if suppressed:
+        # text files whose patch git left out ('-diff' or a 'binary' diff driver in .gitattributes): their
+        # lines, from a text diff of those files alone
+        paths = sorted({f":(literal){p}" for pair in suppressed for p in pair})
+        forced = _parse_diff(root, _git(root, *args, "--text", base, "--", *paths), [])
+        for key in suppressed:
+            if key in forced:
+                result[key] = forced[key]
+    return result
+
+
+def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
+    """The changed lines of the output of changed_lines' git diff. A file that git shows as binary
+    though both sides are text is added to suppressed, as (old path, new path)."""
     result: dict = {}
     old = new = None
     removed: list[int] = []
@@ -175,9 +205,15 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
         elif line.startswith("rename to "):
             new = _unquote(line[len("rename to "):])
         elif line.startswith("Binary files ") and line.endswith(" differ"):
+            old_units, old_binary = _blob_units(root, blobs[0]) if old else (0, False)
+            new_binary = bool(new) and _file_is_binary(root, new)
+            if old and new and not old_binary and not new_binary:
+                # text on both sides: git left the patch out because of an attribute, not the content
+                suppressed.append((old, new))
+                continue
             # a binary file counts as one line, as everywhere else; when only one side is binary, the
             # other side's text lines are all removed or added (none of them is in the other side)
-            removed = list(range(1, _blob_units(root, blobs[0]) + 1)) if old else []
+            removed = list(range(1, old_units + 1)) if old else []
             added = list(range(1, line_count(root, new) + 1)) if new else []
     flush()
     return result

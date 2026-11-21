@@ -2,6 +2,13 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.19.4
+
+The fix of the independent review of 0.19.3 ([reviews/2026-11-21-history-0193-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-history-0193-codex.md)): text files whose patch git leaves out.
+
+- Fixed: a text file marked `-diff` or `binary` in `.gitattributes`, or given a diff driver with `binary = true`, counted as rewritten as a whole when one line of it changed (since 0.19.3; before, its changed lines could be the wrong ones). Its unchanged lines took the change's levels, and `diff` counted every line as removed and added. aisignoff now tells binary content from text by the content, as everywhere else, and reads the changed lines of such a text file from a text diff. A binary file replaced with text still counts as all new.
+- Fixed: a `textconv` diff driver could move the changed lines. The changed lines are read from the file's own content.
+
 ## 0.19.3
 
 The fixes of the independent reviews of 0.19.2 ([reviews/2026-11-21-pull57-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-pull57-codex.md)) and of `history.py` ([reviews/2026-11-21-history-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-history-codex.md)): a binary file replaced with text, and the cache.
