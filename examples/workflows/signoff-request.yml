@@ -135,7 +135,7 @@ jobs:
           F_AI = "Did an AI review it?"
           F_AI_BY = "Which model reviewed it, and how?"
           F_FINDINGS = "What did the AI review find?"
-          FINDINGS_FOR = ("A2", "A3")   # the AI review levels that record their findings
+          FINDINGS_FOR = ("A1", "A2", "A3")   # the AI review levels that record their findings
           F_NOTES = "Notes for the reviewer"
           F_CONFIRM = "Confirmation"
           KINDS = {"Declare files": "annotate", "Raise the review": "attest", "Correct the declaration of a commit": "commit"}
@@ -265,7 +265,7 @@ jobs:
           if ai in FINDINGS_FOR and not findings:
               problems.append(f'An AI review of {ai} records what it found: choose it under "{F_FINDINGS}".')
           if findings and ai not in FINDINGS_FOR:
-              problems.append(f'"{F_FINDINGS}" goes with an AI review of {" or ".join(FINDINGS_FOR)}; leave it empty.')
+              problems.append(f'"{F_FINDINGS}" goes with an AI review of {", ".join(FINDINGS_FOR)}; leave it empty.')
           if problems:
               reject(problems)
 

@@ -12,7 +12,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, GEN, GENERATION, HUM, HUMAN, Declaration,
+from .model import (AI, AIR, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN, GENERATION, HUM, HUMAN, Declaration,
                     axis_level, printable, unset, validate)
 from .history import GIT, comparable, git_env
 from .project import FileResult, Project, line_count
@@ -295,7 +295,7 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
             base_attestations[entry] -= 1
             continue
         item = {"path": a.path, "blob": a.blob, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
-        if isinstance(a.values.get(FINDINGS), str) and a.values.get(AIR) in ("A2", "A3"):
+        if isinstance(a.values.get(FINDINGS), str) and a.values.get(AIR) in FINDINGS_REVIEWS:
             item["findings"] = a.values[FINDINGS]  # what the review found sets the findings of the file's lines
         attested.append(item)
     return {

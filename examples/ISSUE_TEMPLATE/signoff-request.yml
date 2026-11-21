@@ -87,7 +87,7 @@ body:
     id: ai-findings
     attributes:
       label: What did the AI review find?
-      description: A2 and A3 only. The most severe finding of the review; findings block nothing, reports show them.
+      description: A1 to A3 only. The most severe finding of the review; findings block nothing, reports show them.
       options:
         - "none: nothing found"
         - "trivial: no effect on results or behaviour"

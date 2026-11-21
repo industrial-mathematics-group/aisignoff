@@ -1,5 +1,5 @@
 """The fixes of 1.0.0rc8, from the two reviews of 1.0.0rc7: the report must be a file of the change, the
-findings line is read only next to A2 and A3, .git-blame-ignore-revs is protected, and the model
+findings line is read only next to A2 and A3 (now also A1), .git-blame-ignore-revs is protected, and the model
 name heuristics. (The severity threshold of rc8 gave way to the findings axis: test_findings.py.)"""
 import pytest
 
@@ -70,11 +70,19 @@ def test_a_report_without_a_model_fails(feature, tmp_path, capsys):
 
 
 # ------------------------------------------------------------------ the findings line
-def test_the_findings_line_is_read_only_for_a2_and_a3(feature, tmp_path, capsys):
+def test_the_findings_line_is_read_for_a1_to_a3(feature, tmp_path, capsys):
     a1 = ("AI-Generation: G3\nAssisted-by: Claude Opus (Anthropic)\nHuman-Review: H1\nReviewed-by: Jane\n"
           "AI-Review: A1\nAI-Reviewed-by: Claude Opus, new session\n")
-    for value in ("n/a", "-", "major", ""):
+    # A1 gives its findings, but needs no report
+    for value in ("none", "major"):
         assert pr(feature, tmp_path, a1 + f"AI-Review-Findings: {value}\n", capsys)[0] == 0
+    for value in ("n/a", "-", ""):
+        code, out = pr(feature, tmp_path, a1 + f"AI-Review-Findings: {value}\n", capsys)
+        assert code == 1 and "AI-Review-Findings" in out, value
+    # next to A0 the line isn't read, so a template's "n/a" does no harm
+    a0 = a1.replace("A1\nAI-Reviewed-by: Claude Opus, new session\n", "A0\n")
+    for value in ("n/a", "-", "major", ""):
+        assert pr(feature, tmp_path, a0 + f"AI-Review-Findings: {value}\n", capsys)[0] == 0
     write(feature, "reviews/new.md", "# this review\n")
     assert pr(feature, tmp_path, a2("critical", "reviews/new.md") + "AI-Review-Findings: none\n", capsys)[0] == 0
     assert pr(feature, tmp_path, a2("minor", "reviews/new.md") + "AI-Review-Findings:\n", capsys)[0] == 0

@@ -279,7 +279,7 @@ jobs:
           Rules the answers must meet:
           - G1-G3 need "models": the AI tools and models that wrote parts, as precisely as known, e.g. "Claude Opus 5.5 (Anthropic)". G0 has none.
           - A1-A3 need "ai_reviewers": the reviewing model and how, e.g. "Claude Opus 5.5 (Anthropic), new session without the original conversation". For A2 and A3 it must not be a model named in "models". A self-check by the session that wrote it is A0. A0 has none.
-          - A2 and A3 need "findings": the most severe finding the review reported: none (nothing found), trivial (no effect on results or behaviour), minor (a small effect, with a workaround), major (wrong results or behaviour in some cases) or critical (wrong results or behaviour in normal use). A finding blocks nothing; it is recorded. Never guess it: ask. A0 and A1 leave it empty.
+          - A1-A3 need "findings": the most severe finding the review reported: none (nothing found), trivial (no effect on results or behaviour), minor (a small effect, with a workaround), major (wrong results or behaviour in some cases) or critical (wrong results or behaviour in normal use). A finding blocks nothing; it is recorded. Never guess it: ask. A0 leaves it empty.
           - A human level needs "responsible": the full name of the person who did the human check (it is recorded as Reviewed-by). Without a human level, leave it empty.
           - Paths are relative to the repository root and must exist in the file list below; a folder ends with "/" and covers everything in it; globs like "notebooks/*.ipynb" are allowed.
           - The [policy] of SIGNOFF.toml may require minimum levels for some paths.
@@ -298,7 +298,7 @@ jobs:
                   f"<recent_commits>\n{log}</recent_commits>\n</repository>\n\n"
                   f"<conversation issue=\"#{NUMBER}\">\n{conversation}\n</conversation>")
 
-          FINDINGS_FOR = ("A2", "A3")   # the AI review levels that record their findings
+          FINDINGS_FOR = ("A1", "A2", "A3")   # the AI review levels that record their findings
           LEVEL = lambda axis: {"type": "string", "enum": [""] + [f"{axis}{i}" for i in range(4)]}
           STRINGS = {"type": "array", "items": {"type": "string"}}
           SCHEMA = {
@@ -408,7 +408,7 @@ jobs:
               if ai in FINDINGS_FOR and not findings:
                   out.append(f"An AI review of {ai} needs what it found: none, trivial, minor, major or critical.")
               if findings and ai not in FINDINGS_FOR:
-                  out.append(f"Findings go with an AI review of {' or '.join(FINDINGS_FOR)}.")
+                  out.append(f"Findings go with an AI review of {', '.join(FINDINGS_FOR)}.")
               if out or kind == "commit":
                   return out
               # what aisignoff itself says, on a scratch copy of the default branch (discarded afterwards)

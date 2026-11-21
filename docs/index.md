@@ -29,7 +29,7 @@ Every file or line gets one level on each of three axes:
 | **2** | **G2** AI-generated | **H2** Reviewed line by line | **A2** Check by a different model |
 | **3** | **G3** AI-autonomous | **H3** Independently validated | **A3** Validated by a different model |
 
-Reports add a fourth axis, **Findings**: what the last independent AI review (A2 or A3) of a line left open, from **F0** (nothing) to **F3** (a critical finding), or **F-** where no such review has covered the line since it last changed. A finding is recorded, never a threshold.
+Reports add a fourth axis, **Findings**: what the last independent AI review (A1, A2 or A3) of a line left open, from **F0** (nothing) to **F3** (a critical finding), or **F-** where no such review has covered the line since it last changed. A finding is recorded, never a threshold.
 
 The rules that go with them are on [Levels and rules](levels.md).
 

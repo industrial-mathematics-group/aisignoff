@@ -55,7 +55,7 @@ The terms:
 
 - **A2: one report,** with only the results. It is committed with the change (for example `reviews/pull12.md`) or linked.
 - **A3: everything.** The same report, and with it what the reviewer produced: the new tests, benchmarks, scripts or derivations.
-- **A1** needs no record.
+- **A1** needs no report, but gives its findings like A2 and A3 ([below](#the-record-of-a-review)), so that a check by the same model is a reference for what a different model finds.
 
 **The reviewer only reviews.** It reports what it found and changes nothing in the content it reviews: a reviewer that fixes what it found has written part of the content, so it is no longer independent of it, and the next review would need yet another model. The fixes are the author's, in the same change or a later one, and a later review checks them.
 
@@ -72,7 +72,9 @@ AI-Reviewed-by: GPT Sol (OpenAI), reviews/pull12.md
 AI-Review-Findings: minor
 ```
 
-In a pull request template, the same line stands below the AI review boxes. It belongs to A2 and A3: next to A0 or A1 it isn't read, so it can be left empty or say `n/a`. With several such lines, the most severe value counts. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
+A review of A1 gives the same line, without a report: `AI-Reviewed-by` names the model and how it reviewed, such as `Claude Opus 5.5 (Anthropic), new session`. What a context-free check by the model that wrote the content finds is the reference for the findings of a different model at A2 and A3.
+
+In a pull request template, the same line stands below the AI review boxes. It belongs to A1, A2 and A3: next to A0 it isn't read, so it can be left empty or say `n/a`. With several such lines, the most severe value counts. `exclude = ["reviews/**"]` in `SIGNOFF.toml` keeps the reports themselves out of the declarations.
 
 A finding is recorded, not a threshold: a change with a major finding can be merged, and its lines show the finding until a later review finds it fixed ([Findings](#findings-f0-to-f3)).
 
@@ -89,7 +91,7 @@ The four levels follow the severity of IEEE Std 1044-2009, the standard classifi
 
 What `lint` checks:
 
-- **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity, and its report: `AI-Reviewed-by` names the reviewing model and then a link or a file inside the repository that the change adds or modifies. A report that was there before, such as an earlier review's, doesn't count. Nothing is read from the report.
+- **Before the merge** ([`lint --declare-from`](ci.md#checking-the-pull-request-description)), a description that declares A1, A2 or A3 needs the line `AI-Review-Findings:` with `none` or a severity. A2 and A3 also need their report: `AI-Reviewed-by` names the reviewing model and then a link or a file inside the repository that the change adds or modifies. A report that was there before, such as an earlier review's, doesn't count. Nothing is read from the report.
 - **Any severity passes.** An invalid value (`AI-Review-Findings: high`) fails, in a pull request description and in a landed commit's message.
 - A landed commit with a line that looks like the findings line but isn't (`AI-Review-Finding:`) gets a warning (`lint --strict` fails on it): its lines stay at F-.
 - With `merge-method = "rebase"`, the description lands nowhere and isn't checked, and commit messages need neither the line nor the report. In a repository still on `version = 3`, the line and the report are checked for the ticked boxes of today's template, not for trailers on the old scale.
@@ -102,7 +104,7 @@ Reports show a fourth axis next to the three that are declared: what the last in
 
 | Level | Meaning |
 |---|---|
-| **F-** Not reviewed | No independent AI review (A2 or A3 with its findings) has covered the line since it last changed. The default |
+| **F-** Not reviewed | No independent AI review (A1, A2 or A3 with its findings) has covered the line since it last changed. The default |
 | **F0** Reviewed, nothing open | The last review found nothing in the change, or only trivial findings |
 | **F1** Minor finding open | The last review found a minor problem |
 | **F2** Major finding open | The last review found a major problem |
@@ -110,10 +112,10 @@ Reports show a fourth axis next to the three that are declared: what the last in
 
 The findings are a state of the code, not of the pull request:
 
-- **A review sets the lines it covered.** The commit that lands a change with an A2 or A3 review gives its findings to the lines it lands. An [attestation](history.md#raising-a-review-attestations) of A2 or A3 with `--findings` gives them to every line of the file it attests, and a [`[[commits]]` entry](history.md#correcting-a-commit) can restate them with `AI-Review-Findings`. In file-level declarations, an annotation can give them with the same key.
+- **A review sets the lines it covered.** The commit that lands a change with an A1, A2 or A3 review gives its findings to the lines it lands. An [attestation](history.md#raising-a-review-attestations) of A1, A2 or A3 with `--findings` gives them to every line of the file it attests, and a [`[[commits]]` entry](history.md#correcting-a-commit) can restate them with `AI-Review-Findings`. In file-level declarations, an annotation can give them with the same key.
 - **A change without a review changes nothing else.** Lines it doesn't touch keep the findings of the last review that covered them, just as they keep their human and AI review levels.
 - **What a later change touches goes back to F-,** because new code hasn't been reviewed. A fix therefore becomes unreviewed, never silently clean. Only the next review can set F0.
-- **The newest review counts,** not the highest level: an attestation after the commit replaces the commit's findings for the lines it covers. Newest means of the newest content: an attestation `--at` an older commit, recorded after a review of the current file, doesn't replace that review's findings. A review of A0 or A1 has no findings and leaves them as they are.
+- **The newest review counts,** not the highest level: an attestation after the commit replaces the commit's findings for the lines it covers. Newest means of the newest content: an attestation `--at` an older commit, recorded after a review of the current file, doesn't replace that review's findings. A0 has no findings, and an A1–A3 review without them (such as an A1 commit from before A1 gave findings) leaves them as they are; a commit without them leaves the lines it lands at F-.
 
 F- (unreviewed) and F2 or F3 (a known open problem) are the two that need attention: the [report](report.md#the-interactive-report) shows both as figures at the top. The findings are per line as far as the review's commit or attestation reaches; a finding that names its lines can't narrow them further, since aisignoff never reads the report.
 

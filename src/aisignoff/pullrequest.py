@@ -187,11 +187,11 @@ def _report_paths(root: Path, item: str) -> list[str]:
 
 
 def review_problems(root: Path, piece, findings: str | None, changed: set[str] | None = None) -> list[str]:
-    """The check before the merge of a pull request that declares A2 or A3 (PIECE, its AI review):
-    the "AI-Review-Findings:" line FINDINGS, and that AI-Reviewed-by names the reviewing model and
-    the review's report: a link, or a file inside the repository that the change adds or modifies
-    (CHANGED, from change_files; None: any file of the repository). What the report says is never
-    read: its form is the repository's business."""
+    """The check before the merge of a pull request that declares A1-A3 (PIECE, its AI review): the
+    "AI-Review-Findings:" line FINDINGS, and for A2 and A3 that AI-Reviewed-by names the reviewing
+    model and the review's report: a link, or a file inside the repository that the change adds or
+    modifies (CHANGED, from change_files; None: any file of the repository). What the report says is
+    never read: its form is the repository's business."""
     from .history import _git
     from .model import findings_problems
     level = piece.level if piece else None

@@ -35,9 +35,9 @@ import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration, canonical_key,
-                    findings_problems, findings_value, from_version_3, mentions_self_check, valid_findings, validate,
-                    worst_findings)
+from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, FINDINGS_REVIEWS, LEVEL_KEYS, LIST_KEYS, TODO, Declaration,
+                    canonical_key, findings_problems, findings_value, from_version_3, mentions_self_check, valid_findings,
+                    validate, worst_findings)
 
 UNCOMMITTED = "0" * 40
 SNAPSHOT = "SIGNOFF.snapshot.json"  # written by 'aisignoff freeze'
@@ -998,7 +998,7 @@ class History:
         body = message.split("\n", 1)[1] if "\n" in message else ""
         self._trailers[sha], both = parse_message(body, author, self.describe(sha), self.config.version_3)
         ai = self._trailers[sha].get(2)
-        if ai is not None and ai.level in ("A2", "A3") and not self.config.version_3:
+        if ai is not None and ai.level in FINDINGS_REVIEWS and not self.config.version_3:
             # the findings of the review travel with the AI review: they become the findings level of
             # the lines this commit lands (a commit without them leaves its lines at F-)
             value = findings_line(body)
@@ -1741,7 +1741,7 @@ class History:
                 best = fb.get(i)
             out.append(best)
         if out[2] is not None and out[2].level is not None:
-            # the findings level: what the last independent AI review (A2 or A3) of the line found. The
+            # the findings level: what the last independent AI review (A1-A3) of the line found. The
             # owner's review comes first (or the file level's, where that declares the line), then the
             # attestations that cover it, each a review of content that already had the line. A review
             # without findings leaves them as they are; an owner without one leaves the line at F-
@@ -1752,7 +1752,7 @@ class History:
             reviews += [pieces.get(2) for pieces in attested]
             findings = None
             for p in reviews:
-                if p is not None and p.level in ("A2", "A3") and p.findings:
+                if p is not None and p.level in FINDINGS_REVIEWS and p.findings:
                     findings = p.findings
             if findings != out[2].findings:
                 out[2] = replace(out[2], findings=findings)

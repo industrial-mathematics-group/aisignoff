@@ -114,7 +114,7 @@ The levels of the lines changed between the merge base of `BASE` and `HEAD`, and
 aisignoff attest PATHS [-H H] [-a A [--findings SEVERITY]] [--reviewed-by …] [--ai-reviewed-by …] [--at REV]
 ```
 
-Appends one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. An AI review of A2 or A3 also gives `--findings` (`none`, `trivial`, `minor`, `major` or `critical`), which sets the [findings level](levels.md#findings-f0-to-f3) of every line of the file. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
+Appends one `[[attestations]]` entry per file, with the git blob hash of its content; a folder means every declared file below it. Give at least one review level with the names it needs. An AI review of A1, A2 or A3 also gives `--findings` (`none`, `trivial`, `minor`, `major` or `critical`), which sets the [findings level](levels.md#findings-f0-to-f3) of every line of the file. Generation, `--assisted-by` and `TODO` are refused, and so are files under `precedence = "override"`. `--at REV` attests the files as they were at commit `REV`. Counts only with `[history]`. See [Raising a review](history.md#raising-a-review-attestations).
 
 ## freeze
 

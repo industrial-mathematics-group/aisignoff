@@ -124,7 +124,7 @@ AI-Review-Findings:
 
 Boxes in code blocks and HTML comments don't count, and other bold checklist items (`- [x] **Breaking change**`) aren't models. Generation or human review boxes that are there with none ticked are an unfilled template: `TODO`, which `lint` reports.
 
-The line `AI-Review-Findings:` belongs to a review of A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)), and it becomes the [findings level](levels.md#findings-f0-to-f3) of the lines the commit lands. It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
+The line `AI-Review-Findings:` belongs to a review of A1, A2 or A3: the highest severity it found in the change, or `none` ([The record of a review](levels.md#the-record-of-a-review)), and it becomes the [findings level](levels.md#findings-f0-to-f3) of the lines the commit lands. It is the one "Key: value" line that goes with ticked boxes, and it is written the same way in a commit message.
 
 Two more rules keep a template to the [definitions](levels.md):
 

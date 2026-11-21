@@ -75,7 +75,7 @@ class FakeClaude:
 def answer(status="ready", message="You wrote results/ with Claude Opus 5.5 and reran it.", kind="annotate",
            paths=("results/",), commit="", generation="G2", models=("Claude Opus 5.5 (Anthropic)",), human="H1",
            responsible="Jane Doe", ai_review="A1", ai_reviewers=("Claude Sonnet 5.5 (Anthropic), new session",),
-           findings="", notes=""):
+           findings="minor", notes=""):
     return dict(status=status, message=message, kind=kind, paths=list(paths), commit=commit, generation=generation,
                 models=list(models), human=human, responsible=responsible, ai_review=ai_review,
                 ai_reviewers=list(ai_reviewers), findings=findings, notes=notes)
@@ -205,7 +205,7 @@ def test_answers_that_fail_the_checks_go_back_to_the_model(repo):
 def test_an_independent_review_hands_on_its_findings(repo):
     # A2 without findings goes back to the model; with them, the attestation records them
     claude = FakeClaude(answer(kind="attest", generation="", models=(), human="", responsible="", ai_review="A2",
-                               ai_reviewers=("GPT Sol (OpenAI), results/review.md",)),
+                               ai_reviewers=("GPT Sol (OpenAI), results/review.md",), findings=""),
                         answer(kind="attest", generation="", models=(), human="", responsible="", ai_review="A2",
                                ai_reviewers=("GPT Sol (OpenAI), results/review.md",), findings="minor"))
     r, posted, out = assist(repo, claude)
@@ -247,3 +247,15 @@ def test_without_a_pr_template_the_key_lines_declare_the_assistant(checkout):
     r = subprocess.run(["aisignoff", "lint", "--declare-from", str(desc), "--author", "github-actions[bot]",
                         "--base", "origin/main"], cwd=work, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout
+
+
+def test_an_a1_review_hands_on_its_findings_too(repo):
+    # A1 records its findings as a reference for those of a different model; A0 has none
+    claude = FakeClaude(answer(findings=""), answer(findings="", status="need_info", message="What did it find?"))
+    r, posted, out = assist(repo, claude)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not out and "An AI review of A1 needs what it found" in claude.requests[1][1]["messages"][2]["content"]
+    claude = FakeClaude(answer(ai_review="A0", ai_reviewers=(), findings="none"),
+                        answer(ai_review="A0", ai_reviewers=(), findings="none", status="need_info", message="?"))
+    r, posted, out = assist(repo, claude)
+    assert not out and "Findings go with an AI review of A1, A2, A3" in claude.requests[1][1]["messages"][2]["content"]

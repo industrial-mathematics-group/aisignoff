@@ -191,13 +191,16 @@ def test_the_findings_line_of_a_review():
     assert findings_line("ai-review-findings:\n") == "" and findings_line("AI-Review: A2\n") is None
     assert findings_line("```\nAI-Review-Findings: major\n```\n<!-- AI-Review-Findings: major -->\n") is None
     assert findings_problems("A2", "none") == [] and findings_problems("A3", "minor") == []
-    assert findings_problems("A1", None, required=True) == [] and findings_problems("A2", None) == []
+    assert findings_problems("A0", None, required=True) == [] and findings_problems("A2", None) == []
     assert "A2 needs a line 'AI-Review-Findings:'" in findings_problems("A2", "", required=True)[0]
+    # A1 gives its findings too, as a reference for those of a different model
+    assert "A1 needs a line 'AI-Review-Findings:'" in findings_problems("A1", None, required=True)[0]
+    assert findings_problems("A1", "minor") == [] and "invalid" in findings_problems("A1", "n/a")[0]
     assert "invalid AI-Review-Findings 'high'" in findings_problems("A2", "high")[0]
     # any severity is valid: a finding is recorded, it blocks nothing
     assert findings_problems("A2", "Major") == [] and findings_problems("A3", "critical", required=True) == []
-    # the line belongs to A2 and A3: below that it isn't read, so a template's "n/a" does no harm
-    assert findings_problems("A1", "minor") == [] and findings_problems("A0", "n/a", required=True) == []
+    # the line belongs to A1-A3: next to A0 it isn't read, so a template's "n/a" does no harm
+    assert findings_problems("A0", "n/a", required=True) == [] and findings_problems(None, "n/a", required=True) == []
     assert findings_problems("A2", "None.") == [] and findings_problems("A2", "**minor**") == []
     # several lines: the most severe counts, and an empty one only when none is filled in
     assert findings_line("AI-Review-Findings: critical\nAI-Review-Findings: none\n") == "critical"
@@ -227,9 +230,11 @@ def test_findings_levels():
     base = {"AI-Generation": "G3", "Assisted-by": ["M"], "Human-Review": "H1", "Reviewed-by": ["J"]}
     a2 = Declaration.from_mapping({**base, "AI-Review": "A2", "AI-Reviewed-by": ["N"], "AI-Review-Findings": "major"}, "t")
     assert counted_findings(a2, []) == "F2" and a2.as_dict()["AI-Review-Findings"] == "major"
-    # only an independent review (A2, A3) has findings; an error about the AI review leaves F-
+    # only an independent review (A1-A3) has findings; an error about the AI review leaves F-
     a1 = Declaration.from_mapping({**base, "AI-Review": "A1", "AI-Reviewed-by": ["N"], "AI-Review-Findings": "none"}, "t")
-    assert counted_findings(a1, []) == "F-"
+    assert counted_findings(a1, []) == "F0"
+    a0 = Declaration.from_mapping({**base, "AI-Review": "A0", "AI-Review-Findings": "none"}, "t")
+    assert counted_findings(a0, []) == "F-"
     assert counted_findings(a2, ["A2 needs AI-Reviewed-by (reviewing model and session)"]) == "F-"
     assert "AI-Review-Findings" not in Declaration.from_mapping(base, "t").as_dict()
 
