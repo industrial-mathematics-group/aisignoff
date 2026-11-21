@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==1.0.0rc10"
+      - run: pip install "aisignoff==0.15.0"
       - run: aisignoff lint
 ```
 
@@ -60,7 +60,7 @@ on:
 - `--author` names who the human review of a ticked template is by: the pull request's author. For a pull request opened by a bot (a login ending in `[bot]`), the description must name a human on a line `Responsible person: @login`, and that person is the reviewer; a bot can't be.
 - `--base` is the branch the pull request goes into. `HEAD^1` is the first parent of GitHub's merge preview, the base branch as this run merged it. A pull request into another branch than the default one declares nothing, so its description isn't applied or checked.
 
-With `--declare-from`, `lint` checks the pull request as a whole, before it is merged (aisignoff >= 1.0.0rc3):
+With `--declare-from`, `lint` checks the pull request as a whole, before it is merged (aisignoff 1.0.0rc3 and later, so 0.15.0 too):
 
 - **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. A review of A1, A2 or A3 gives its highest finding, and A2 and A3 also their report, a link or a file that the pull request adds or modifies ([Severity](levels.md#severity)); any severity passes, since a finding is recorded, not a threshold. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
 - **The base branch sets the rules.** With `--base`, the `[policy]` of the base branch's `SIGNOFF.toml` applies to the merged result, not the pull request's own.
@@ -182,7 +182,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v1.0.0rc10   # the same version as in your workflows
+    rev: v0.15.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```
