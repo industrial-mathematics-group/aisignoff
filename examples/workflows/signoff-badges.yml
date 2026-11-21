@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.19.3"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.19.4"   # pin a release, so a new version can't break your CI unannounced
   WEIGHT: files                # or "lines": weight each file by its number of lines
 
 jobs:
