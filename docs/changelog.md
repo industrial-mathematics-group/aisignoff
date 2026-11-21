@@ -2,6 +2,15 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.19.2
+
+The fixes of the independent review of the 0.19.1 codebase ([reviews/2026-11-21-full-codebase-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-full-codebase-codex.md)): `gc` with quoted table headers, the cache and non-ASCII file names, symlinks, and empty files in `diff`.
+
+- Fixed: `gc` could delete the wrong entry of `SIGNOFF.toml`. It didn't count an `[[attestations]]` or `[[commits]]` header with a quoted key, such as `[[ "attestations" ]]`, as an entry, so it deleted the table after it, and its check compared only the levels, so a live review that said the same as the dead one went instead (a reviewed file could drop from H3 to H1). `gc` now reads every header as TOML does, refuses entries it can't tell apart by line (an inline array) and leaves the file as it is, and checks the path, blob and commit of every entry it keeps before it writes.
+- Fixed: with the cache, an edit of a binary or empty file or a symlink with a non-ASCII name kept the levels of the commit before it. The changed names are read as they are, not as git quotes them. A commit that only renamed such a file is also recognised now, so the file keeps the levels of the commit that last changed its content.
+- Fixed: a symlink couldn't take a review of the whole file. `attest` hashed what it points to (or failed when that is missing), and `lint` called a review of a dangling symlink a record that covers no line. A symlink is now hashed as git stores it, its target text, whether or not the target exists.
+- Fixed: `diff` didn't count an empty file as one unit once git tracked it: an empty file staged, committed or deleted counted as no line. It also counts the unit when an empty file gets lines or a file is emptied.
+
 ## 0.19.1
 
 The fixes of the independent review of 0.19.0: the order of reviews after a revert, quoted table headers in `SIGNOFF.toml`, and `gc` with excluded files.

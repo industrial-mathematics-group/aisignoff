@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import __version__, guide
-from .config import FILENAME, VERSION, ConfigError, config_path, load
+from .config import FILENAME, VERSION, ConfigError, config_path, load, load_text
 from .globbing import escape
 from .model import (AI, AI_REVIEWED, AIR, ASSISTED, FINDINGS, FINDINGS_AXIS, FINDINGS_LEVELS, FINDINGS_REVIEWS, GEN,
                     GENERATION, HUM, HUMAN, NO_FINDINGS, REVIEWED, SEVERITIES, TODO, UNREVIEWED, Declaration, Policy, counted_findings, counted_level,
@@ -871,7 +871,8 @@ def cmd_attest(args) -> int:
                 raise UsageError(f"{rel} does not exist at {args.at} (for a file renamed since, write the entry "
                                  "by hand with the blob of its old path)")
         else:
-            blob = _git_out(root, "hash-object", "--", rel)
+            from .history import hash_file
+            blob = hash_file(root, rel)  # a symlink: its target text, as git stores it
         if not blob:
             raise UsageError(f"cannot hash {rel}")
         block += ["", "[[attestations]]", f"path = {_toml_str(rel)}", f'blob = "{blob}"']
@@ -910,18 +911,25 @@ def cmd_correct(args) -> int:
 
 
 # ---------------------------------------------------------------- gc
-def remove_tables(text: str, kind: str, indices: set[int]) -> str:
+def remove_tables(text: str, kind: str, indices: set[int], count: int | None = None) -> str:
     """SIGNOFF.toml without the [[kind]] tables of these 1-based positions. A table runs from its
-    header to the next header; comment lines right above the next header stay with that one."""
+    header to the next header; comment lines right above the next header stay with that one. The
+    header's key may be bare, "quoted" or 'quoted', as TOML allows. With COUNT (the number of
+    [[kind]] entries TOML reads), a file whose headers don't match it (entries written another way,
+    such as an inline array) raises ConfigError: its entries can't be told apart by line."""
     import re
+    from .history import History
     lines = text.splitlines(keepends=True)
     header = re.compile(r"^\s*\[")
-    own = re.compile(r"^\s*\[\[\s*" + kind + r"\s*\]\]")
+    own = re.compile(History._HEADER.format(name=re.escape(kind)))
     starts = [i for i, line in enumerate(lines) if header.match(line)]
+    if count is not None and sum(1 for i in starts if own.match(lines[i].rstrip("\r\n"))) != count:
+        raise ConfigError(f"the [[{kind}]] entries of {FILENAME} aren't all written as [[{kind}]] tables, "
+                          "so gc can't tell which lines to delete; delete them by hand")
     drop: set[int] = set()
     n = 0
     for k, start in enumerate(starts):
-        if not own.match(lines[start]):
+        if not own.match(lines[start].rstrip("\r\n")):
             continue
         n += 1
         if n not in indices:
@@ -938,6 +946,11 @@ def remove_tables(text: str, kind: str, indices: set[int]) -> str:
     while out and not out[-1].strip():
         out.pop()
     return "".join(out).rstrip("\n") + "\n"
+
+
+def _entry_identity(e) -> tuple:
+    """What an attestation or [[commits]] entry is: what it covers and what it says."""
+    return (getattr(e, "path", None), getattr(e, "blob", None), e.commit, e.values)
 
 
 def cmd_gc(args) -> int:
@@ -958,30 +971,36 @@ def cmd_gc(args) -> int:
     if not own and not files:
         print("Every record covers a line. Nothing to delete.")
         return 0
+    text = None
+    if own:  # the file without them, checked before anything is shown or written
+        path = project.config.path
+        before = project.config
+        try:
+            text = path.read_text(encoding="utf-8")
+            for kind, cls, entries in (("attestations", True, before.attestations), ("commits", False, before.commits)):
+                gone = {e.index for e in own if hasattr(e, "blob") == cls}
+                if gone:
+                    text = remove_tables(text, kind, gone, count=len(entries))
+            # exactly those entries are gone, the rest as they were: what each covers (path, blob,
+            # commit) and what it says, so that deleting the wrong one of two equal reviews fails
+            new = load_text(text, path)
+            want_a = [_entry_identity(a) for a in before.attestations if not any(a is e for e in own)]
+            want_c = [_entry_identity(c) for c in before.commits if not any(c is e for e in own)]
+            if [_entry_identity(a) for a in new.attestations] != want_a \
+                    or [_entry_identity(c) for c in new.commits] != want_c \
+                    or [(a.paths, a.precedence, a.values) for a in new.annotations] \
+                    != [(a.paths, a.precedence, a.values) for a in before.annotations]:
+                raise ConfigError("the entries left over aren't the ones expected")
+        except ConfigError as e:
+            raise UsageError(f"{e}; {FILENAME} was left unchanged")
     for e in own:
         print(f"{'would delete' if args.dry_run else 'deleted'} {FILENAME} {_describe_entry(e)}")
     for f in files:
         print(f"{'would delete' if args.dry_run else 'deleted'} {f}")
     if args.dry_run:
         return 0
-    if own:
-        path = project.config.path
-        old = path.read_text(encoding="utf-8")
-        text = old
-        for kind, cls in (("attestations", True), ("commits", False)):
-            text = remove_tables(text, kind, {e.index for e in own if hasattr(e, "blob") == cls})
-        path.write_text(text, encoding="utf-8")
-        try:  # exactly those entries are gone, the rest as they were
-            new = load(project.root)
-            before = project.config
-            want_a = [a.values for a in before.attestations if not any(a is e for e in own)]
-            want_c = [c.values for c in before.commits if not any(c is e for e in own)]
-            if [a.values for a in new.attestations] != want_a or [c.values for c in new.commits] != want_c \
-                    or [a.values for a in new.annotations] != [a.values for a in before.annotations]:
-                raise ConfigError("the entries left over aren't the ones expected")
-        except ConfigError as e:
-            path.write_text(old, encoding="utf-8")
-            raise UsageError(f"{e}; {FILENAME} was left unchanged")
+    if text is not None:
+        project.config.path.write_text(text, encoding="utf-8")
     for f in files:
         (project.root / f).unlink()
     print(f"Deleted {len(own)} entr{'y' if len(own) == 1 else 'ies'} of {FILENAME} and {len(files)} record file(s). "
