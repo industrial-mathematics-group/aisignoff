@@ -2,6 +2,17 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.16.0
+
+Reviews get rules of their own: a review is a record about the content, not content, so it lands in the review folder, needs no declaration, and never changes an earlier review. See [The review folder](history.md#the-review-folder).
+
+- New **review folder** (`reviews/`, or `[review] dir`): its files need no declaration, as if excluded. A pull request that only adds files to it is a review, and its description needs no declaration.
+- **Breaking:** the review folder is add-only. Before the merge, a change that modifies, deletes or renames a file in it fails, so an earlier review's report can no longer be replaced by a later one; record the later review in a new file. Files in `reviews/` that a repository declared are no longer declared; set `[review] dir = ""` to keep them.
+- New **attestation files**: `.toml` files in the review folder with `[[attestations]]` tables, which record an AI review (A1–A3, its model and findings, nothing else) without touching `SIGNOFF.toml`. `lint` checks each entry like a reviewed pull request: its findings, and for A2 and A3 a report that exists or a link. Of two reviews of the same lines, the one added later counts.
+- New **attestations of a commit**: `commit = "<sha>"` in place of `blob` covers only the lines that commit landed on the default branch and that are still there, in one file (`path`) or all of them. That is what a review of a pull request's diff covers, and a re-review of a fix attests the commit with the finding and the fix together.
+- `attest --commit REV` writes such an entry, and `attest --to reviews/FILE.toml` writes a new attestation file instead of appending to `SIGNOFF.toml` (AI review only, never into a file that exists).
+- `aisignoff guide --role review` explains the review pull request and the re-review of a fix; `--role dev` says that the author never touches the review folder and never clears a finding.
+
 ## 0.15.0
 
 Back to 0.x: the format still changes almost every release, and 1.0 is kept for when it has stopped. 0.15.0 follows 1.0.0rc10 and has everything the release candidates have; they are yanked on PyPI. Pin `0.15.0` where you pinned a release candidate (a range such as `>=1.0.0rc6` doesn't include it). See [Versions](compatibility.md#versions).

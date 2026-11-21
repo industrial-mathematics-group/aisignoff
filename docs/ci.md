@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.15.0"
+      - run: pip install "aisignoff==0.16.0"
       - run: aisignoff lint
 ```
 
@@ -62,7 +62,8 @@ on:
 
 With `--declare-from`, `lint` checks the pull request as a whole, before it is merged (aisignoff 1.0.0rc3 and later, so 0.15.0 too):
 
-- **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. A review of A1, A2 or A3 gives its highest finding, and A2 and A3 also their report, a link or a file that the pull request adds or modifies ([Severity](levels.md#severity)); any severity passes, since a finding is recorded, not a threshold. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
+- **The description must be complete on its own:** all three levels, the names they need (the models for G1–G3, the reviewing model for A1–A3, the responsible person), the [built-in rules](levels.md#what-a-valid-declaration-needs) and the policy. A review of A1, A2 or A3 gives its highest finding, and A2 and A3 also their report, a link or a file that the pull request adds ([Severity](levels.md#severity)); any severity passes, since a finding is recorded, not a threshold. This holds also for a pull request with no lines to declare, such as one that changes only `SIGNOFF.toml`, which aisignoff never declares itself. The one exception is a review: a pull request that only adds files to the [review folder](history.md#the-review-folder) needs no declaration.
+- **The review folder is add-only:** a pull request that modifies, deletes or renames a file in it fails, whatever it declares. (With `merge-method = "rebase"`, the description lands nowhere and isn't checked.)
 - **The base branch sets the rules.** With `--base`, the `[policy]` of the base branch's `SIGNOFF.toml` applies to the merged result, not the pull request's own.
 - **A pull request can't change them.** A change to `[policy]`, `exclude`, `[history]` or `version` in `SIGNOFF.toml`, or its removal, fails, and so does a change to the entries of `.git-blame-ignore-revs` (or the `ignore-revs-file`), which give lines to other commits. (`version` decides the scale the AI review levels are read on. A change to version 4 that leaves an entry's level as it was written fails also for a maintainer: [convert the file](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6).) Maintainers commit such changes to the default branch directly, or the workflow passes `--allow-policy-change` for pull requests it trusts (for example by their author's permission). Even then the pull request itself is checked under the base branch's `[policy]`, and `lint` says that it changes the rules: a change can't lower the bar for itself, and the new rules apply to the pull requests after it. (`exclude` and `[history]` are read from the pull request either way.) A repository's first `SIGNOFF.toml` is not a change.
 - **Without `SIGNOFF.toml`,** only the description is checked, so the same workflow can check pull requests in repositories that declare no files.
@@ -182,7 +183,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.15.0   # the same version as in your workflows
+    rev: v0.16.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

@@ -24,7 +24,7 @@ The reviewer only reviews, and its findings are recorded instead of blocking the
 
 Nothing to do for most repositories. What can change a result:
 
-- A2 and A3 name a report that the pull request adds or modifies (or a link). A description copied from an earlier pull request, whose report is already on the default branch, fails now.
+- A2 and A3 name a report that the pull request adds (or a link); since 0.16.0, modifying an earlier report fails. A description copied from an earlier pull request, whose report is already on the default branch, fails now.
 - A pull request can't change the entries of `.git-blame-ignore-revs`: a maintainer commits them, or the workflow passes `--allow-policy-change`.
 - A severe `AI-Review-Findings:` that has landed is cleared by the fix and its new review. `[[commits]]` entries written only to clear one can stay, or go.
 - `AI-Review-Findings:` is no longer read next to A0 and A1, and a commit is judged by the `[review]` `recheck` of the `SIGNOFF.toml` it landed on.

@@ -145,13 +145,16 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
             return (_git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False) or rev).strip()
         unconverted += _unconverted_annotations(root, config, head)
         for what, key in (("commits", "commit"), ("attestations", "blob")):
-            spell = commit if what == "commits" else (lambda v: v)
-            before = {spell(getattr(e, key)): e.values.get(AIR) for e in getattr(config, what)}
+            def spell(e, what=what, key=key):  # an attestation: its file and blob, or its commit and file
+                if what == "commits":
+                    return commit(e.commit)
+                return (e.path, e.blob) if e.blob else (commit(e.commit), e.path)
+            before = {spell(e): e.values.get(AIR) for e in getattr(config, what)}
             for e in getattr(head, what):
-                was = before.get(spell(getattr(e, key)))
+                was = before.get(spell(e))
                 now = e.values.get(AIR)
                 if was and now and was != now:
-                    name = ", ".join(e.paths) if what == "annotations" else getattr(e, key)[:12]
+                    name = ", ".join(e.paths) if what == "annotations" else (getattr(e, key) or e.commit)[:12]
                     unconverted.append(f"{FILENAME} changes to version {4 if config.version_3 else 3} without converting "
                                        f"its levels: the entry for {name} read {AIR} {was} before and reads {now} now. "
                                        "Convert the file with examples/convert-to-version-4.py, and raise levels "
@@ -175,6 +178,31 @@ def change_files(root: Path, base: str | None) -> set[str] | None:
         return None
     new = _git(root, "ls-files", "--others", "--exclude-standard", "--full-name", "-z", check=False) or ""
     return {f for f in (changed + "\0" + new).split("\0") if f}
+
+
+def review_folder_changes(root: Path, base: str | None, review_dir: str) -> tuple[bool, list[str]]:
+    """What a change does to the review folder REVIEW_DIR since BASE: (whether it only adds files
+    there, so that it is a review and declares no lines; the problems). The folder keeps every
+    review as it was recorded: a change may add files to it, never modify, delete or rename one."""
+    from .history import _git
+    from .diff import _unquote
+    if not base or not review_dir:
+        return False, []
+    out = _git(root, "-c", "core.quotePath=false", "diff", "--name-status", "--no-renames", "--relative", base, "--",
+               check=False)
+    if out is None:
+        return False, []
+    rows = [r.split("\t", 1) for r in out.splitlines() if "\t" in r]
+    changes = [(status[0], _unquote(path)) for status, path in rows]
+    new = _git(root, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard", check=False) or ""
+    changes += [("A", _unquote(path)) for path in new.splitlines() if path]
+    inside = [(status, path) for status, path in changes if path.startswith(review_dir + "/")]
+    verbs = {"M": "modifies", "D": "deletes", "T": "changes the type of"}
+    problems = [f"the change {verbs.get(status, 'changes')} {path}: the review folder ({review_dir}/) keeps every "
+                "review as it was recorded, so a change may only add files to it. Record a new review in a new file"
+                for status, path in inside if status != "A"]
+    review_only = bool(changes) and len(inside) == len(changes) and not problems
+    return review_only, problems
 
 
 def _report_paths(root: Path, item: str) -> list[str]:
