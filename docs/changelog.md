@@ -2,6 +2,12 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## Unreleased
+
+- New `aisignoff guide --role dev|review`: a one-page brief for an AI agent that writes a change (what to declare, and that it never declares a review or findings for itself) or reviews one (read-only, the A1–A3 levels, the severity scale, the findings line and how it becomes F0–F3). The text comes with the installed version and ends with what the repository's `SIGNOFF.toml` sets. See [`guide`](commands.md#guide).
+- `init` adds a short section to `AGENTS.md` (and to `CLAUDE.md`, if it exists) that points agents to `aisignoff guide`; `--no-agents-md` skips it, and `guide --agents-md` adds it to a repository that already has `SIGNOFF.toml`.
+- `guide --skills` writes the two briefs as Claude skills, `aisignoff-dev` and `aisignoff-review`.
+
 ## 1.0.0rc10
 
 Fixes from an independent review of 1.0.0rc9, and A1 gives its findings.

@@ -319,7 +319,7 @@ def test_cli_workflow(tmp_path, capsys):
     write(tmp_path, "README.md")
 
     assert main(["--root", root, "lint"]) == 1
-    assert main(["--root", root, "init", *ARGS_G0]) == 0
+    assert main(["--root", root, "init", *ARGS_G0, "--no-agents-md"]) == 0
     assert main(["--root", root, "lint"]) == 0
     assert main(["--root", root, "init"]) == 2
 

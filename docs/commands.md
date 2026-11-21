@@ -14,6 +14,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | [`attest`](#attest) | raise the reviews of whole files (`[history]`) |
 | [`freeze`](#freeze) | record the levels of every line in a snapshot (`[history]`) |
 | [`badge`](#badge) | write shields.io badge files |
+| [`guide`](#guide) | the brief for an AI agent that writes or reviews a change |
 
 **Global options** go before the command: `--root DIR` runs on another directory (default `.`), `--version` prints the version.
 
@@ -55,6 +56,8 @@ aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-revie
 ```
 
 Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--history` turns on `[history]` ([Line-level declarations](history.md)); without it, it stays commented out. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
+
+It also adds a short section to `AGENTS.md` (created if missing, and to `CLAUDE.md` if that exists) that tells AI agents to run [`aisignoff guide`](#guide) before they commit or review. `--no-agents-md` leaves both files alone.
 
 A workflow can set up a repository with defaults that a person completes: `aisignoff init -g TODO -H TODO -a TODO --history` writes a `**` annotation with every level and `Reviewed-by` left `TODO`, which `lint` reports until they are filled in.
 
@@ -141,3 +144,19 @@ aisignoff badge [--out DIR] [--weight files|lines] [--landed]
 Writes `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json` into `DIR` (default `badges`). See [Badges](report.md#badges).
 
 `migrate`, which converted `AIDECL.toml` and the format versions 1 and 2, was removed in 1.0.0rc2; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2).
+
+## guide
+
+```bash
+aisignoff guide --role dev       # the agent that writes the change and declares it
+aisignoff guide --role review    # the independent AI reviewer
+aisignoff guide --agents-md      # point AGENTS.md (and an existing CLAUDE.md) at the two commands
+aisignoff guide --skills [DIR]   # write both guides as Claude skills (default DIR: .claude/skills)
+```
+
+Prints a one-page brief for an AI agent, so that it doesn't have to read the documentation or the package. The text comes with the installed aisignoff, so it matches the version the repository pins, and ends with what the repository's `SIGNOFF.toml` sets: whether the pull request description or each commit declares the change, the minimum levels, and `exclude`.
+
+- **dev:** which generation level and `Assisted-by` to declare, that human review is left `TODO` for the person, that its own checks are A0, that it never writes `AI-Review-Findings` or records a review for itself, where the declaration goes, and how to check it with `lint`.
+- **review:** that the review must be context-free and read-only, how to tell A1, A2 and A3 apart, what to check, the two lists of findings and the [severity scale](levels.md#severity), the lines to give (`AI-Review`, `AI-Reviewed-by`, `AI-Review-Findings`), and how the result becomes F0–F3.
+
+`--agents-md` adds the section between `<!-- aisignoff:begin -->` and `<!-- aisignoff:end -->`, or brings an existing one up to date, and leaves the rest of the file as it is. `--skills` writes `aisignoff-dev/SKILL.md` and `aisignoff-review/SKILL.md`: each tells the agent to run the command and carries the same text as a fallback for where aisignoff isn't installed. Rerun it after an upgrade.
