@@ -13,18 +13,16 @@ enabled = true
 path = "**"
 AI-Generation = "G3"
 Human-Review = "H1"
-AI-Review = "A1"
+AI-Review = "A0"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
 
 [[annotations]]
 path = "LICENSE"   # standard MIT text, added by Pascal
 AI-Generation = "G0"
 Human-Review = "H1"
-AI-Review = "A1"
+AI-Review = "A0"
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
 
 [[attestations]]
 path = "src/aisignoff/model.py"
@@ -92,142 +90,18 @@ AI-Review = "A0"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
 
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = ".github/workflows/ci.yml"
-blob = "b00d73680442b099ed87bc81cff7f56145a2664e"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = ".gitignore"
-blob = "f09a2a4cf2a4174e03953f4bb859e05f03bb3adc"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "README.md"
-blob = "adb16fec95aeb24c02ea6d89aa6c9f3f4dd62179"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "pyproject.toml"
-blob = "edcd4d5f1504670b5ecd267ee2c247836bad66c4"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/__main__.py"
-blob = "dd8a8c90e6b7af74ed3657ef5b74aaa5ebf0abd4"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/cli.py"
-blob = "d2bb9464e8bf69a0d57d2b6dc1e0b108475ce1cf"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/config.py"
-blob = "cb6591783a91509820f5ce8e56e55071a2644545"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/globbing.py"
-blob = "38c47348701e566a70c4c8d280d3e4a025ec4be8"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/model.py"
-blob = "72b931ba6fcd1828aea96eb94da6b4cef35fa778"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "src/aisignoff/project.py"
-blob = "5140d601c044690fe83c2372e5700e39f380b10a"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[attestations]]   # from the archive of SIGNOFF.snapshot.json (aisignoff 0.16)
-path = "tests/test_aisignoff.py"
-blob = "e0129e8625c9d876fae7b6e3f428b27230ff7723"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[commits]]   # Prepare 1.0.0: versioned --json output, compatibi…: as SIGNOFF.snapshot.json had it
-commit = "dd9af948f126200b53463963165285cd5b19d75d"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Add AI generation and review badges to README: as SIGNOFF.snapshot.json had it
-commit = "12e832d27526b3449ff8c46c433cd83d66844ee0"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[commits]]   # Add badges for AI generation and reviews: as SIGNOFF.snapshot.json had it
-commit = "45ed9d79b03e08ff7c3119ac8dc45df31a5bd5bf"
-AI-Review = "A1"
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/05ff570.md)"]
-
-[[commits]]   # Release as 0.12.0 instead of 1.0.0 (#20): as SIGNOFF.snapshot.json had it
-commit = "50adb1f87f403bccd8000e6ec140bfcbec889b40"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Fix the findings of the 0.7.0 review (0.7.1) (#12): as SIGNOFF.snapshot.json had it
-commit = "721e1037db345983bf04bbd2f4716704611cf810"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Declarations per axis: generation from the most s…: as SIGNOFF.snapshot.json had it
-commit = "9de97559ced074a0d37b68c417b94f88dcf2aa87"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Fix the findings of the 0.10 review (0.10.1) (#16): as SIGNOFF.snapshot.json had it
-commit = "019ed5f52cd8313234cf6d2944db078f63cb4cee"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Merge commits declare the branch, branch commits …: as SIGNOFF.snapshot.json had it
-commit = "ee8699259593a841a89e7047c89b583c55d59cf5"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Read the PR template's checkboxes from squash com…: as SIGNOFF.snapshot.json had it
-commit = "b17bd362a7855322ba03e686623ebde0850abca8"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Report colours, review gap as an axis, average vi…: as SIGNOFF.snapshot.json had it
-commit = "46d435e2747c0c4e3d081f565b7b1eeb0503a24f"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-[[commits]]   # Tests: don't inherit GITHUB_EVENT_NAME=push from …: as SIGNOFF.snapshot.json had it
-commit = "5c7f89035c390f0779fab305caf23855f82d12af"
-AI-Generation = "G3"
-Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
-
-# the first two pull requests declare nothing: their lines have always had the file-level levels
 [[commits]]
 commit = "1ce757d9cd161fed21ca314468a7fe12af90caa7"   # Merge pull request #1
 AI-Generation = "G3"
 Human-Review = "H1"
-AI-Review = "A1"
+AI-Review = "A0"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
 
 [[commits]]
 commit = "05ff57098f863affb0f6d1c3d886a315be2b5686"   # Merge pull request #2
 AI-Generation = "G3"
 Human-Review = "H1"
-AI-Review = "A1"
+AI-Review = "A0"
 Assisted-by = ["Claude Opus 5.5 (Anthropic)"]
 Reviewed-by = ["blhackslash <dev@blackslash.win>"]
-AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new sessions without the generating conversation (reviews/)"]
