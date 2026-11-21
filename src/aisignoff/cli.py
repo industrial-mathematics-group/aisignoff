@@ -319,7 +319,7 @@ def _pull_request(project: Project, args) -> dict | None:
     if args.declare_from is None:
         return None
     from .history import combine
-    from .pullrequest import change_files, description_problems, review_problems
+    from .pullrequest import change_files, description_problems, review_folder_changes, review_problems
     if not hasattr(args, "pr_pieces"):
         _declared(args, _description_scale(project, args))
     rules = getattr(args, "pr_rules", None)
@@ -328,12 +328,21 @@ def _pull_request(project: Project, args) -> dict | None:
     if project.history is not None and project.history.declared is None:
         out["applies"] = False  # it doesn't go into the default branch: the pull request that lands it there declares it
         return out
-    problems = [f"the pull request description: {p}" for p in args.pr_problems]
-    if not (project.history_used and project.config.history.merge_method == "rebase"):
+    base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
+    review_only, problems = review_folder_changes(project.root, base, project.config.review_dir)
+    if review_only:
+        # a review: it only adds records to the review folder, so it has no lines to declare. What it
+        # attests is in its attestation files, which lint checks with the others
+        out["review"] = True
+        out["notes"].append(f"this change only adds files to the review folder ({project.config.review_dir}/): it "
+                            "is a review, so its description needs no declaration; its attestation files record "
+                            "what it reviewed")
+    else:
+        problems += [f"the pull request description: {p}" for p in args.pr_problems]
+    if not review_only and not (project.history_used and project.config.history.merge_method == "rebase"):
         problems += [f"the pull request description: {p}"
                      for p in description_problems(args.pr_pieces, project.config.policy) if p not in problems]
         if getattr(args, "pr_today", True):
-            base = getattr(args, "pr_merge_base", None) or (project.history.base if project.history else None)
             problems += [f"the pull request description: {p}" for p in
                          review_problems(project.root, args.pr_pieces.get(2), args.pr_findings,
                                          change_files(project.root, base))]
@@ -618,6 +627,47 @@ def _append_toml(root: Path, block: list[str]) -> Path:
     return target
 
 
+def _shown(root: Path, target: Path) -> str:
+    try:
+        return target.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return str(target)
+
+
+def _review_target(project: Project, name: str) -> Path:
+    """The attestation file --to names: a new .toml file in the review folder."""
+    folder = project.config.review_dir
+    if not folder:
+        raise UsageError('--to needs a review folder ([review] dir is "")')
+    target = Path(name)
+    if not target.is_absolute():
+        target = Path.cwd() / target
+    target = target.resolve()
+    try:
+        rel = target.relative_to(project.root).as_posix()
+    except ValueError:
+        raise UsageError(f"{name} is outside the project root {project.root}")
+    if not project.config.in_review_dir(rel) or target.suffix != ".toml":
+        raise UsageError(f"--to names a .toml file in the review folder ({folder}/), such as {folder}/pull12.toml")
+    if target.exists():
+        raise UsageError(f"{rel} exists: the review folder keeps every review as it was recorded, so write a new file")
+    return target
+
+
+def _write_review(root: Path, target: Path, block: list[str]) -> Path:
+    """Write a new attestation file; remove it again if the result isn't a valid one."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    head = ["# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:",
+            "# a later review goes into a new file."]
+    target.write_text("\n".join(head + block) + "\n", encoding="utf-8")
+    try:
+        load(root)
+    except ConfigError as e:
+        target.unlink()
+        raise UsageError(f"{e}; nothing was written")
+    return target
+
+
 def cmd_annotate(args) -> int:
     root = Path(args.root)
     if not root.is_dir():
@@ -667,6 +717,24 @@ def cmd_attest(args) -> int:
     if problems:
         raise UsageError("incomplete declaration: " + "; ".join(problems))
 
+    if args.at and args.commit:
+        raise UsageError("give --at (whole files, as of a commit) or --commit (the lines a commit landed), not both")
+    if not args.paths and not args.commit:
+        raise UsageError("give the files to attest, or --commit")
+    target_file = None
+    if args.to:
+        target_file = _review_target(project, args.to)
+        if HUM in values:
+            raise UsageError(f"an attestation file in the review folder records an AI review: a person's review "
+                             f"(-H) goes into {FILENAME}, without --to")
+        if values.get(AIR) not in FINDINGS_REVIEWS:
+            raise UsageError("an attestation file in the review folder records an independent AI review: give -a "
+                             "A1, A2 or A3")
+    sha = None
+    if args.commit:
+        sha = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}")
+        if not sha:
+            raise UsageError(f"{args.commit} is not a commit")
     files = set(project.files())
     chosen: list[str] = []
     for arg in args.paths:
@@ -693,6 +761,18 @@ def cmd_attest(args) -> int:
                              "attestation can't raise; change the annotation instead (aisignoff annotate)")
 
     block = []
+    if sha:
+        for rel in chosen or [None]:
+            block += ["", "[[attestations]]", f'commit = "{sha}"']
+            block += [f"path = {_toml_str(rel)}"] if rel else []
+            block += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
+        target = _write_review(root, target_file, block) if target_file else _append_toml(root, block)
+        what = " ".join(values[k] for k in given)
+        scope = f"{len(chosen)} file(s)" if chosen else "all its files"
+        print(f"Attested the lines of {sha[:7]} in {scope} at {what} in {_shown(root, target)}")
+        if not project.config.history.enabled:
+            print("note: attestations count only with [history] enabled in SIGNOFF.toml")
+        return 0
     for rel in chosen:
         if args.at:
             blob = _git_out(root, "rev-parse", "--verify", "--quiet", f"{args.at}:./{rel}")  # relative to root
@@ -705,9 +785,10 @@ def cmd_attest(args) -> int:
             raise UsageError(f"cannot hash {rel}")
         block += ["", "[[attestations]]", f"path = {_toml_str(rel)}", f'blob = "{blob}"']
         block += [f"{k} = {_toml_value(v)}" for k, v in values.items()]
-    target = _append_toml(root, block)
+    target = _write_review(root, target_file, block) if target_file else _append_toml(root, block)
     what = " ".join(values[k] for k in given)
-    print(f"Attested {len(chosen)} file(s) at {what}" + (f" as of {args.at}" if args.at else "") + f" in {target.name}")
+    print(f"Attested {len(chosen)} file(s) at {what}" + (f" as of {args.at}" if args.at else "")
+          + f" in {_shown(root, target)}")
     if not project.config.history.enabled:
         print("note: attestations count only with [history] enabled in SIGNOFF.toml")
     return 0
@@ -1028,10 +1109,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--precedence", choices=["closest", "override"])
     p.set_defaults(func=cmd_annotate)
 
-    p = sub.add_parser("attest", help="re-declare whole files as checked now ([history])")
-    p.add_argument("paths", nargs="+", help="files or directories")
+    p = sub.add_parser("attest", help="re-declare whole files as checked now, or the lines of a commit ([history])")
+    p.add_argument("paths", nargs="*", help="files or directories (with --commit: optional, default all its files)")
     _add_values(p, required=False)
     p.add_argument("--at", metavar="REV", help="attest the files as they were at this commit instead")
+    p.add_argument("--commit", metavar="REV", help="attest only the lines this commit of the default branch landed "
+                   "(a pull request's merge or squash commit), not the whole files")
+    p.add_argument("--to", metavar="FILE", help="write into an attestation file in the review folder (a new file, "
+                   "such as reviews/pull12.toml) instead of SIGNOFF.toml: for an AI review (-a) only")
     p.set_defaults(func=cmd_attest)
 
     p = sub.add_parser("diff", help="declarations of the lines changed since a commit")

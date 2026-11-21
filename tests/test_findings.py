@@ -200,7 +200,8 @@ def test_reports_show_the_findings_axis(landed, capsys, tmp_path):
     tree = visualize.build_tree(landed, Project(landed).results())
     solver = next(c for c in tree["children"] if c["name"] == "solver.py")
     assert solver["counts"]["Findings"]["lines"] == {"F2": 3, "F-": 7}
-    assert tree["counts"]["Findings"]["files"]["F2"] == pytest.approx(1.3)  # and reviews/r.md, landed with it
+    # reviews/r.md, landed with it, is in the review folder: a record, not content
+    assert tree["counts"]["Findings"]["files"]["F2"] == pytest.approx(0.3)
     assert "Findings" in visualize.render_text(tree).splitlines()[0]
     capsys.readouterr()
     assert main(["--root", str(landed), "report"]) == 0

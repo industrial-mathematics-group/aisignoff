@@ -222,6 +222,63 @@ Reviewed-by = "Jane Doe"
 - **`--at REV`** attests the files as they were at an earlier commit, such as the commit a committed review covered. That also works for content from before a snapshot. Such a review is as old as the content it checked, however late it is recorded: where two reviews cover a line, the findings (and the reviewer, on a tie of levels) come from the review of the newer content.
 - Attestations count only with `[history]`, and not for files under `precedence = "override"`, which `attest` refuses.
 
+### The lines of one commit
+
+A review of a pull request reads its diff, not the whole files. To attest just that, name the commit that landed it, its merge or squash commit, instead of a blob:
+
+```bash
+aisignoff attest --commit 6686c01 -a A2 --findings none --ai-reviewed-by "GPT Sol (OpenAI), reviews/pull14.md"
+```
+
+```toml
+[[attestations]]
+commit = "6686c01e2f4b..."      # the full hash
+AI-Review = "A2"
+AI-Reviewed-by = "GPT Sol (OpenAI), reviews/pull14.md"
+AI-Review-Findings = "none"
+```
+
+- **It covers the lines that commit landed** on the default branch and that are still there: the lines `git blame --first-parent` gives to it. A later change takes its lines out, as it does for the commit's own declaration.
+- **Without a path**, it covers the commit's lines in every file; with `path` (or files on the command line), only in those.
+- **Its lines are as the review saw them,** so it is as new as any review of them. Where two reviews cover a line, the one recorded later counts ([below](#the-review-folder)).
+- The commit must be one of the default branch's history; lines a [snapshot](snapshots.md) has frozen keep the snapshot's levels.
+
+Each attestation gives either `blob` or `commit`.
+
+## The review folder
+
+Reviews are records about the content, not content, so the review folder (`reviews/`, or `[review] dir`) needs no declaration: its files are left out like those of `exclude`. It holds the reports, the evidence of A3 (new tests and scripts, which the author copies into the content in a change of their own if they want to keep them), and **attestation files**: `.toml` files with `[[attestations]]` tables, in the form above, and nothing else.
+
+That lets a review land in a pull request of its own, without touching `SIGNOFF.toml`:
+
+```bash
+aisignoff attest --commit 6686c01 -a A2 --findings minor \
+    --ai-reviewed-by "GPT Sol (OpenAI), reviews/pull14.md" --to reviews/pull14.toml
+```
+
+- **An AI review only.** An attestation file gives `AI-Review` (A1, A2 or A3), `AI-Reviewed-by` and `AI-Review-Findings`, nothing else; a person's review goes into `SIGNOFF.toml`. `lint` checks each entry like the description of a reviewed pull request: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link.
+- **Add-only.** The folder keeps every review as it was recorded. In the [check before the merge](ci.md#checking-the-pull-request-description), a change that modifies, deletes or renames a file in it fails; `attest --to` writes a new file and refuses one that exists. A later review, such as the one of a fix, goes into a new file.
+- **A review pull request declares nothing.** A pull request that only adds files to the review folder has no lines to declare, so its description needs no declaration; `lint` says it reads it as a review. One that changes anything else is an ordinary change and declares itself.
+- **The later review counts.** Attestation files count in the order they were added on the default branch (those of the change under check last), after the entries of `SIGNOFF.toml`.
+
+**Fixing a finding.** The author fixes it in a change of their own; the lines the fix touches go back to F-, the others keep the finding. The next review then attests both commits, the one with the finding and the fix, in one file, and sets the findings of all their lines:
+
+```toml
+[[attestations]]
+commit = "6686c01e2f4b..."      # the change the finding was about
+AI-Review = "A2"
+AI-Reviewed-by = "GPT Sol (OpenAI), reviews/pull14-fix.md"
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "91d3a07c55e1..."      # the fix
+AI-Review = "A2"
+AI-Reviewed-by = "GPT Sol (OpenAI), reviews/pull14-fix.md"
+AI-Review-Findings = "none"
+```
+
+The author never clears a finding: that would be a review of their own work.
+
 ## Lines that haven't landed yet
 
 On a feature branch, in the merge preview that a pull request's CI run checks out, or with uncommitted changes, some lines aren't on the default branch yet. They are the diff against the newest commit of the default branch that `HEAD` contains, as GitHub shows a pull request.

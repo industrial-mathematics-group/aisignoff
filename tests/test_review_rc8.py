@@ -57,9 +57,10 @@ def test_the_report_must_be_added_or_modified_by_the_change(feature, tmp_path, c
     assert pr(feature, tmp_path, a2(report="reviews/pull 7.md"), capsys)[0] == 0
     write(feature, "reviews/new.md", "# this review\n")
     assert pr(feature, tmp_path, a2(report="reviews/new.md"), capsys)[0] == 0
-    # an earlier report that the change modifies counts as this review's
+    # an earlier report stays as it was recorded: a change that modifies it fails
     write(feature, "reviews/old.md", "# replaced by this review\n")
-    assert pr(feature, tmp_path, a2(report="reviews/old.md"), capsys)[0] == 0
+    code, out = pr(feature, tmp_path, a2(report="reviews/old.md"), capsys)
+    assert code == 1 and "the change modifies reviews/old.md" in out
 
 
 def test_a_report_without_a_model_fails(feature, tmp_path, capsys):

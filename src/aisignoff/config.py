@@ -34,6 +34,20 @@ Format::
     blob = "<git blob hash of the checked content>"
     Human-Review = "H2"
     Reviewed-by = "Jane Doe"
+
+    [[attestations]]                     # or the lines one commit landed (and still has)
+    commit = "1a2b3c4"
+    path = "src/solver.py"               # optional with commit: all its files
+    AI-Review = "A2"
+    AI-Reviewed-by = "GPT Sol (OpenAI), reviews/pull12.md"
+    AI-Review-Findings = "minor"
+
+    [review]
+    dir = "reviews"                      # optional: the review folder (default reviews)
+
+The review folder holds the reviews: their reports, the evidence of A3, and attestation files
+(*.toml with [[attestations]] tables only, which may give only the AI review). It needs no
+declaration, and a change may only add files to it.
 """
 from __future__ import annotations
 
@@ -55,6 +69,8 @@ VERSION = 4
 # Version 3 had another AI review scale (A1 was the self-check of the generating session). It is
 # still read: its AI review levels, and those of the repository's commit messages, are taken over to today's scale (model.from_version_3) until the file says version = 4.
 VERSION_3 = 3
+REVIEW_DIR = "reviews"  # the default review folder ([review] dir)
+REVIEW_KEYS = ("dir", "recheck")
 PRECEDENCES = ("closest", "override")
 HISTORY_KEYS = ("enabled", "require-trailers-since", "ignore-revs-file", "merge-method", "ignore-whitespace",
                 "default-branch", "undeclared")
@@ -107,13 +123,16 @@ class CommitEntry:
 
 @dataclass
 class Attestation:
-    """An [[attestations]] entry: one file re-declared as of the content (git blob) that was checked."""
+    """An [[attestations]] entry: one file re-declared as of the content (git blob) that was checked,
+    or (commit) the lines one commit of the default branch landed and that are still there, in one
+    file (path) or in all of them (path None)."""
 
     index: int
-    path: str
-    blob: str
+    path: str | None
+    blob: str | None
     values: dict
     filename: str = FILENAME
+    commit: str | None = None
 
 
 @dataclass
@@ -125,6 +144,9 @@ class Config:
     history: HistorySettings = field(default_factory=HistorySettings)
     commits: list[CommitEntry] = field(default_factory=list)
     attestations: list[Attestation] = field(default_factory=list)
+    review_dir: str = REVIEW_DIR  # the review folder, relative to the project root
+    # the [[attestations]] of the attestation files in the review folder, by path
+    review_attestations: list[Attestation] = field(default_factory=list)
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # for the reader, never a failure
@@ -132,7 +154,16 @@ class Config:
     version_3: bool = False
 
     def is_excluded(self, path: str) -> bool:
-        return any(matches(p, path) for p in self.exclude)
+        return self.in_review_dir(path) or any(matches(p, path) for p in self.exclude)
+
+    def in_review_dir(self, path: str) -> bool:
+        """Whether a path (relative to the project root) is in the review folder: reviews are
+        records about the content, not content, so they need no declaration."""
+        return bool(self.review_dir) and path.startswith(self.review_dir + "/")
+
+    def all_attestations(self) -> list[Attestation]:
+        """The attestations of SIGNOFF.toml, then those of the review folder."""
+        return self.attestations + self.review_attestations
 
     def match(self, path: str) -> Annotation | None:
         """The last annotation that matches wins (same rule as REUSE.toml)."""
@@ -171,7 +202,44 @@ def load(root: Path) -> Config:
     data = read_toml(root)
     if data is None:
         return Config(path=None)
-    return parse(data, config_path(root))
+    config = parse(data, config_path(root))
+    config.review_attestations = load_review_attestations(root, config)
+    return config
+
+
+def load_review_attestations(root: Path, config: Config) -> list[Attestation]:
+    """The [[attestations]] of the attestation files (*.toml) in the review folder, by path. An
+    attestation file records an independent AI review: it holds [[attestations]] tables and nothing
+    else, and each gives the AI review (A1-A3) with its names and findings, never another axis."""
+    folder = root / config.review_dir if config.review_dir else None
+    if folder is None or not folder.is_dir():
+        return []
+    out = []
+    for file in sorted(folder.rglob("*.toml")):
+        if not file.is_file():
+            continue
+        name = file.relative_to(root).as_posix()
+        try:
+            data = tomllib.loads(file.read_text(encoding="utf-8"))
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+            raise ConfigError(f"{name}: invalid TOML: {e}") from e
+        if set(data) - {"attestations"}:
+            raise ConfigError(f"{name}: an attestation file in the review folder holds [[attestations]] tables "
+                              f"only, not {', '.join(sorted(set(data) - {'attestations'}))}")
+        entries = _attestations(data, name, False)  # always on today's scale
+        if not entries:
+            raise ConfigError(f"{name}: an attestation file in the review folder needs [[attestations]] tables")
+        for a in entries:
+            where = f"{name} [[attestations]] entry {a.index}"
+            other = set(a.values) - {AIR, AI_REVIEWED, FINDINGS}
+            if other:
+                raise ConfigError(f"{where}: an attestation file in the review folder records an AI review, so it "
+                                  f"gives {AIR}, {AI_REVIEWED} and {FINDINGS} only, not {', '.join(sorted(other))} "
+                                  f"(a person's review goes into {FILENAME})")
+            if a.values.get(AIR) not in ("A1", "A2", "A3"):
+                raise ConfigError(f"{where}: {AIR} must be A1, A2 or A3 (an independent AI review)")
+        out += entries
+    return out
 
 
 def load_text(text: str, path: Path) -> Config:
@@ -228,13 +296,18 @@ def parse(data: dict, path: Path) -> Config:
     review = data.get("review", {})
     if not isinstance(review, dict):
         raise ConfigError(f"{name}: use a [review] table")
+    review_dir = review.get("dir", REVIEW_DIR)
+    if not isinstance(review_dir, str) or review_dir.startswith(("/", "../")) or any(c in review_dir for c in "*?") \
+            or ".." in review_dir.split("/"):
+        raise ConfigError(f"{name} [review]: 'dir' must be a folder inside the project (no glob), or \"\" for none")
+    review_dir = review_dir.removeprefix("./").strip("/")
     if "recheck" in review:
         # 1.0.0rc8 had a threshold from which a finding failed lint; findings are now recorded as the
         # findings level of the lines the review covered, and block nothing
         warnings.append(f"{name} [review]: 'recheck' is no longer used (a finding blocks nothing: it is shown as the "
                         "findings level of the lines the review covered); remove it")
-    if set(review) - {"recheck"}:
-        warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - {'recheck'}))}, ignored "
+    if set(review) - set(REVIEW_KEYS):
+        warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - set(REVIEW_KEYS)))}, ignored "
                         "(a typo, or a setting of a later aisignoff?)")
     commits = []
     for i, table in enumerate(_tables(data, "commits", name), start=1):
@@ -245,19 +318,7 @@ def parse(data: dict, path: Path) -> Config:
         values = _parse_values(table, ("commit",), where, old)
         _check_axes(values, where)
         commits.append(CommitEntry(index=i, commit=commit.lower(), values=values, filename=name))
-    attestations = []
-    for i, table in enumerate(_tables(data, "attestations", name), start=1):
-        where = f"{name} [[attestations]] entry {i}"
-        apath = table.get("path")
-        if not isinstance(apath, str) or not apath or any(c in apath for c in "*?"):
-            raise ConfigError(f"{where}: 'path' must be the path of one file (no glob)")
-        blob = table.get("blob")
-        if not isinstance(blob, str) or not _is_hex(blob, 40) or len(blob) not in (40, 64):
-            raise ConfigError(f"{where}: 'blob' must be the full git blob hash of the checked content")
-        values = _parse_values(table, ("path", "blob"), where, old)
-        _check_axes(values, where)
-        attestations.append(Attestation(index=i, path=apath.removeprefix("./"), blob=blob.lower(), values=values,
-                                        filename=name))
+    attestations = _attestations(data, name, old)
     notes = []
     if old:
         notes.append(f"{name} says version = {VERSION_3}: its AI review levels, and those of this repository's commit "
@@ -265,7 +326,33 @@ def parse(data: dict, path: Path) -> Config:
                      "and shown on today's (A1 self-check: A0, A2 new session: A1, A3 stays). To change over, run "
                      "examples/convert-to-version-4.py (see 'Upgrading' in the documentation)")
     return Config(path=path, annotations=annotations, exclude=exclude, policy=policy, history=history,
-                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old)
+                  commits=commits, attestations=attestations, warnings=warnings, notes=notes, version_3=old,
+                  review_dir=review_dir)
+
+
+def _attestations(data: dict, name: str, old: bool) -> list[Attestation]:
+    """The [[attestations]] tables of a file: each a file as of its checked content (path and
+    blob), or the lines one commit landed (commit, and optionally the path of one file)."""
+    out = []
+    for i, table in enumerate(_tables(data, "attestations", name), start=1):
+        where = f"{name} [[attestations]] entry {i}"
+        apath, blob, commit = table.get("path"), table.get("blob"), table.get("commit")
+        if (blob is None) == (commit is None):
+            raise ConfigError(f"{where}: give 'blob' (the whole file, as of the checked content) or 'commit' "
+                              "(the lines that commit landed), not both")
+        if apath is not None or blob is not None:
+            if not isinstance(apath, str) or not apath or any(c in apath for c in "*?"):
+                raise ConfigError(f"{where}: 'path' must be the path of one file (no glob)")
+            apath = apath.removeprefix("./")
+        if blob is not None and (not isinstance(blob, str) or not _is_hex(blob, 40) or len(blob) not in (40, 64)):
+            raise ConfigError(f"{where}: 'blob' must be the full git blob hash of the checked content")
+        if commit is not None and (not isinstance(commit, str) or not _is_hex(commit, 7)):
+            raise ConfigError(f"{where}: 'commit' must be a commit hash (at least 7 hex digits)")
+        values = _parse_values(table, ("path", "blob", "commit"), where, old)
+        _check_axes(values, where)
+        out.append(Attestation(index=i, path=apath, blob=blob.lower() if blob else None, values=values,
+                               filename=name, commit=commit.lower() if commit else None))
+    return out
 
 
 def _is_hex(s: str, minimum: int) -> bool:

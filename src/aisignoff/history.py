@@ -85,7 +85,14 @@ def archive_item(history: "History", config) -> dict:
     become ambiguous later (an archived entry can't be edited)."""
     return {"commit": history.base,
             "commits": [{"commit": history._resolve(c.commit) or c.commit, **c.values} for c in config.commits],
-            "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in config.attestations]}
+            "attestations": [attestation_item(a, history._resolve) for a in config.attestations]}
+
+
+def attestation_item(a, resolve=None) -> dict:
+    """An [[attestations]] entry of SIGNOFF.toml as an archive item has it: a commit by its full hash."""
+    where = {"path": a.path, "blob": a.blob} if a.blob else \
+        {"commit": (resolve(a.commit) if resolve else None) or a.commit, **({"path": a.path} if a.path else {})}
+    return {**where, **a.values}
 
 
 def git_env() -> dict[str, str]:
@@ -940,7 +947,7 @@ class History:
         for item in (new.archive if new else []):
             kept.update(_entries(item, self._resolve))
         live = {"commits": [{"commit": self._resolve(c.commit) or c.commit, **c.values} for c in self.config.commits],
-                "attestations": [{"path": a.path, "blob": a.blob, **a.values} for a in self.config.attestations]}
+                "attestations": [attestation_item(a, self._resolve) for a in self.config.attestations]}
         kept.update(_entries(live))
         dropped = sum(1 for item in old.archive for e in _entries(item, self._resolve) if e not in kept)
         if dropped:
@@ -1048,6 +1055,10 @@ class History:
                     out.append(CommitEntry(index=n, commit=raw["commit"], values=values, filename=where))
                 elif key == "attestations" and isinstance(raw.get("path"), str) and isinstance(raw.get("blob"), str):
                     out.append(Attestation(index=n, path=raw["path"], blob=raw["blob"], values=values, filename=where))
+                elif key == "attestations" and isinstance(raw.get("commit"), str) \
+                        and isinstance(raw.get("path"), (str, type(None))):
+                    out.append(Attestation(index=n, path=raw.get("path"), blob=None, values=values, filename=where,
+                                           commit=raw["commit"]))
         return out
 
     def _load_corrections(self) -> dict[str, dict[int, Piece]]:
@@ -1278,17 +1289,30 @@ class History:
         return out
 
     # ------------------------------------------------------------ attestations
-    def _load_attestations(self) -> dict[str, list[tuple[int, str | None, dict[int, Piece], str, bool, float]]]:
-        """Per file: (until, commit, pieces, blob, archived, age) of each attestation (archived: from the
+    def _load_attestations(self) -> dict[str | None, list[tuple]]:
+        """Per file: (until, commit, pieces, blob, archived, age, scope, seq) of each attestation (archived: from the
         snapshot's archive, which counts only for lines that aren't frozen; age: see _content_age). 'until' is the ordinal of the last
         commit of the default branch at which the file still was the checked content (newest: it
         is the file as it is now). The commit is set instead when no commit of the default branch
         had that content, only a merged branch or the change that hasn't landed (a pull request
         whose file the default branch changed meanwhile): then the attestation covers the lines
-        whose commit the checked content contained."""
-        out: dict[str, list] = {}
-        for a, archived in [(e, True) for e in self._archived("attestations")] + [(e, False) for e in self.config.attestations]:
+        whose commit the checked content contained.
+        scope: for an attestation of a commit, the commit (its full hash): it covers the lines that
+        commit landed on the default branch and that are still there, as they are now. Those without
+        a path are listed under None: they cover the lines of every file.
+        The order is the order they were recorded in, as far as it is known: the snapshot's archive,
+        SIGNOFF.toml, then the attestation files of the review folder by the commit that added them.
+        Of two reviews of the same content, the later one counts."""
+        out: dict[str | None, list] = {}
+        entries = [(e, True) for e in self._archived("attestations")] + [(e, False) for e in self.config.attestations]
+        entries += [(e, False) for e in self._review_order(self.config.review_attestations)]
+        for seq, (a, archived) in enumerate(entries):
             where = f"{a.filename} [[attestations]] entry {a.index}"
+            if not archived and a in self.config.review_attestations:
+                self._review_record(a, where)
+            if a.commit:
+                self._load_scoped(a, archived, where, out, seq)
+                continue
             names = self._names_since(a.path)  # the attested file's names, the current one last
             path = names[-1]
             moves = [(old, new) for old, new in self.renames() if a.path in (old, new)]
@@ -1320,8 +1344,60 @@ class History:
                 self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
                                       "count; correct the generation of a commit with a [[commits]] entry")
             if pieces:
-                out.setdefault(path, []).append((until, commit, pieces, a.blob, archived, self._content_age(until, commit)))
+                out.setdefault(path, []).append((until, commit, pieces, a.blob, archived, self._content_age(until, commit),
+                                                 None, seq))
         return out
+
+    def _load_scoped(self, a, archived: bool, where: str, out: dict, seq: int) -> None:
+        """An attestation of a commit: of the lines it landed on the default branch, in one file or all."""
+        sha = self._resolve(a.commit)
+        if sha is None or sha not in self.order:
+            if not archived:
+                self.problems.append(f"{where}: {a.commit} isn't a commit of the default branch's history (the "
+                                     "merge or squash commit of a pull request, or a commit made there directly); an "
+                                     "attestation of a commit covers the lines that commit landed there")
+            return
+        path = None
+        if a.path is not None:
+            path = self._names_since(a.path)[-1]
+            if not (self.root / path).is_file():
+                if not archived:
+                    self.problems.append(f"{where}: {a.path} does not exist" + (f" (renamed to {path})" if path != a.path else ""))
+                return
+        pieces = pieces_from_values(a.values, f"{a.filename} attestation [{a.index}]", "attestation")
+        if pieces.pop(0, None) is not None and not archived:
+            self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
+                                  "count; correct the generation of a commit with a [[commits]] entry")
+        if pieces:
+            # the lines it covers are as the review saw them: as new as any content of the file
+            out.setdefault(path, []).append((None, None, pieces, None, archived, float(self.newest), sha,
+                                             seq))
+
+    def _review_record(self, a, where: str) -> None:
+        """An attestation file of the review folder records an independent AI review like a pull
+        request description does: with its findings, and for A2 and A3 its report."""
+        from .pullrequest import review_problems
+        piece = pieces_from_values(a.values, where, "attestation").get(2)
+        for p in review_problems(self.root, piece, a.values.get(FINDINGS)):
+            self.problems.append(f"{where}: {p}")
+
+    def _review_order(self, entries: list) -> list:
+        """The attestations of the review folder in the order their files were added on the default
+        branch: those of files it doesn't have yet (this change's) last, each group by path."""
+        if not entries:
+            return entries
+        added: dict[str, int] = {}
+        if self.base:
+            out = _git(self.root, "-c", "core.quotePath=false", "log", "--first-parent", "--diff-merges=first-parent",
+                       "--diff-filter=A", "--name-only", "--relative", "--format=%x1e%H", self.base, "--",
+                       self.config.review_dir, check=False) or ""
+            for record in out.split("\x1e"):
+                rows = [r for r in record.strip().splitlines() if r.strip()]
+                if rows and rows[0] in self.order:
+                    for name in rows[1:]:
+                        added.setdefault(name, self.order[rows[0]])  # newest first: keep the last time it was added
+        late = len(self.order) + 1
+        return sorted(entries, key=lambda a: (added.get(a.filename, late), a.filename, a.index))
 
     def _content_age(self, until: int, commit: str | None) -> float:
         """How new the checked content of an attestation is, for ordering the reviews of a line:
@@ -1434,6 +1510,8 @@ class History:
 
     def _covers(self, k: int, attestation, origin) -> bool:
         """Whether the content an attestation (the k-th of its file) checked had a line."""
+        if attestation[6] is not None:  # an attestation of a commit: the lines it landed, as they are
+            return origin[0] in ("landed", "released") and origin[1] == attestation[6]
         until, commit = attestation[0], attestation[1]
         if until == self.newest:
             return True
@@ -1552,6 +1630,14 @@ class History:
             return ("landed", None, None)
         return ("landed", sha, None)
 
+    def _of_file(self, path: str) -> list[tuple]:
+        """The attestations of a file, in the order they were recorded: its own, and the attestations
+        of commits that name no file."""
+        own, every = self.attestations.get(path, []), self.attestations.get(None, [])
+        if not every:
+            return own
+        return sorted(own + every, key=lambda a: a[7])
+
     def line_origins(self, path: str) -> list[tuple]:
         """Where each line of a file comes from: ("frozen", ...) and ("landed", ...) as in
         _base_origins, or ("pending", the commit of the change that wrote it, or None) for a line
@@ -1568,9 +1654,9 @@ class History:
         old, removed, added = self.changes.get(path, (path if path in self.base_blobs else None, [], []))
         if old is None:  # a new file: every line is the change's
             return self._pending_origins(path, lines, [None] * lines)
-        attestations = self.attestations.get(path, [])
+        attestations = self._of_file(path)
         partial = [(k, a[3]) for k, a in enumerate(attestations)
-                   if self.snapshot and not a[4] and not self._whole_snapshot(a)]
+                   if self.snapshot and a[6] is None and not a[4] and not self._whole_snapshot(a)]
         base = self._base_origins(old, any(a[1] for a in attestations), partial)
         new, gone = set(added), set(removed)
         out: list[tuple | None] = []
@@ -1608,7 +1694,7 @@ class History:
               for i, (level, names) in enumerate(AXES) if fallback.get(level) is not None}
         if 2 in fb and fallback.findings:
             fb[2] = replace(fb[2], findings=fallback.findings)
-        attestations = self.attestations.get(path, [])
+        attestations = self._of_file(path)
         keys: list[tuple] = []
         memo: dict[tuple, tuple] = {}
         for origin in self.line_origins(path):

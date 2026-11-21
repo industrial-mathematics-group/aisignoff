@@ -28,6 +28,8 @@ per file and per line: AI generation (G0-G3), human review (H0-H3) and AI review
   that raises Human-Review or AI-Review.
 - **The rules:** don't change `[policy]`, `exclude` or `[history]` in `SIGNOFF.toml`, and never edit
   `SIGNOFF.snapshot.json` by hand (only `aisignoff freeze` writes it).
+- **The review folder** (`reviews/` unless `[review] dir` says otherwise): never add, modify or
+  delete a file there. It holds the reviewers' records; a change that edits one fails `lint`.
 
 ## Where the declaration goes
 
@@ -53,7 +55,8 @@ read there, and only to raise the generation of the lines that commit wrote.
 
 - The reviewer reports and changes nothing; the fixes are yours, in this change or a later one.
 - Lines you change after a review go back to F- (unreviewed) until the next review. That is
-  expected: don't declare the old review for the new lines.
+  expected: don't declare the old review for the new lines. You never clear a finding: the next
+  review attests your fix and the change it fixed, and sets their findings.
 - A review with findings is still mergeable. A finding is recorded and shown, never a threshold.
 
 ## Check before you push

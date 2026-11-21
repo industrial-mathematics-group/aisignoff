@@ -238,8 +238,8 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
             base_project.check_snapshot = False
             # as the base's own report: by its SIGNOFF.toml, with its commit as the default branch's
             base_results = base_project.results(quiet=True)
-            base_attestations = Counter((a.path, a.blob, comparable(a.values))
-                                        for a in base_project.config.attestations)
+            base_attestations = Counter((a.path, a.blob, a.commit, comparable(a.values))
+                                        for a in base_project.config.all_attestations())
             before = _shares(where, base_results)  # reads the files at BASE, so before the worktree goes
         except Exception as e:  # BASE may predate SIGNOFF.toml, or use an old format
             base_results, base_attestations, before = [], Counter(), {}
@@ -289,12 +289,13 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
                 target["removed"] += len(removed)
 
     attested = []
-    for a in project.config.attestations:
-        entry = (a.path, a.blob, comparable(a.values))
+    for a in project.config.all_attestations():
+        entry = (a.path, a.blob, a.commit, comparable(a.values))
         if base_attestations[entry]:
             base_attestations[entry] -= 1
             continue
-        item = {"path": a.path, "blob": a.blob, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
+        where = {"path": a.path, "blob": a.blob} if a.blob else {"commit": a.commit, "path": a.path}
+        item = {**where, "levels": {k: v for k, v in a.values.items() if k in (GEN, HUM, AIR)}}
         if isinstance(a.values.get(FINDINGS), str) and a.values.get(AIR) in FINDINGS_REVIEWS:
             item["findings"] = a.values[FINDINGS]  # what the review found sets the findings of the file's lines
         attested.append(item)
@@ -387,7 +388,9 @@ def _extras(data: dict, md: bool) -> list[str]:
         out.append("**Attested:**" if md else "Attested:")
         for a in data["attested"]:
             levels = " ".join(a["levels"].values()) + (f", findings: {a['findings']}" if a.get("findings") else "")
-            out.append(f"- `{_md(a['path'])}` at {levels}" if md else f"  {printable(a['path'])}  {levels}")
+            what = a["path"] if not a.get("commit") else \
+                f"lines of {a['commit'][:7]}" + (f" in {a['path']}" if a.get("path") else "")
+            out.append(f"- `{_md(what)}` at {levels}" if md else f"  {printable(what)}  {levels}")
     moves = _moves(data)
     if moves:
         out.append("")

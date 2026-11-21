@@ -75,6 +75,11 @@ def repository_notes(root: Path) -> list[str]:
         out.append(f"- Minimum review levels (`[policy]`): {'; '.join(rules)}. `lint` fails below them.")
     else:
         out.append("- No minimum review levels (`[policy]`).")
+    if config.review_dir:
+        out.append(f"- The review folder is `{config.review_dir}/`: it needs no declaration, and a change may only "
+                   "add files to it.")
+    else:
+        out.append("- No review folder (`[review] dir = \"\"`).")
     if config.exclude:
         out.append(f"- Need no declaration (`exclude`): {', '.join(f'`{p}`' for p in config.exclude)}.")
     return out

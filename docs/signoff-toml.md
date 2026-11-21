@@ -4,7 +4,7 @@
 
 ```toml
 version = 4
-exclude = ["reviews/**"]
+exclude = ["docs/build/**"]   # the review folder (reviews/) is left out by itself
 
 [policy]
 "*" = { human = "H1" }
@@ -66,6 +66,10 @@ Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overridi
 
 ## `[review]`
 
+| Key | Value |
+|---|---|
+| `dir` | the review folder, relative to the project root: `"reviews"` by default, `""` for none. Its files need no declaration, a change may only add files to it, and its `.toml` files are attestation files. See [The review folder](history.md#the-review-folder) |
+
 1.0.0rc8 had `[review]` with `recheck`, the severity from which a finding failed `lint`. Findings are now recorded and block nothing ([Findings](levels.md#findings-f0-to-f3)), so `recheck` is no longer read: `lint` warns until it is removed.
 
 ## `[[annotations]]`
@@ -105,14 +109,17 @@ Declares or corrects the declaration of one commit, axis by axis. See [Correctin
 
 ## `[[attestations]]`
 
-Raises the reviews of one file, as of the content that was checked. Written by [`aisignoff attest`](commands.md#attest); see [Raising a review](history.md#raising-a-review-attestations).
+Raises the reviews of one file, as of the content that was checked, or of the lines one commit landed. Written by [`aisignoff attest`](commands.md#attest); see [Raising a review](history.md#raising-a-review-attestations).
 
 | Key | Value |
 |---|---|
-| `path` | the path of one file (no glob), required |
-| `blob` | the full git blob hash of the checked content, required |
+| `blob` | the full git blob hash of the checked content: the entry covers the whole file as it was then. Give `blob` or `commit` |
+| `commit` | a commit of the default branch (at least 7 hex digits; `attest` writes the full hash): the entry covers the lines it landed and that are still there ([The lines of one commit](history.md#the-lines-of-one-commit)) |
+| `path` | the path of one file (no glob): required with `blob`; optional with `commit`, which without it covers the commit's lines in every file |
 | `Human-Review`, `AI-Review` and their names | at least one review level; a name only next to its level. An `AI-Generation` here doesn't count |
-| `AI-Review-Findings` | with `AI-Review` A1, A2 or A3: what that review found, for every line of the file (`aisignoff attest --findings`) |
+| `AI-Review-Findings` | with `AI-Review` A1, A2 or A3: what that review found, for every line the entry covers (`aisignoff attest --findings`) |
+
+The same tables make up the attestation files of the [review folder](history.md#the-review-folder), which give only `AI-Review` (A1–A3), `AI-Reviewed-by` and `AI-Review-Findings`.
 
 ## SIGNOFF.snapshot.json
 

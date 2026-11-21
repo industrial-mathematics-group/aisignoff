@@ -11,8 +11,11 @@ find problems and report them, never to fix them.
   say so and stop.
 - **Read-only.** Change nothing in the content you review: no edits, no fixes, no commits to the
   change's files, no reformatting. A reviewer that fixes what it found has written part of the
-  content and is no longer independent of it. The only files you may add are your report and, at
-  A3, your new evidence (new tests or scripts), as new files.
+  content and is no longer independent of it. The only files you may add are new files in the
+  review folder (`reviews/` unless `SIGNOFF.toml` sets `[review] dir`): your report, at A3 your new
+  evidence (new tests or scripts), and an attestation file. Never modify or delete a file that is
+  already there, not even an earlier review's report: the folder is add-only, and `lint` fails a
+  change that edits it.
 - **Don't touch the declaration's other axes.** Generation and human review are not yours.
 
 ## Your level
@@ -67,8 +70,30 @@ AI-Review-Findings: minor
   change adds (such as `reviews/pull12.md`) or a link.
 - In the template's boxes, tick your level and write the model (and report) after it; the
   `AI-Review-Findings:` line stays below the boxes.
-- A whole-file review recorded later uses
-  `aisignoff attest PATH -a A2 --findings minor --ai-reviewed-by "<model>, <report>"`.
+- That is for a review of a pull request before it lands. For a change that has already landed,
+  see the next section.
+
+## Reviewing a change that has landed: a review pull request
+
+Your review goes into a pull request of its own that only adds files to the review folder. It
+needs no declaration in its description. Record what you reviewed in a new attestation file:
+
+```bash
+# the lines one pull request landed: its merge or squash commit
+aisignoff attest --commit <sha> -a A2 --findings minor \
+    --ai-reviewed-by "GPT Sol (OpenAI), reviews/pull12-review.md" --to reviews/pull12-review.toml
+# whole files, as they are now (or --at <sha>)
+aisignoff attest src/solver.py -a A2 --findings none \
+    --ai-reviewed-by "GPT Sol (OpenAI), reviews/solver.md" --to reviews/solver.toml
+```
+
+- `--commit` covers only the lines that commit landed and that are still there: use it when you
+  read a diff. A file path covers the whole file: use it only when you read the whole file.
+- **Re-reviewing a fix:** attest both commits, the one with the finding and the fix, in the same
+  new file (`aisignoff attest --commit <original> ... --to F`, then add a second
+  `[[attestations]]` table for the fix to F before committing). Your findings then replace the old
+  ones on all their lines.
+- Commit your report, your evidence and the attestation file, and nothing else.
 
 ## How your findings are recorded
 
