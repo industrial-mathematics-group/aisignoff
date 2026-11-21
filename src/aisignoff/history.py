@@ -1278,9 +1278,9 @@ class History:
         return out
 
     # ------------------------------------------------------------ attestations
-    def _load_attestations(self) -> dict[str, list[tuple[int, str | None, dict[int, Piece], str, bool]]]:
-        """Per file: (until, commit, pieces, blob, archived) of each attestation (archived: from the
-        snapshot's archive, which counts only for lines that aren't frozen). 'until' is the ordinal of the last
+    def _load_attestations(self) -> dict[str, list[tuple[int, str | None, dict[int, Piece], str, bool, float]]]:
+        """Per file: (until, commit, pieces, blob, archived, age) of each attestation (archived: from the
+        snapshot's archive, which counts only for lines that aren't frozen; age: see _content_age). 'until' is the ordinal of the last
         commit of the default branch at which the file still was the checked content (newest: it
         is the file as it is now). The commit is set instead when no commit of the default branch
         had that content, only a merged branch or the change that hasn't landed (a pull request
@@ -1320,8 +1320,20 @@ class History:
                 self._warnings.append(f"{where}: an attestation records a review, so its AI-Generation doesn't "
                                       "count; correct the generation of a commit with a [[commits]] entry")
             if pieces:
-                out.setdefault(path, []).append((until, commit, pieces, a.blob, archived))
+                out.setdefault(path, []).append((until, commit, pieces, a.blob, archived, self._content_age(until, commit)))
         return out
+
+    def _content_age(self, until: int, commit: str | None) -> float:
+        """How new the checked content of an attestation is, for ordering the reviews of a line:
+        the ordinal of the last commit of the default branch that had it; content of a merged branch
+        just before the commit that merged it, and of the change that hasn't landed just before the
+        current file. A review of older content is the older review, whenever it was recorded."""
+        if commit is None:
+            return float(until)
+        out = _git(self.root, "rev-list", "--first-parent", "--ancestry-path", f"{commit}..{self.base}",
+                   check=False) if self.base else None
+        merged = [self.order[s] for s in (out or "").split() if s in self.order]
+        return min(merged) - 0.5 if merged else len(self.order) + 0.5
 
     def renames(self) -> list[tuple[str, str]]:
         """(old, new) paths relative to root of the renames on this branch, oldest first,
@@ -1625,7 +1637,9 @@ class History:
 
     def _line_pieces(self, origin: tuple, attestations: list, fb: dict[int, Piece]) -> tuple[tuple, bool]:
         """One piece per axis for the lines of one origin, and whether they are advisory."""
-        attested = [a[2] for k, a in enumerate(attestations) if self._covers(k, a, origin)]
+        # oldest checked content first: the later of two reviews is the review of the newer content
+        attested = [a[2] for a in sorted((a for k, a in enumerate(attestations) if self._covers(k, a, origin)),
+                                         key=lambda a: a[5])]
         kind = origin[0]
         if kind == "frozen":
             owner = self.snapshot.pieces[origin[1]] if origin[1] is not None else {}

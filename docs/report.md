@@ -33,12 +33,12 @@ The shares count files, or lines with `[history]`. Each axis is counted on its o
 
 ```
 $ aisignoff report --tree
-                       files  Generation      Human review  AI review
-.                         30  G0 3% · G3 97%  H1 100%       A1 93% · A2 7%
-├─ .github/workflows/      6  G3 100%         H1 100%       A1 100%
-├─ docs/                   9  G3 100%         H1 100%       A1 100%
-├─ src/aisignoff/          8  G3 100%         H1 100%       A1 88% · A2 12%
-└─ tests/                  1  G3 100%         H1 100%       A1 100%
+                       files  Generation      Human review  AI review        Findings
+.                         30  G0 3% · G3 97%  H1 100%       A1 93% · A2 7%   F0 7% · F- 93%
+├─ .github/workflows/      6  G3 100%         H1 100%       A1 100%          F- 100%
+├─ docs/                   9  G3 100%         H1 100%       A1 100%          F- 100%
+├─ src/aisignoff/          8  G3 100%         H1 100%       A1 88% · A2 12%  F0 12% · F- 88%
+└─ tests/                  1  G3 100%         H1 100%       A1 100%          F- 100%
 ```
 
 The level mix of each folder. Folders that hold nothing but one subfolder share a row; files without a valid declaration are always listed under their folder, with the reason.
@@ -115,7 +115,7 @@ Whole repository, by lines:
   Findings: F1 0.0% → 2.9% (+2.9) · F- 100.0% → 97.1% (-2.9)
 ```
 
-Like a coverage diff, `diff` shows only what changed since `BASE`: the levels of the added lines, the removed lines (their levels at the base are in `--json`), the attestations the change adds, and how the repository's shares move. It compares the working tree, so it works before committing, against the merge base of `BASE` and `HEAD`, as GitHub shows a pull request.
+Like a coverage diff, `diff` shows only what changed since `BASE`: the levels of the added lines, the removed lines (their levels at the base are in `--json`), the attestations the change adds (or entries it changes, with the findings of an A2 or A3 review), and how the repository's shares move. It compares the working tree, so it works before committing, against the merge base of `BASE` and `HEAD`, as GitHub shows a pull request.
 
 Before a pull request is merged, its lines have no landing commit yet. `--declare-from FILE` declares them from its description, as the merge or squash commit will ([details](history.md#lines-that-havent-landed-yet)); the level options (`-g`, `-H`, `-a` and the names) declare them directly, and accept `TODO`. Without either, added lines whose commits say an `AI-Generation` show it, with their reviews undeclared. `signoff-pr-diff.yml` writes this to a pull request's job summary.
 
@@ -174,7 +174,7 @@ With `--declare-from`, `report --json` also has `pull_request`: `applies` (`fals
 | `history` | whether lines were resolved from history |
 | `rows` | one per folder (or file with `--files`): `name`, `added`, `removed`, `levels_added`, `levels_removed` (per axis, lines by level) |
 | `total` | the same for the whole change |
-| `attested` | attestations the change adds: `path`, `blob`, `levels` |
+| `attested` | attestations the change adds, or entries it changes: `path`, `blob`, `levels`, and `findings` for an AI review of A2 or A3 |
 | `before`, `after` | the repository's shares by lines, per axis and level |
 | `problems`, `notes`, `note` | messages for the reader |
 

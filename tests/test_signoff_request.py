@@ -66,7 +66,7 @@ def form(**answers):
               "gen": "How much of it did AI write?", "models": "Which AI tools and models wrote parts of it?",
               "human": "How did a human check it?", "responsible": "Responsible person",
               "ai": "Did an AI review it?", "ai_by": "Which model reviewed it, and how?",
-              "notes": "Notes for the reviewer"}
+              "findings": "What did the AI review find?", "notes": "Notes for the reviewer"}
     parts = [f"### {label}\n\n{answers.get(key) or '_No response_'}\n" for key, label in labels.items()]
     parts.append("### Confirmation\n\n- [X] The answers are true\n" if answers.get("confirm", True)
                  else "### Confirmation\n\n- [ ] The answers are true\n")
@@ -138,7 +138,27 @@ def test_attest_and_correct_a_commit(checkout):
     assert 'Reviewed-by = ["Jane \\"JD\\" Doe"]' in toml
 
 
+def test_an_independent_review_records_its_findings(checkout):
+    r, _ = request(checkout, form(kind="Raise the review", paths="results/fit.csv", ai="A2: a different model",
+                                  ai_by="GPT Sol (OpenAI), https://example.org/review",
+                                  findings="major: wrong results or behaviour in some cases"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Review = "A2"' in (checkout / "work/SIGNOFF.toml").read_text()
+    assert 'AI-Review-Findings = "major"' in (checkout / "work/SIGNOFF.toml").read_text()
+
+    commit = git(checkout / "work", "rev-parse", "--short", "origin/main").strip()
+    r, _ = request(checkout, form(kind="Correct the declaration of a commit", commit=commit, ai="A2: x",
+                                  ai_by="GPT Sol (OpenAI), https://example.org/review", findings="none: nothing found"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'AI-Review = "A2"\nAI-Reviewed-by = ["GPT Sol (OpenAI), https://example.org/review"]\n' \
+           'AI-Review-Findings = "none"' in (checkout / "work/SIGNOFF.toml").read_text()
+
+
 @pytest.mark.parametrize("answers, message", [
+    (dict(kind="Raise the review", paths="results/", ai="A2: x", ai_by="GPT Sol (OpenAI), https://example.org/r"),
+     'choose it under "What did the AI review find?"'),
+    (dict(kind="Raise the review", paths="results/", ai="A1: x", ai_by="M (V), new session", findings="none: x"),
+     '"What did the AI review find?" goes with an AI review of A2 or A3'),
     (dict(kind="Declare files", paths="results/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J",
           confirm=False), 'Tick the box under "Confirmation"'),
     (dict(kind="Declare files", paths="--root=/", gen="G0: x", human="H1: x", ai="A0: x", responsible="J"),

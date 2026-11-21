@@ -112,6 +112,40 @@ def test_attest_needs_the_findings_of_an_independent_review(repo, capsys, monkey
     assert "-a A2 or -a A3" in capsys.readouterr().err
 
 
+def test_an_older_review_recorded_later_doesnt_replace_a_newer_one(landed, capsys, monkeypatch):
+    # the review of the newest content counts, however late an older review is recorded with --at
+    monkeypatch.chdir(landed)
+    old = git(landed, "rev-parse", "HEAD")
+    edit_lines(landed, [7], "later")
+    commit(landed, "later change", UNREVIEWED)
+    args = ["--root", str(landed), "attest", "solver.py", "-a", "A2"]
+    assert main([*args, "--findings", "major", "--ai-reviewed-by", "GPT Sol (OpenAI), reviews/new.md"]) == 0
+    commit(landed, "attest the current file", UNREVIEWED.replace("G3\nAssisted-by: Claude Opus (Anthropic)", "G0"))
+    assert findings(landed) == ["F2"] * 10
+    assert main([*args, "--at", old, "--findings", "none", "--ai-reviewed-by", "GPT Sol (OpenAI), reviews/old.md"]) == 0
+    assert findings(landed) == ["F2"] * 10
+    r = next(r for r in Project(landed).results() if r.path == "solver.py")
+    assert {p.declaration.get("AI-Reviewed-by")[0] for p in r.parts} == {"GPT Sol (OpenAI), reviews/new.md"}
+
+
+def test_init_refuses_findings_without_levels(tmp_path, capsys):
+    assert main(["--root", str(tmp_path), "init", "--findings", "major"]) == 2
+    assert "--findings goes with the levels" in capsys.readouterr().err
+    assert not (tmp_path / "SIGNOFF.toml").exists()
+
+
+def test_diff_lists_the_findings_of_an_attestation(landed, capsys, monkeypatch):
+    monkeypatch.chdir(landed)
+    base = git(landed, "rev-parse", "HEAD")
+    assert main(["--root", str(landed), "attest", "solver.py", "-a", "A2", "--findings", "major",
+                 "--ai-reviewed-by", "GPT Sol (OpenAI), reviews/file.md"]) == 0
+    capsys.readouterr()
+    assert main(["--root", str(landed), "diff", base]) == 0
+    assert "solver.py  A2, findings: major" in capsys.readouterr().out
+    assert main(["--root", str(landed), "diff", base, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["attested"][0]["findings"] == "major"
+
+
 def test_a_commits_entry_corrects_the_findings(landed):
     sha = git(landed, "rev-parse", "HEAD")
     text = (landed / "SIGNOFF.toml").read_text()
