@@ -1527,7 +1527,9 @@ class History:
                        f"{start}..{self.base}", check=False)
         if out is None:
             return None
-        return {name.lstrip("\n") for name in out.split("\0") if name.strip("\n")}
+        # with an empty --format, the output is the names alone, each ended by a NUL: no byte of a
+        # name is framing (a name may start with a newline)
+        return {name for name in out.split("\0") if name}
 
     def _last_content_change(self, old: str) -> str:
         """The first-parent commit that last changed a file's content, under this name or one it had before."""
