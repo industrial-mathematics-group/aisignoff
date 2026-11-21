@@ -123,11 +123,10 @@ Writes one `[[attestations]]` entry per file, with the git blob hash of its cont
 ## correct
 
 ```bash
-aisignoff correct REV -g G3 --assisted-by …  [--to reviews/FILE.toml | --signoff]   # the AI side
-aisignoff correct REV [-g G] [-H H] [-a A [--findings SEVERITY]] [names…]          # into SIGNOFF.toml
+aisignoff correct REV [-g G] [-H H] [-a A [--findings SEVERITY]] [names…]
 ```
 
-Writes a `[[commits]]` entry for the commit `REV` ([Correcting a commit](history.md#correcting-a-commit)). Raising the generation to G3 with the model that wrote the lines, and nothing else, is the AI side: it goes into a new record file of the review folder, named like those of `attest`, unless `--signoff` says `SIGNOFF.toml`. Everything else, such as G0–G2 or a review, is a person's word and goes into `SIGNOFF.toml`. `TODO` is refused.
+Appends a `[[commits]]` entry for the commit `REV` to `SIGNOFF.toml` ([Correcting a commit](history.md#correcting-a-commit)): a person's correction of its declaration, axis by axis. `TODO` is refused.
 
 ## gc
 

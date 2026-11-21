@@ -191,7 +191,7 @@ Reviewed-by = "Jane Doe"
 - An entry for a commit that isn't in the history of `HEAD` (rebased or squashed away) declares nothing, and `lint` says so.
 - An entry counts as soon as it lands, for every line its commit owns, however old.
 - An entry that gives `AI-Review` replaces the commit's review, findings line included: give `AI-Review-Findings` there too, or the commit's lines are at F- ([Findings](levels.md#findings-f0-to-f3)).
-- **Only raising to G3 is the AI side.** An agent that finds a commit declared less AI than it had records `AI-Generation = "G3"` with `Assisted-by` in a record file of the [review folder](#the-review-folder) (`aisignoff correct REV -g G3 --assisted-by …`). That can only make the declaration stricter, so it needs no person's signoff; a generation that `SIGNOFF.toml` gives for the commit wins over it.
+- A correction is a person's word, always in `SIGNOFF.toml`. An agent that finds a wrong declaration tells a person instead of correcting it.
 
 ## Raising a review: attestations
 
@@ -244,7 +244,7 @@ Each attestation gives either `blob` or `commit`.
 
 ## The review folder
 
-Reviews are records about the content, not content, so the review folder (`reviews/`, or `[review] dir`) needs no declaration: its files are left out like those of `exclude`. It is the AI side of the declarations, while `SIGNOFF.toml` is the file a person signs off ([Who writes what](signoff-toml.md#who-writes-what)). It holds the reports, the evidence of A3 (new tests and scripts, which the author copies into the content in a change of their own if they want to keep them), and **record files**: `.toml` files with `[[attestations]]` tables in the form above and `[[commits]]` tables that raise a commit's generation to G3, and nothing else. Neither can lower a level.
+Reviews are records about the content, not content, so the review folder (`reviews/`, or `[review] dir`) needs no declaration: its files are left out like those of `exclude`. It holds the AI reviews, while `SIGNOFF.toml` is the file a person signs off ([Who writes what](signoff-toml.md#who-writes-what)): the reports, the evidence of A3 (new tests and scripts, which the author copies into the content in a change of their own if they want to keep them), and **record files**: `.toml` files with `[[attestations]]` tables in the form above, and nothing else.
 
 That lets a review land in a pull request of its own, without touching `SIGNOFF.toml`. `attest -a` writes a new record file by itself; `--to` names it:
 
@@ -253,7 +253,7 @@ aisignoff attest --commit 6686c01 -a A2 --findings minor \
     --ai-reviewed-by "GPT Sol (OpenAI), reviews/pull14.md" --to reviews/pull14.toml
 ```
 
-- **The AI side only.** An attestation there gives `AI-Review` (A1, A2 or A3), `AI-Reviewed-by` and `AI-Review-Findings`, and a `[[commits]]` entry `AI-Generation = "G3"` and `Assisted-by`, nothing else; a person's review, a `Reviewed-by` and the generations G0–G2 go into `SIGNOFF.toml`. `lint` checks each entry like the description of a reviewed pull request: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link.
+- **An AI review only.** An attestation there gives `AI-Review` (A1, A2 or A3), `AI-Reviewed-by` and `AI-Review-Findings`, nothing else; a person's review and the corrections of a commit go into `SIGNOFF.toml`. `lint` checks each entry like the description of a reviewed pull request: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link.
 - **Add-only.** The folder keeps every review as it was recorded. In the [check before the merge](ci.md#checking-the-pull-request-description), a change that modifies, deletes or renames a file in it fails; `attest` writes a new file and refuses one that exists. A later review, such as the one of a fix, goes into a new file. The one exception: a change may delete a record file that covers no line any more ([below](#records-that-cover-no-line)).
 - **A review pull request declares nothing.** A pull request that only adds files to the review folder has no lines to declare, so its description needs no declaration; `lint` says it reads it as a review. One that changes anything else is an ordinary change and declares itself.
 - **The later review counts.** Attestation files count in the order they were added on the default branch (those of the change under check last), after the entries of `SIGNOFF.toml`.

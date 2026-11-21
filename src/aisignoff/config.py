@@ -46,17 +46,9 @@ Format::
     dir = "reviews"                      # optional: the review folder (default reviews)
 
 SIGNOFF.toml is the file a person signs off: the rules, the annotations, a person's reviews and
-the corrections of a generation that only a person can make. The review folder is the AI side: it
-holds the reviews (their reports, the evidence of A3) and record files (*.toml), which can only
-make a declaration stricter: [[attestations]] that give an AI review (A1-A3), and [[commits]]
-entries that raise a commit's generation to G3:
-
-    [[commits]]                          # in reviews/*.toml: only AI-Generation = "G3" and Assisted-by
-    commit = "1a2b3c4"
-    AI-Generation = "G3"
-    Assisted-by = "Claude Opus 5.5 (Anthropic)"
-
-It needs no declaration, and a change may only add files to it (or delete a record file that
+the corrections of a commit. The review folder holds the AI reviews: their reports, the evidence
+of A3, and record files (*.toml) with [[attestations]] tables that give an AI review (A1-A3) and
+its findings, nothing else. It needs no declaration, and a change may only add files to it (or delete a record file that
 no longer covers any line).
 """
 from __future__ import annotations
@@ -66,7 +58,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .globbing import compile_glob, matches
-from .model import (AI_REVIEWED, AIR, ASSISTED, AXES, GEN, FINDINGS, KEYS, LEVELS, LIST_KEYS, NO_FINDINGS, SEVERITIES, TODO, Declaration,
+from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, KEYS, LEVELS, LIST_KEYS, NO_FINDINGS, SEVERITIES, TODO, Declaration,
                     Policy, canonical_key, findings_value, valid_findings, from_version_3, parse_policy, policy_from_version_3)
 
 FILENAME = "SIGNOFF.toml"
@@ -157,8 +149,6 @@ class Config:
     review_dir: str = REVIEW_DIR  # the review folder, relative to the project root
     # the [[attestations]] of the record files in the review folder, by path
     review_attestations: list[Attestation] = field(default_factory=list)
-    # the [[commits]] entries of the record files in the review folder (AI-Generation G3 only), by path
-    review_commits: list[CommitEntry] = field(default_factory=list)
     # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # for the reader, never a failure
@@ -215,17 +205,16 @@ def load(root: Path) -> Config:
     if data is None:
         return Config(path=None)
     config = parse(data, config_path(root))
-    config.review_attestations, config.review_commits = load_review_records(root, config)
+    config.review_attestations = load_review_records(root, config)
     return config
 
 
-def load_review_records(root: Path, config: Config) -> tuple[list[Attestation], list[CommitEntry]]:
-    """The [[attestations]] and [[commits]] entries of the record files (*.toml) in the review
-    folder, by path."""
+def load_review_records(root: Path, config: Config) -> list[Attestation]:
+    """The [[attestations]] of the record files (*.toml) in the review folder, by path."""
     folder = root / config.review_dir if config.review_dir else None
     if folder is None or not folder.is_dir():
-        return [], []
-    attestations, commits = [], []
+        return []
+    out = []
     for file in sorted(folder.rglob("*.toml")):
         if not file.is_file():
             continue
@@ -234,29 +223,25 @@ def load_review_records(root: Path, config: Config) -> tuple[list[Attestation], 
             text = file.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:
             raise ConfigError(f"{name}: invalid TOML: {e}") from e
-        a, c = parse_record_file(text, name)
-        attestations += a
-        commits += c
-    return attestations, commits
+        out += parse_record_file(text, name)
+    return out
 
 
-def parse_record_file(text: str, name: str) -> tuple[list[Attestation], list[CommitEntry]]:
-    """A record file of the review folder: the AI side of the declarations, which can only make
-    them stricter. It holds [[attestations]] that each give an independent AI review (A1-A3) with
-    its names and findings, and [[commits]] entries that raise a commit's generation to G3 with
-    Assisted-by. A person's review, a Reviewed-by and the generations G0-G2 are a person's word:
-    they go into SIGNOFF.toml."""
+def parse_record_file(text: str, name: str) -> list[Attestation]:
+    """A record file of the review folder: [[attestations]] tables, each an independent AI review
+    (A1-A3) with its names and findings, never another axis. A person's review and the corrections
+    of a commit go into SIGNOFF.toml."""
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{name}: invalid TOML: {e}") from e
-    if set(data) - {"attestations", "commits"}:
-        raise ConfigError(f"{name}: a record file in the review folder holds [[attestations]] and [[commits]] "
-                          f"tables only, not {', '.join(sorted(set(data) - {'attestations', 'commits'}))}")
+    if set(data) - {"attestations"}:
+        raise ConfigError(f"{name}: a record file in the review folder holds [[attestations]] tables only, not "
+                          f"{', '.join(sorted(set(data) - {'attestations'}))} (a [[commits]] entry is a person's "
+                          f"correction: it goes into {FILENAME})")
     entries = _attestations(data, name, False)  # always on today's scale
-    commits = _commits(data, name, False)
-    if not entries and not commits:
-        raise ConfigError(f"{name}: a record file in the review folder needs [[attestations]] or [[commits]] tables")
+    if not entries:
+        raise ConfigError(f"{name}: a record file in the review folder needs [[attestations]] tables")
     for a in entries:
         where = f"{name} [[attestations]] entry {a.index}"
         other = set(a.values) - {AIR, AI_REVIEWED, FINDINGS}
@@ -266,16 +251,7 @@ def parse_record_file(text: str, name: str) -> tuple[list[Attestation], list[Com
                               f"(a person's review goes into {FILENAME})")
         if a.values.get(AIR) not in ("A1", "A2", "A3"):
             raise ConfigError(f"{where}: {AIR} must be A1, A2 or A3 (an independent AI review)")
-    for c in commits:
-        where = f"{name} [[commits]] entry {c.index}"
-        other = set(c.values) - {GEN, ASSISTED}
-        if other or c.values.get(GEN) != "G3":
-            raise ConfigError(f"{where}: a record file in the review folder can only raise a commit's generation, "
-                              f"so its [[commits]] entries give {GEN} = \"G3\" and {ASSISTED} only (G0-G2, a "
-                              f"review and a Reviewed-by are a person's word: they go into {FILENAME})")
-        if not c.values.get(ASSISTED):
-            raise ConfigError(f"{where}: {GEN} = \"G3\" needs {ASSISTED}: the model that wrote the lines")
-    return entries, commits
+    return entries
 
 
 def load_text(text: str, path: Path) -> Config:

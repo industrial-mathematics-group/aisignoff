@@ -380,10 +380,10 @@ def _dead_record_file(project: Project, base: str | None):
         if text is None:
             return False
         try:
-            attestations, commits = parse_record_file(text, path)
+            attestations = parse_record_file(text, path)
         except ConfigError:
             return False
-        return history.is_dead(attestations, commits, path)
+        return history.is_dead(attestations, path)
     return dead
 
 
@@ -396,7 +396,7 @@ def dead_records(project: Project) -> tuple[list, list[str]]:
     ids = {id(e) for e in dead}
     own = [e for e in dead if e.filename == FILENAME]
     files: dict[str, bool] = {}
-    for e in project.config.review_attestations + project.config.review_commits:
+    for e in project.config.review_attestations:
         files[e.filename] = files.get(e.filename, True) and id(e) in ids
     return own, sorted(f for f, all_dead in files.items() if all_dead)
 
@@ -715,10 +715,10 @@ def _new_record_name(project: Project, what: str) -> Path:
     return target
 
 
-def _write_review(root: Path, target: Path, block: list[str], head: list[str] | None = None) -> Path:
+def _write_review(root: Path, target: Path, block: list[str]) -> Path:
     """Write a new record file; remove it again if the result isn't a valid one."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    head = head or ["# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:",
+    head = ["# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:",
                     "# a later review goes into a new file."]
     target.write_text("\n".join(head + block) + "\n", encoding="utf-8")
     try:
@@ -786,7 +786,7 @@ def cmd_attest(args) -> int:
     if args.signoff and args.to:
         raise UsageError(f"give --to (a record file of the review folder) or --signoff ({FILENAME}), not both")
     if HUM not in values and not args.to and not args.signoff:
-        # an AI review is a record of the AI side: a new file in the review folder, never SIGNOFF.toml
+        # an AI review goes into a new file in the review folder, never SIGNOFF.toml
         if not project.config.review_dir:
             raise UsageError('an AI review is recorded in the review folder, and [review] dir is "": record it in '
                              'a pull request description instead, or set a review folder')
@@ -867,8 +867,7 @@ def cmd_attest(args) -> int:
 
 # ---------------------------------------------------------------- correct
 def cmd_correct(args) -> int:
-    """A [[commits]] entry: the AI side (raising the generation to G3) goes into a new record file of
-    the review folder, everything else, a person's word, into SIGNOFF.toml."""
+    """A [[commits]] entry in SIGNOFF.toml: a person's correction of a commit's declaration."""
     project = _open(args.root)
     _refuse_version_3(project.config)
     root = project.root
@@ -883,22 +882,8 @@ def cmd_correct(args) -> int:
     for level, names in ((GEN, ASSISTED), (HUM, REVIEWED), (AIR, AI_REVIEWED)):
         if names in values and level not in values:
             raise UsageError(f"{names} without {level}")
-    ai_side = set(values) <= {GEN, ASSISTED} and values.get(GEN) == "G3"
     block = ["", "[[commits]]", f'commit = "{sha}"'] + [f"{k} = {_toml_value(v)}" for k, v in values.items()]
-    if ai_side and not args.to_signoff:
-        if ASSISTED not in values:
-            raise UsageError("AI-Generation G3 needs --assisted-by: the model that wrote the lines")
-        if not project.config.review_dir:
-            raise UsageError(f'[review] dir is "": write the correction into {FILENAME} with --signoff')
-        target = _review_target(project, args.to) if args.to else _new_record_name(project, sha[:7])
-        target = _write_review(root, target, block, [
-            "# A correction of the AI side, recorded by 'aisignoff correct': it raises the generation of a commit.",
-            "# The review folder keeps it as it is; a generation in SIGNOFF.toml, a person's word, wins."])
-    else:
-        if args.to:
-            raise UsageError(f"--to is for the AI side (-g G3 with --assisted-by only); a person's correction goes "
-                             f"into {FILENAME}")
-        target = _append_toml(root, block)
+    target = _append_toml(root, block)
     print(f"Corrected {sha[:7]} ({' '.join(values[k] for k in (GEN, HUM, AIR) if k in values)}) in "
           f"{_shown(root, target)}")
     return 0
@@ -1156,14 +1141,10 @@ def main(argv: list[str] | None = None) -> int:
                    "signs off, instead of the review folder (for a person who records it)")
     p.set_defaults(func=cmd_attest)
 
-    p = sub.add_parser("correct", help="correct the declaration of a commit with a [[commits]] entry ([history])")
+    p = sub.add_parser("correct", help=f"correct the declaration of a commit: a [[commits]] entry in {FILENAME} ([history])")
     p.add_argument("commit", metavar="REV", help="the commit that landed the lines (a pull request's merge or squash "
                    "commit), or for -g only a commit inside it")
     _add_values(p, required=False)
-    p.add_argument("--to", metavar="FILE", help="with -g G3 and --assisted-by only: the new record file in the "
-                   "review folder (default: <date>-<commit>.toml)")
-    p.add_argument("--signoff", dest="to_signoff", action="store_true", help=f"write -g G3 into {FILENAME} too, "
-                   "instead of the review folder")
     p.set_defaults(func=cmd_correct)
 
     p = sub.add_parser("gc", help="delete the records that cover no line any more ([history])")

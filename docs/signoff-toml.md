@@ -1,6 +1,6 @@
 # SIGNOFF.toml reference
 
-`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections only a person can make. What agents record goes into the [review folder](history.md#the-review-folder) instead, which can only make a declaration stricter ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
+`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
 
 ```toml
 version = 4
@@ -43,12 +43,12 @@ Reviewed-by = "Jane Doe"
 
 | | `SIGNOFF.toml` | Record files in the review folder (`reviews/*.toml`) |
 |---|---|---|
-| Written by | a person, or a workflow a person approves (`attest -H`, `correct`, `annotate`) | agents and reviewers (`attest -a`, `correct -g G3`) |
-| Holds | everything below | `[[attestations]]` with an AI review (A1–A3), and `[[commits]]` that raise a commit's generation to G3 |
-| Never holds | | a human review, `Reviewed-by`, the generations G0–G2 |
-| Grows | as fast as a person signs off | add-only, one file per review or correction |
+| Written by | a person, or a workflow a person approves (`attest -H`, `correct`, `annotate`) | AI reviewers (`attest -a`) |
+| Holds | everything below | `[[attestations]]` with an AI review (A1–A3) and its findings, nothing else |
+| Never holds | | a generation, a human review, `Reviewed-by`, a `[[commits]]` entry |
+| Grows | as fast as a person signs off | add-only, one file per review |
 
-- **A generation that `SIGNOFF.toml` gives wins.** A record file only raises a commit to G3, and not a commit whose `AI-Generation` a `[[commits]]` entry of `SIGNOFF.toml` gives: a person decided it, and `lint` notes that the record doesn't count.
+- **The owner of a line declares its generation**, in the commit that landed it. A wrong one is a mistake that a person corrects, with a `[[commits]]` entry in `SIGNOFF.toml`.
 - **AI reviews count in the order they were recorded,** `SIGNOFF.toml` first, then the record files by the commit that added them; the later review of the same lines gives their findings.
 - **Make it hold on GitHub:** give `SIGNOFF.toml` a code owner and require their review, so that a change to it needs a person's approval. aisignoff can't tell who edited a file.
 
@@ -123,7 +123,7 @@ Declares or corrects the declaration of one commit, axis by axis. See [Correctin
 | `commit` | a commit hash, at least 4 hex digits, required |
 | declaration keys | at least one level; a name only next to its level |
 
-In a record file of the review folder, an entry gives `AI-Generation = "G3"` and `Assisted-by` only, and raises the commit's generation ([Who writes what](#who-writes-what)). [`aisignoff correct`](commands.md#correct) writes either kind.
+[`aisignoff correct`](commands.md#correct) writes one. They belong in `SIGNOFF.toml` only: a record file of the review folder can't hold them.
 
 `lint` checks each entry of `SIGNOFF.toml` as the declaration of its commit (the commit's message, corrected by the entry) against the built-in rules and the `[policy]`, also when the commit owns no line that is checked, such as one that changed only `SIGNOFF.toml`. An axis that neither declares is left out of the check. (`[[attestations]]` only raise reviews, so they can't bring a line below the policy.)
 

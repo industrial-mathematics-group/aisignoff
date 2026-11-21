@@ -32,17 +32,10 @@ per file and per line: AI generation (G0-G3), human review (H0-H3) and AI review
 - **The review folder** (`reviews/` unless `[review] dir` says otherwise): never modify or delete a
   file there. It holds the reviewers' records; a change that edits one fails `lint`.
 
-## When a landed commit declared too little AI
+## When a landed commit is declared wrong
 
-If a commit of the default branch says less AI than it had (G1 for code you wrote end to end),
-raise it, in a pull request of its own that changes nothing else:
-
-```bash
-aisignoff correct <sha> -g G3 --assisted-by "<model>"   # writes a new record file in reviews/
-```
-
-That can only make the declaration stricter. Never lower a generation and never write G0-G2: that
-is a person's word, in `SIGNOFF.toml`.
+Don't correct it yourself: a `[[commits]]` entry is a person's word, in `SIGNOFF.toml`. Tell the
+person responsible which commit it is and what you think it should say.
 
 ## Where the declaration goes
 

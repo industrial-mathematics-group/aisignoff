@@ -514,7 +514,6 @@ class History:
         self.head_files = self._tree("HEAD") if self.head else {}
         self.base_blobs = self._tree(self.base) if self.base else {}
         self.changes = self._load_changes()
-        self._raised: set[str] = set()  # commits whose generation a record file of the review folder raises
         self.corrections = self._load_corrections()
         self._check_entries()
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
@@ -701,23 +700,6 @@ class History:
                                       "AI-Generation counts; reviews are declared by the commit that landed it "
                                       "on the default branch, or by an attestation")
             out.setdefault(sha, {}).update(pieces)
-        # the AI side: record files of the review folder can only raise a commit's generation to G3.
-        # A generation that SIGNOFF.toml gives, a person's word, wins
-        human = {sha for sha, pieces in out.items() if 0 in pieces}
-        for entry in self._review_order(self.config.review_commits):
-            sha = self._resolve(entry.commit)
-            where = f"{entry.filename} [[commits]] entry {entry.index}"
-            if sha is None or (sha not in self.order and not self.is_ancestor(sha, "HEAD")):
-                self.problems.append(f"{where}: {entry.commit} is not a commit in the history of HEAD, so it "
-                                     "raises nothing")
-                continue
-            if sha in human:
-                self.notes.append(f"{where}: SIGNOFF.toml gives the generation of {short(sha)}, which a person "
-                                  "decides, so this entry doesn't count")
-                continue
-            self._raised.add(sha)
-            out.setdefault(sha, {}).update(pieces_from_values(entry.values, f"{entry.filename} [[commits]] {short(sha)}",
-                                                              "commit"))
         return out
 
     def _check_entries(self) -> None:
@@ -1033,23 +1015,18 @@ class History:
         touched = self._touched()
         out = list(self.gone)
         out += [a for a, key, t in self.attestation_keys if not self._covers_any(key, t)]
-        for entry in list(self.config.commits) + list(self.config.review_commits):
+        for entry in self.config.commits:
             sha = self._resolve(entry.commit)
             if sha is not None and sha in self.corrections and sha not in touched:
                 out.append(entry)
         return out
 
-    def is_dead(self, attestations: list, commits: list, name: str) -> bool:
+    def is_dead(self, attestations: list, name: str) -> bool:
         """Whether every entry of a record file that isn't loaded (one a change deletes) covers no
         line: then deleting it changes no level."""
-        touched = self._touched()
         for a in attestations:
             got = self._attestation(a, f"{name} [[attestations]] entry {a.index}", -1, [], [])
             if got is None or (got != "gone" and self._covers_any(*got)):
-                return False
-        for c in commits:
-            sha = self._resolve(c.commit)
-            if sha is None or sha in touched:
                 return False
         return True
 

@@ -1,6 +1,6 @@
-"""Who writes what: SIGNOFF.toml is the file a person signs off, the review folder the AI side, whose
-record files can only make a declaration stricter. Records that cover no line any more are no error,
-and 'aisignoff gc' deletes them."""
+"""Who writes what: SIGNOFF.toml is the file a person signs off, the review folder holds the AI
+reviews and their findings, nothing else. Records that cover no line any more are no error, and
+'aisignoff gc' deletes them."""
 import pytest
 
 from aisignoff.cli import main, remove_tables
@@ -28,42 +28,16 @@ def lint(root, capsys, *args):
     return code, capsys.readouterr().out
 
 
-def raise_to_g3(sha, model="Claude Opus 5.5 (Anthropic)"):
-    return f'[[commits]]\ncommit = "{sha}"\nAI-Generation = "G3"\nAssisted-by = "{model}"\n'
+def review(sha, model="Model B, new session"):
+    """An A1 review of the lines one commit landed (A1 needs its findings, but no report)."""
+    return (f'[[attestations]]\ncommit = "{sha}"\nAI-Review = "A1"\nAI-Reviewed-by = "{model}"\n'
+            'AI-Review-Findings = "none"\n')
 
 
-def test_a_record_file_raises_the_generation_of_a_commit(repo):
-    edit_lines(repo, [2, 3])
-    sha = commit(repo, "said G1", G1)
-    write(repo, "reviews/g3.toml", raise_to_g3(sha))
-    commit(repo, "it was G3")
-    got, project = generations(repo)
-    assert got[1:3] == ["G3", "G3"] and got[0] == "G0"
-    assert project.history_problems == []
-
-
-def test_a_generation_a_person_gives_wins(repo):
-    edit_lines(repo, [2, 3])
-    sha = commit(repo, "said G1", G1)
-    write(repo, "SIGNOFF.toml", (repo / "SIGNOFF.toml").read_text()
-          + f'\n[[commits]]\ncommit = "{sha}"\nAI-Generation = "G1"\nAssisted-by = "Model A"\n')
-    write(repo, "reviews/g3.toml", raise_to_g3(sha))
-    commit(repo, "a person says G1, an agent G3")
-    got, project = generations(repo)
-    assert got[1:3] == ["G1", "G1"]
-    assert any("SIGNOFF.toml gives the generation" in n for n in project.history_notes)
-
-
-@pytest.mark.parametrize("entry, message", [
-    ('AI-Generation = "G1"\nAssisted-by = "M"\n', "can only raise a commit's generation"),
-    ('AI-Generation = "G0"\n', "can only raise a commit's generation"),
-    ('AI-Generation = "G3"\nAssisted-by = "M"\nHuman-Review = "H3"\nReviewed-by = "Jane"\n', "a person's word"),
-    ('AI-Generation = "G3"\n', "needs Assisted-by"),
-])
-def test_record_files_never_speak_for_a_person(repo, entry, message):
+def test_record_files_hold_ai_reviews_only(repo):
     sha = git(repo, "rev-parse", "HEAD")
-    write(repo, "reviews/x.toml", f'[[commits]]\ncommit = "{sha}"\n' + entry)
-    with pytest.raises(ConfigError, match=message):
+    write(repo, "reviews/x.toml", f'[[commits]]\ncommit = "{sha}"\nAI-Generation = "G3"\nAssisted-by = "M"\n')
+    with pytest.raises(ConfigError, match="a person's correction: it goes into SIGNOFF.toml"):
         load(repo)
 
 
@@ -96,12 +70,13 @@ def test_gc_deletes_what_covers_no_line(repo, capsys):
     write(repo, "SIGNOFF.toml", (repo / "SIGNOFF.toml").read_text()
           + f'\n[[commits]]   # line 2\ncommit = "{gone}"\nHuman-Review = "H3"\nReviewed-by = "Jane"\n'
           + f'\n# line 5, still there\n[[commits]]\ncommit = "{kept}"\nHuman-Review = "H3"\nReviewed-by = "Jane"\n')
-    write(repo, "reviews/gone.toml", raise_to_g3(gone))
-    write(repo, "reviews/both.toml", raise_to_g3(gone) + "\n" + raise_to_g3(kept))
+    write(repo, "reviews/gone.toml", review(gone))
+    write(repo, "reviews/both.toml", review(gone) + "\n" + review(kept))
     commit(repo, "records")
     edit_lines(repo, [2], "rewritten")
     commit(repo, "line 2 again", G1)
-    before, _ = generations(repo)
+    r, _ = result(repo)
+    before = [(p.declaration.ai, p.runs) for p in r.parts]
     capsys.readouterr()
     assert main(["--root", str(repo), "gc", "--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -112,7 +87,8 @@ def test_gc_deletes_what_covers_no_line(repo, capsys):
     text = (repo / "SIGNOFF.toml").read_text()
     assert gone not in text and kept in text and "# line 5, still there" in text
     assert not (repo / "reviews/gone.toml").exists() and (repo / "reviews/both.toml").exists()
-    assert generations(repo)[0] == before
+    r, _ = result(repo)
+    assert [(p.declaration.ai, p.runs) for p in r.parts] == before
     capsys.readouterr()
     assert main(["--root", str(repo), "gc"]) == 0
     assert "Nothing to delete" in capsys.readouterr().out
@@ -129,20 +105,20 @@ def _pull_request(repo, capsys, body_text):
 def test_a_change_may_delete_a_record_file_that_covers_no_line(repo, capsys, dead):
     edit_lines(repo, [2])
     sha = commit(repo, "line 2", G1)
-    write(repo, "reviews/g3.toml", raise_to_g3(sha))
+    write(repo, "reviews/a1.toml", review(sha))
     commit(repo, "record")
     if dead:
         edit_lines(repo, [2], "rewritten")
         commit(repo, "line 2 again", G1)
     git(repo, "checkout", "-q", "-b", "pr")
-    git(repo, "rm", "-q", "reviews/g3.toml")
+    git(repo, "rm", "-q", "reviews/a1.toml")
     commit(repo, "gc")
     code, out = _pull_request(repo, capsys, "Delete records that cover no line.\n")
     if dead:
         assert code == 0, out
         assert "it is a review" in out
     else:
-        assert code == 1 and "the change deletes reviews/g3.toml" in out
+        assert code == 1 and "the change deletes reviews/a1.toml" in out
 
 
 def test_attest_writes_an_ai_review_into_the_review_folder(repo, capsys):
@@ -164,18 +140,15 @@ def test_attest_writes_an_ai_review_into_the_review_folder(repo, capsys):
     assert 'Human-Review = "H3"' in text and 'AI-Review = "A1"' in text
 
 
-def test_correct_writes_each_side_where_it_belongs(repo, capsys):
+def test_correct_writes_into_signoff_toml(repo, capsys):
     edit_lines(repo, [2])
     sha = commit(repo, "line 2", G1)
     assert main(["--root", str(repo), "correct", sha[:7], "-g", "G3", "--assisted-by", "Model A"]) == 0
-    [record] = list((repo / "reviews").glob("*.toml"))
-    assert f'commit = "{sha}"' in record.read_text() and sha not in (repo / "SIGNOFF.toml").read_text()
-    assert main(["--root", str(repo), "correct", sha[:7], "-H", "H3", "--reviewed-by", "Jane"]) == 0
-    assert 'Human-Review = "H3"' in (repo / "SIGNOFF.toml").read_text()
-    assert main(["--root", str(repo), "correct", sha[:7], "-g", "G1", "--assisted-by", "M",
-                 "--to", str(repo / "reviews/x.toml")]) == 2
-    assert "a person's correction goes into SIGNOFF.toml" in capsys.readouterr().err
-    commit(repo, "corrections")
+    assert f'commit = "{sha}"' in (repo / "SIGNOFF.toml").read_text()
+    assert not (repo / "reviews").exists()
+    assert main(["--root", str(repo), "correct", sha[:7], "-H", "TODO"]) == 2
+    assert "TODO isn't allowed" in capsys.readouterr().err
+    commit(repo, "correction")
     assert generations(repo)[0][1] == "G3"
 
 

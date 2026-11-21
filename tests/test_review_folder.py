@@ -115,7 +115,7 @@ def test_attestation_files_record_ai_reviews_only(repo):
     with pytest.raises(ConfigError, match="must be A1, A2 or A3"):
         load(repo)
     write(repo, "reviews/x.toml", "[policy]\n'*' = { human = 'H0' }\n")
-    with pytest.raises(ConfigError, match="holds \\[\\[attestations\\]\\] and \\[\\[commits\\]\\] tables only"):
+    with pytest.raises(ConfigError, match="holds \\[\\[attestations\\]\\] tables only"):
         load(repo)
     write(repo, "reviews/x.toml", attestation(sha).replace(f'commit = "{sha}"\n', f'commit = "{sha}"\nblob = "{"a" * 40}"\n'))
     with pytest.raises(ConfigError, match="not both"):

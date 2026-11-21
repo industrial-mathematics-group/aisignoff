@@ -4,7 +4,7 @@ Check the [changelog](changelog.md) for **Breaking** changes before raising the 
 
 ## To 0.18: who writes what
 
-0.18 splits the records by who writes them: `SIGNOFF.toml` is the file a person signs off, and the review folder holds what agents record. Nothing that is there today changes its meaning.
+0.18 splits the records by who writes them: `SIGNOFF.toml` is the file a person signs off, and the review folder holds the AI reviews. Nothing that is there today changes its meaning.
 
 1. **Raise the pin to 0.18** in your workflows, and update the signoff request and `@signoff` assistant workflows if you copied them: they pass `attest --signoff` to keep writing into `SIGNOFF.toml`.
 2. **Scripts and agents that run `attest -a`** without `-H` now get a new file in `reviews/`; commit it with the change, in a pull request of its own as a review. Add `--signoff` where a person records the review in `SIGNOFF.toml`.
