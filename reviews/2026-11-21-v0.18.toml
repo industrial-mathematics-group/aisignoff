@@ -1,0 +1,37 @@
+# An independent AI review of aisignoff 0.18.0 (main at b4199c9), recorded by 'aisignoff attest'. The
+# review folder keeps it as it is: a later review goes into a new file. Report: reviews/2026-11-21-v0.18.md
+
+[[attestations]]
+path = "src/aisignoff/history.py"
+blob = "1be5657b2d86a79047f0dbcd5186158b991350ae"
+AI-Review = "A1"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new session without the generating conversation, reviews/2026-11-21-v0.18.md"]
+AI-Review-Findings = "major"
+
+[[attestations]]
+path = "src/aisignoff/pullrequest.py"
+blob = "1a2e5fd849ec093d3167bf56dbd8ead902ac2aa7"
+AI-Review = "A1"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new session without the generating conversation, reviews/2026-11-21-v0.18.md"]
+AI-Review-Findings = "major"
+
+[[attestations]]
+path = "src/aisignoff/config.py"
+blob = "e7a9859f1e11c5bda2f9c1875549a52668f96701"
+AI-Review = "A1"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new session without the generating conversation, reviews/2026-11-21-v0.18.md"]
+AI-Review-Findings = "minor"
+
+[[attestations]]
+path = "src/aisignoff/cache.py"
+blob = "a29b2e0cc6c3178635c0829de8368b546e48bce8"
+AI-Review = "A1"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new session without the generating conversation, reviews/2026-11-21-v0.18.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+path = "src/aisignoff/model.py"
+blob = "ea9bb7c6f55e2ca53fdfedc940ba1a6e3ef46186"
+AI-Review = "A1"
+AI-Reviewed-by = ["Claude Opus 5.5 (Anthropic), new session without the generating conversation, reviews/2026-11-21-v0.18.md"]
+AI-Review-Findings = "none"
