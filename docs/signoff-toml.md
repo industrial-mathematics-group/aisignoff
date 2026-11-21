@@ -49,7 +49,8 @@ Reviewed-by = "Jane Doe"
 | Grows | as fast as a person signs off | add-only, one file per review |
 
 - **The owner of a line declares its generation**, in the commit that landed it. A wrong one is a mistake that a person corrects, with a `[[commits]]` entry in `SIGNOFF.toml`.
-- **AI reviews count in the order they were recorded,** `SIGNOFF.toml` first, then the record files by the commit that added them; the later review of the same lines gives their findings.
+- **AI reviews count in the order they were recorded,** by the commit of the default branch that recorded them: the one that added the entry to `SIGNOFF.toml` or the record file to the review folder. Neither file counts before the other, so a re-review recorded with `attest --signoff` replaces the findings of an earlier review in the review folder, and the other way round. The later review of the same lines gives their findings, unless the earlier one saw newer content of the file ([The later review counts](history.md#the-review-folder)).
+- **An AI review a change adds to `SIGNOFF.toml`** (an `[[attestations]]` entry, or a `[[commits]]` entry that gives `AI-Review`) is checked like a record file: A1–A3 give their findings, and A2 and A3 name their report, a file of the repository or a link. Entries that have landed are read as they are, so a review recorded before findings existed keeps F-.
 - **Make it hold on GitHub:** give `SIGNOFF.toml` a code owner and require their review, so that a change to it needs a person's approval. aisignoff can't tell who edited a file.
 
 ```text
@@ -86,7 +87,7 @@ Minimum levels, keyed by `"*"` (every generation level) or `G0`–`G3` (overridi
 
 | Key | Value |
 |---|---|
-| `dir` | the review folder, relative to the project root: `"reviews"` by default, `""` for none. Its files need no declaration, a change may only add files to it, and its `.toml` files are record files ([Who writes what](#who-writes-what)). See [The review folder](history.md#the-review-folder) |
+| `dir` | the review folder, relative to the project root: `"reviews"` by default, `""` for none. Its files need no declaration, a change may only add files to it, and the `.toml` files directly in it are record files (those of its subfolders are evidence, never read). A pull request can't change it, like `exclude` ([Who writes what](#who-writes-what)). See [The review folder](history.md#the-review-folder) |
 
 1.0.0rc8 had `[review]` with `recheck`, the severity from which a finding failed `lint`. Findings are now recorded and block nothing ([Findings](levels.md#findings-f0-to-f3)), so `recheck` is no longer read: `lint` warns until it is removed.
 

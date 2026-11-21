@@ -30,7 +30,7 @@ A CI run starts from a fresh checkout, so it has no cache unless the workflow ke
           path: .git/aisignoff
           key: aisignoff-${{ github.sha }}
           restore-keys: aisignoff-
-      - run: pip install "aisignoff==0.18.0"
+      - run: pip install "aisignoff==0.19.0"
       - run: aisignoff lint
 ```
 

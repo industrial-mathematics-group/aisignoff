@@ -13,9 +13,9 @@ find problems and report them, never to fix them.
   change's files, no reformatting. A reviewer that fixes what it found has written part of the
   content and is no longer independent of it. The only files you may add are new files in the
   review folder (`reviews/` unless `SIGNOFF.toml` sets `[review] dir`): your report, at A3 your new
-  evidence (new tests or scripts), and an attestation file. Never modify or delete a file that is
-  already there, not even an earlier review's report: the folder is add-only, and `lint` fails a
-  change that edits it.
+  evidence (new tests or scripts) in a subfolder of its own, and an attestation file directly in
+  the folder. Never modify or delete a file that is already there, not even an earlier review's
+  report: the folder is add-only, and the check before the merge fails a change that edits it.
 - **Don't touch the declaration's other axes.** Generation and human review are not yours.
 
 ## Your level
@@ -93,7 +93,12 @@ aisignoff attest src/solver.py -a A2 --findings none \
   new file (`aisignoff attest --commit <original> ... --to F`, then add a second
   `[[attestations]]` table for the fix to F before committing). Your findings then replace the old
   ones on all their lines.
-- Commit your report, your evidence and the attestation file, and nothing else.
+- Commit your report, your evidence and the attestation file, and nothing else: a change that
+  adds a record file and changes anything outside the review folder fails the check before the
+  merge. Put the evidence in a subfolder (`reviews/pr12-evidence/`): only the `.toml` files
+  directly in the review folder are read as records, so a `pyproject.toml` of your test project
+  is fine there.
+- Name a report your change adds (or a link): an earlier review's report isn't yours.
 
 ## How your findings are recorded
 
@@ -108,7 +113,8 @@ Your findings become the findings level of the lines your review covers:
 
 Lines no independent review has covered since they last changed are **F-**. A finding blocks
 nothing: the lines show it until a later review finds it fixed, and lines changed after your
-review go back to F-. The newest review counts, not the highest.
+review go back to F-. The newest review counts, not the highest: the one recorded last, whether
+in a record file or in `SIGNOFF.toml`, unless an earlier one saw newer content of the file.
 
 Report template: https://github.com/industrial-mathematics-group/aisignoff/blob/main/examples/review-report.md
 Full rules: https://industrial-mathematics-group.github.io/aisignoff/levels/

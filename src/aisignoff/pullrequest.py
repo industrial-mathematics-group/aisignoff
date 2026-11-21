@@ -116,8 +116,9 @@ def _unconverted_annotations(root: Path, base: Config, head: Config) -> list[str
 
 def base_rules(root: Path, base: str, head: Config) -> BaseRules:
     """The rules of the base branch BASE, and which protected settings HEAD's SIGNOFF.toml changes:
-    [policy], exclude, [history] and version (which decides the scale the AI review levels
-    are read on), and the entries of .git-blame-ignore-revs (or [history] ignore-revs-file), which
+    [policy], exclude, [history], [review] dir (which decides which files need no declaration and
+    which are add-only), version (which decides the scale the AI review levels are read on), and
+    the entries of .git-blame-ignore-revs (or [history] ignore-revs-file), which
     give lines back to other commits. A repository's first SIGNOFF.toml changes nothing."""
     text = _show(root, base, FILENAME)
     if text is None:
@@ -130,6 +131,9 @@ def base_rules(root: Path, base: str, head: Config) -> BaseRules:
         changed.append("exclude")
     if config.history != head.history:
         changed.append("[history]")
+    if config.review_dir != head.review_dir:
+        # it leaves its files out like exclude does, and is the folder a change may only add files to
+        changed.append("[review] dir")
     ignore, ignored = head.history.ignore_revs_file or ".git-blame-ignore-revs", None
     if _revs(_show(root, base, ignore)) != _revs(_read(root / ignore)):
         # its entries give lines back to the commits before them: they steer resolution as [history] does
@@ -180,32 +184,55 @@ def change_files(root: Path, base: str | None) -> set[str] | None:
     return {f for f in (changed + "\0" + new).split("\0") if f}
 
 
-def review_folder_changes(root: Path, base: str | None, review_dir: str, may_delete=None) -> tuple[bool, list[str]]:
-    """What a change does to the review folder REVIEW_DIR since BASE: (whether it only adds files
-    there, so that it is a review and declares no lines; the problems). The folder keeps every
+@dataclass
+class ReviewFolderChange:
+    """What a change does to the review folder: see review_folder_changes."""
+
+    review_only: bool = False  # it only adds files there (and deletes records that cover no line)
+    problems: list[str] = field(default_factory=list)
+    added: list[str] = field(default_factory=list)  # the files it adds there
+    deleted: list[str] = field(default_factory=list)  # the record files it deletes, which cover no line
+    outside: list[str] = field(default_factory=list)  # the files it adds, modifies or deletes elsewhere
+
+
+def review_folder_changes(root: Path, base: str | None, review_dir: str, may_delete=None,
+                          base_dir: str | None = None) -> ReviewFolderChange:
+    """What a change does to the review folder REVIEW_DIR since BASE: whether it only adds files
+    there, so that it is a review and declares no lines, and the problems. The folder keeps every
     review as it was recorded: a change may add files to it, never modify, delete or rename one.
     The one exception: may_delete(path) says whether a record file (*.toml) the change deletes
-    covers no line any more, so that deleting it changes no level (git history keeps it)."""
+    covers no line any more, so that deleting it changes no level (git history keeps it).
+    BASE_DIR: the review folder of the branch the change goes into, when the change moves it: the
+    files of both folders are add-only."""
     from .history import _git
     from .diff import _unquote
-    if not base or not review_dir:
-        return False, []
+    folders = [d for d in dict.fromkeys((review_dir, base_dir)) if d]
+    if not base or not folders:
+        return ReviewFolderChange()
     out = _git(root, "-c", "core.quotePath=false", "diff", "--name-status", "--no-renames", "--relative", base, "--",
                check=False)
     if out is None:
-        return False, []
+        return ReviewFolderChange()
     rows = [r.split("\t", 1) for r in out.splitlines() if "\t" in r]
     changes = [(status[0], _unquote(path)) for status, path in rows]
     new = _git(root, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard", check=False) or ""
     changes += [("A", _unquote(path)) for path in new.splitlines() if path]
-    inside = [(status, path) for status, path in changes if path.startswith(review_dir + "/")]
+    def folder(path: str) -> str | None:
+        return next((d for d in folders if path.startswith(d + "/")), None)
+    inside = [(status, path) for status, path in changes if folder(path)]
     verbs = {"M": "modifies", "D": "deletes", "T": "changes the type of"}
-    problems = [f"the change {verbs.get(status, 'changes')} {path}: the review folder ({review_dir}/) keeps every "
-                "review as it was recorded, so a change may only add files to it. Record a new review in a new file"
-                for status, path in inside if status != "A"
-                and not (status == "D" and path.endswith(".toml") and may_delete is not None and may_delete(path))]
-    review_only = bool(changes) and len(inside) == len(changes) and not problems
-    return review_only, problems
+    got = ReviewFolderChange(outside=[path for _, path in changes if not folder(path)])
+    for status, path in inside:
+        if status == "A":
+            got.added.append(path)
+        elif status == "D" and path.endswith(".toml") and may_delete is not None and may_delete(path):
+            got.deleted.append(path)
+        else:
+            got.problems.append(f"the change {verbs.get(status, 'changes')} {path}: the review folder ({folder(path)}/) "
+                                "keeps every review as it was recorded, so a change may only add files to it. Record "
+                                "a new review in a new file")
+    got.review_only = bool(changes) and not got.outside and not got.problems
+    return got
 
 
 def _report_paths(root: Path, item: str) -> list[str]:
@@ -259,9 +286,12 @@ def review_problems(root: Path, piece, findings: str | None, changed: set[str] |
         return problems + [f"the review report {old} isn't part of this change: it was there before, so it is "
                            "an earlier review's. Commit this review's report with the pull request"]
     named = [p for p in paths if p.lower().endswith(_REPORT_SUFFIXES)]
+    if named and changed is None:
+        return problems + [f"the review report {named[0]} doesn't exist: commit it, or link it"]
     if named:
         return problems + [f"the review report {named[0]} isn't in this change: commit it with the pull request"]
-    return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of a file in this change, or a "
+    where = "a file of the repository" if changed is None else "a file in this change"
+    return problems + [f"{level} needs its review report in {AI_REVIEWED}: the path of {where}, or a "
                        "link (after the model: \"GPT Sol (OpenAI), reviews/pull12.md\")"]
 
 

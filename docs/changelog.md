@@ -2,6 +2,22 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.19.0
+
+The fixes of the independent review of 0.18.0 ([reviews/2026-11-21-v0.18.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-21-v0.18.md)): the order of reviews, the protection of the review folder and the checks of the records. See [Upgrading](migrating.md#to-019-the-order-of-reviews).
+
+- **Breaking:** AI reviews count in the order they were recorded, wherever they are: by the commit of the default branch that added the record file, or that added the entry to `SIGNOFF.toml`. Before, every entry of `SIGNOFF.toml` counted before every record file, so a re-review recorded with `attest --signoff` (the signoff request and `@signoff` workflows) could never clear a finding of the review folder. Levels of existing lines can change where both files review the same lines.
+- **Breaking:** a review of a commit (`attest --commit`) no longer counts as the newest review. It saw the file as it was when it was recorded, so a review of the whole file recorded later counts after it. Before, an earlier commit review replaced the findings of a later whole-file review as soon as any other line of the file changed, so a critical finding could disappear.
+- **Breaking:** `[review] dir` is protected in the check before the merge, like `exclude`: a pull request that changes it fails (`--allow-policy-change` lets it through). It decides which files need no declaration and which are add-only, so a pull request could leave code undeclared or rewrite an earlier review. The review folder of the base branch stays add-only even then.
+- **Breaking:** only the `.toml` files directly in the review folder are record files. Files in its subfolders, such as the `pyproject.toml` of an A3 review's evidence, are never read; `lint` notes one that looks like a record file. Before, any TOML file below the folder stopped `lint` and `report` for the whole repository, and the add-only rule kept it there. `attest --to` names a file directly in the folder.
+- **Breaking:** in the check before the merge, a record file the change adds names a report the change adds or modifies, or a link, like a pull request description. An earlier review's report or `README.md` no longer passes.
+- **Breaking:** a change that adds a record file to the review folder and changes anything outside it fails the check before the merge. A record file next to the content raised the change's own lines without a review the check could see; a change's own AI review is declared in its description.
+- **Breaking:** an AI review that a change adds to `SIGNOFF.toml` (an `[[attestations]]` entry, or a `[[commits]]` entry that gives `AI-Review`) is checked like a record file: A1–A3 give their findings, A2 and A3 a report that exists or a link. Entries that have landed are read as they are.
+- Fixed: `gc` deleted the records of excluded files (and of commits that changed one), since excluded files are never resolved. They now stay, and keep their levels for when the exclusion is lifted.
+- Fixed: for a record file that has landed, a missing report was reported as "isn't in this change: commit it with the pull request". It now says the report doesn't exist.
+- Fixed: the check before the merge said that a change made by `aisignoff gc`, which only deletes record files, "only adds files to the review folder". It now says what the change does.
+- The guides say that the check before the merge (not plain `lint`) fails a change that edits the review folder, that evidence goes into a subfolder, and that the dev agent never adds a record file.
+
 ## 0.18.0
 
 Who writes what: `SIGNOFF.toml` is the file a person signs off, and the review folder holds the AI reviews. Agents no longer add to `SIGNOFF.toml`, and records that cover no line any more can be deleted. See [Who writes what](signoff-toml.md#who-writes-what) and [Upgrading](migrating.md#to-018-who-writes-what).

@@ -237,7 +237,8 @@ def test_a_commits_entry_is_checked_against_the_policy_also_without_lines(repo, 
     assert code == 1, out
     assert f"[[commits]] entry 1 ({target[:7]}): G3 requires at least H1 by policy (declared H0)" in out
     assert "G3 requires at least A2" in out and "A1 needs AI-Reviewed-by" in out
-    good = COMMIT_ENTRY.replace('"H0"', '"H1"').replace('"A1"', '"A2"\nAI-Reviewed-by = ["Model B"]')
+    good = COMMIT_ENTRY.replace('"H0"', '"H1"').replace('"A1"', '"A2"\nAI-Reviewed-by = ["Model B, https://example.org/review"]'
+                                                               '\nAI-Review-Findings = "none"')
     write(repo, "SIGNOFF.toml", BASE_TOML + '\n[policy]\nG3 = { human = "H1", ai = "A2" }\n' + good.format(c=target[:7]))
     commit(repo, "a valid correction")
     assert lint(repo, tmp_path, FILLED, "--author", "jane")[0] == 0
