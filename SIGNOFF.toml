@@ -1,5 +1,4 @@
 version = 4
-exclude = ["reviews/**"]   # committed AI reviews (CONTRIBUTING.md) need no declaration
 
 # Line-level declarations from git history (aisignoff >= 0.12): each line takes the declaration of the
 # commit that landed it on main (Key: value lines, or the ticked boxes of the PR template in its
