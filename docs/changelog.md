@@ -2,6 +2,13 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.20.1
+
+The fix of the major finding of the independent review of 0.20.0 ([reviews/2026-11-22-v0.20.0-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-22-v0.20.0-codex.md)): binary content near the probe boundaries.
+
+- Fixed: a file with a NUL byte between git's 8,000-byte probe and aisignoff's 16 KiB one is binary to aisignoff, so one unit, but git shows a text patch of it. When a change replaced such a file with text, the lines git saw as unchanged kept the levels of the commit that added the binary file, and `diff` counted only the lines git changed. Which side of a change is binary now follows aisignoff's rule on both sides, whatever git's patch shows (also for a binary file that `.gitattributes` gives a text diff); a binary side is one unit, and every line of a text side is removed or added.
+- Fixed: the old side of a change was checked for binary content in its first 16,384 characters, not bytes. A text file with a NUL byte past the first 16 KiB, after multi-byte characters, counted as binary there, so a one-line edit of a `-diff` file made all its lines the change's. The check now reads bytes, as for the new side.
+
 ## 0.20.0
 
 Syntax colours in the folder report's line view.
