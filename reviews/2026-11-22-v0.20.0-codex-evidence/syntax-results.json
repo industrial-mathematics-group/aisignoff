@@ -1,0 +1,26 @@
+[
+  {
+    "path": "plain",
+    "language": "python",
+    "lines": [
+      "<span class=\"hljs-comment\">#!/usr/bin/env python3</span>",
+      "<span class=\"hljs-built_in\">print</span>(<span class=\"hljs-number\">1</span>)"
+    ]
+  },
+  {
+    "path": "flagged",
+    "language": "bash",
+    "lines": [
+      "<span class=\"hljs-meta\">#!/usr/bin/env -S python3 -X pycache_prefix=/tmp/sh</span>",
+      "<span class=\"hljs-built_in\">print</span>(1)"
+    ]
+  },
+  {
+    "path": "multiline.py",
+    "language": "python",
+    "lines": [
+      "s = <span class=\"hljs-string\">&quot;&quot;&quot;hello</span>",
+      "<span class=\"hljs-string\">world&quot;&quot;&quot;</span>"
+    ]
+  }
+]
