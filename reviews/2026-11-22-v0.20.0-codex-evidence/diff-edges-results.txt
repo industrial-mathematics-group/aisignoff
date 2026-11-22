@@ -1,0 +1,6 @@
+aisignoff 0.19.3
+NUL byte at 10000, without attributes: ([([[1, 1]], 'H3'), ([[2, 3]], 'H1')], '1\t1\tdata', (1, 1))
+NUL byte at 18000, after 9000 UTF-8 characters, with -diff: ([([[1, 3]], 'H3')], '-\t-\tdata', (3, 1))
+aisignoff 0.20.0
+NUL byte at 10000, without attributes: ([([[1, 1]], 'H3'), ([[2, 3]], 'H1')], '1\t1\tdata', (1, 1))
+NUL byte at 18000, after 9000 UTF-8 characters, with -diff: ([([[1, 3]], 'H3')], '-\t-\tdata', (3, 1))
