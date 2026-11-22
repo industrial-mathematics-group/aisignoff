@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import threading
 from collections import Counter
 from pathlib import Path
 
@@ -99,15 +100,69 @@ def _header_path(text: str) -> str | None:
     return None if p == "/dev/null" else p[2:]
 
 
-def _blob_units(root: Path, blob: str) -> tuple[int, bool]:
-    """The units of a blob, as line_count counts a file (a binary or empty one is one), and whether
-    it is binary, as the history tells (a NUL among its first bytes)."""
-    data = _git(root, "cat-file", "blob", blob, check=False) if blob.strip("0") else ""
-    if "\x00" in data[:BINARY_PROBE]:
-        return 1, True
-    if not data:
+def _units(chunks) -> tuple[int, bool]:
+    """The units of content read in chunks, as line_count counts a file (a binary or empty one is
+    one), and whether it is binary, as the history tells: a NUL among its first BINARY_PROBE bytes."""
+    head = b""
+    newlines = size = 0
+    last = b""
+    for chunk in chunks:
+        if len(head) < BINARY_PROBE:
+            head += chunk[:BINARY_PROBE - len(head)]
+            if b"\x00" in head:
+                return 1, True
+        newlines += chunk.count(b"\n")
+        size += len(chunk)
+        last = chunk[-1:] or last
+    if not size:
         return 1, False
-    return data.count("\n") + (not data.endswith("\n")), False
+    return newlines + (last != b"\n"), False
+
+
+def _blob_units(root: Path, blobs) -> dict[str, tuple[int, bool]]:
+    """Blob -> (units, binary) as _units tells, for the given blobs (one git cat-file for all of
+    them; read in chunks, so a large blob isn't held in memory)."""
+    wanted = sorted({b for b in blobs if b.strip("0")})
+    if not wanted:
+        return {}
+    proc = subprocess.Popen([*GIT, "-C", str(root), "cat-file", "--batch"], env=git_env(),
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def feed():  # in a thread, so a full stdout pipe can't block the ids
+        try:
+            proc.stdin.write("".join(b + "\n" for b in wanted).encode())
+            proc.stdin.close()
+        except OSError:
+            pass
+
+    writer = threading.Thread(target=feed, daemon=True)
+    writer.start()
+    out: dict[str, tuple[int, bool]] = {}
+    try:
+        for blob in wanted:
+            header = proc.stdout.readline().split()
+            if len(header) != 3:  # "<id> missing": counted as empty, as before
+                continue
+            size = int(header[2])
+
+            def chunks(left=size):
+                while left > 0:
+                    chunk = proc.stdout.read(min(left, 1 << 16))
+                    if not chunk:
+                        return
+                    left -= len(chunk)
+                    yield chunk
+
+            it = chunks()
+            out[blob] = _units(it)
+            for _ in it:  # the rest of a binary blob
+                pass
+            proc.stdout.read(1)  # the newline after the content
+    finally:
+        writer.join()
+        proc.stdout.close()
+        proc.wait()
+    return out
 
 
 def _file_is_binary(root: Path, path: str) -> bool:
@@ -154,24 +209,23 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
 
 def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """The changed lines of the output of changed_lines' git diff. A file that git shows as binary
-    though both sides are text is added to suppressed, as (old path, new path)."""
-    result: dict = {}
+    though both sides are text is added to suppressed, as (old path, new path).
+
+    Which side is binary follows the history's rule (a NUL among the first BINARY_PROBE bytes) on
+    both sides, not git's: git reads fewer bytes, and .gitattributes can make it show a patch of
+    binary content or none of text. A binary side is one unit, so when either side is binary, every
+    unit of each side is removed or added, whatever git's patch says."""
+    files: dict = {}  # (old, new) -> [removed, added, (old blob, new blob), git showed it as binary]
     old = new = None
     removed: list[int] = []
     added: list[int] = []
     blobs: tuple[str, str] = ("", "")
+    git_binary = False
     in_header = False
 
     def flush():
-        nonlocal removed, added
         if old is not None or new is not None:
-            # an empty file is one unit, as everywhere else, though git shows no hunk for it: added or
-            # deleted empty, or emptied, or written into
-            if old is not None and not removed and blobs[0] in EMPTY_BLOBS:
-                removed = [1]
-            if new is not None and not added and blobs[1] in EMPTY_BLOBS:
-                added = [1]
-            result[(old, new)] = (removed, added)
+            files[(old, new)] = [removed, added, blobs, git_binary]
 
     for line in out.split("\n"):
         if line.startswith("diff --git "):
@@ -179,6 +233,7 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
             old, new = _git_header_paths(line[len("diff --git "):])
             removed, added = [], []
             blobs = ("", "")
+            git_binary = False
             in_header = True
         elif line.startswith("@@ "):
             in_header = False
@@ -205,17 +260,32 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
         elif line.startswith("rename to "):
             new = _unquote(line[len("rename to "):])
         elif line.startswith("Binary files ") and line.endswith(" differ"):
-            old_units, old_binary = _blob_units(root, blobs[0]) if old else (0, False)
-            new_binary = bool(new) and _file_is_binary(root, new)
-            if old and new and not old_binary and not new_binary:
+            git_binary = True
+    flush()
+
+    # a pure rename or a mode change has no content change, so no blobs to read
+    olds = _blob_units(root, [b[0] for (o, _), (_, _, b, _) in files.items() if o is not None and b[0]])
+    result: dict = {}
+    for (old, new), (removed, added, blobs, git_binary) in files.items():
+        if blobs != ("", "") or git_binary:
+            old_units, old_binary = olds.get(blobs[0], (1, False)) if old is not None else (0, False)
+            new_binary = new is not None and _file_is_binary(root, new)
+            if git_binary and old is not None and new is not None and not old_binary and not new_binary:
                 # text on both sides: git left the patch out because of an attribute, not the content
                 suppressed.append((old, new))
                 continue
-            # a binary file counts as one line, as everywhere else; when only one side is binary, the
-            # other side's text lines are all removed or added (none of them is in the other side)
-            removed = list(range(1, old_units + 1)) if old else []
-            added = list(range(1, line_count(root, new) + 1)) if new else []
-    flush()
+            if git_binary or old_binary or new_binary:
+                # a binary file counts as one unit, as everywhere else; when only one side is binary,
+                # the other side's text lines are all removed or added (none of them is in the other side)
+                removed = list(range(1, old_units + 1)) if old is not None else []
+                added = list(range(1, line_count(root, new) + 1)) if new is not None else []
+        # an empty file is one unit, as everywhere else, though git shows no hunk for it: added or
+        # deleted empty, or emptied, or written into
+        if old is not None and not removed and blobs[0] in EMPTY_BLOBS:
+            removed = [1]
+        if new is not None and not added and blobs[1] in EMPTY_BLOBS:
+            added = [1]
+        result[(old, new)] = (removed, added)
     return result
 
 
