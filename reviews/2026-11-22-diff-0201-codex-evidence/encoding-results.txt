@@ -1,0 +1,12 @@
+aisignoff 0.20.0
+utf-8: added=1, removed=1
+Removed H levels: {'H1': 1}
+utf-16le: added=1, removed=1
+Removed H levels: {'H1': 1}
+Landed binary-to-text provenance: [([[1, 1]], 'H3'), ([[2, 3]], 'H1')]
+aisignoff 0.20.1
+utf-8: added=1, removed=1
+Removed H levels: {'H1': 1}
+utf-16le: added=1, removed=3
+Removed H levels: {'H1': 3}
+Landed binary-to-text provenance: [([[1, 1]], 'H3'), ([[2, 3]], 'H1')]
