@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12", "3.13", "3.14"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,19 +26,16 @@ jobs:
       - name: The tool declares its own files
         run: aisignoff lint
   lowest-git:
-   # the oldest git that aisignoff supports (MIN_GIT in src/aisignoff/history.py): Ubuntu 22.04's 2.34
+    # the oldest git that aisignoff supports (MIN_GIT in src/aisignoff/history.py): Ubuntu 22.04's 2.34
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     steps:
-      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates && git --version
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-pip python3-venv && git --version
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: python -m pip install -e . pytest
-      - run: pytest -q
+      - run: python3 -m pip install -e . pytest
+      - run: python3 -m pytest -q
       - name: The tool declares its own files
         run: aisignoff lint
