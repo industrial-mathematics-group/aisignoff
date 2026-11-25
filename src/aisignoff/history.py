@@ -127,6 +127,15 @@ def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None)
     return r.stdout.decode("utf-8", "surrogateescape")
 
 
+def _git_bytes(root: Path, *args: str, stdin: bytes | None = None) -> bytes | None:
+    """git's output as bytes (a blob's content); None if it fails."""
+    try:
+        r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True, input=stdin)
+    except FileNotFoundError:
+        raise HistoryError("git is not installed")
+    return r.stdout if r.returncode == 0 else None
+
+
 def _git_error(root: Path, *args: str) -> str:
     try:
         r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True)
@@ -572,6 +581,7 @@ class History:
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         self.cache = cache.open(self) if cache is not None and self.base else None
+        self.converted = self._converted()  # before the files are resolved, which runs in threads
         self.gone: list = []  # attestations of files deleted since: they cover no line
         self.attestation_keys: list[tuple] = []  # (attestation, the file it is listed under, its tuple)
         self.origins: dict[str, set[tuple]] = {}  # the different origins of the lines of each file resolved
@@ -1597,15 +1607,37 @@ class History:
             return own
         return sorted(own + every, key=lambda a: a[6])
 
+    def _stored(self, path: str) -> bytes:
+        """A file's content as git stores it, which blame and diff read: the work tree's bytes, except for
+        a file that git converts (working-tree-encoding, or a filter such as Git LFS) and that is as on the
+        default branch, whose blob is read (UTF-16 text has NUL bytes in the work tree; an LFS file is its
+        pointer in git). A converted file with changes that haven't landed is read from the work tree."""
+        if path in self.converted and path not in self.changes and path in self.base_blobs:
+            blob = _git_bytes(self.root, "cat-file", "blob", self.base_blobs[path])
+            if blob is not None:
+                return blob
+        try:
+            return (self.root / path).read_bytes()
+        except OSError:
+            return b""
+
+    def _converted(self) -> set[str]:
+        """The files of the default branch that git converts between the work tree and the repository."""
+        paths = sorted(self.base_blobs)
+        if not paths:
+            return set()
+        out = _git_bytes(self.root, "check-attr", "-z", "--stdin", "filter", "working-tree-encoding",
+                         stdin="\0".join(paths).encode("utf-8", "surrogateescape") + b"\0")
+        fields = (out or b"").decode("utf-8", "surrogateescape").split("\0")
+        return {fields[k] for k in range(0, len(fields) - 2, 3)  # path, attribute, value
+                if fields[k + 2] not in ("unspecified", "unset")}
+
     def line_origins(self, path: str) -> list[tuple]:
         """Where each line of a file comes from: ("landed", ...) as in _base_origins, or ("pending", the commit of the change that wrote it, or None) for a line
         that isn't on the default branch."""
         if (self.root / path).is_symlink():  # one unit, as git sees it (never read what it points to)
             return [self._unit_origin(path)]
-        try:
-            data = (self.root / path).read_bytes()
-        except OSError:
-            data = b""
+        data = self._stored(path)
         if not data or b"\x00" in data[:BINARY_PROBE]:
             return [self._unit_origin(path)]
         lines = data.count(b"\n") + (not data.endswith(b"\n"))

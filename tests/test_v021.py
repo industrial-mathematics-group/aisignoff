@@ -170,3 +170,20 @@ def test_guide_skills_in_a_folder_given_is_relative_to_where_it_runs(tmp_path, m
 def test_init_no_longer_suggests_excluding_the_review_folder(tmp_path, capsys):
     assert main(["--root", str(tmp_path), "init", "--no-agents-md"]) == 0
     assert "reviews/**" not in (tmp_path / "SIGNOFF.toml").read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------ content as git stores it
+def test_a_file_that_git_converts_counts_as_git_stores_it(repo, capsys):
+    write(repo, ".gitattributes", "notes.txt working-tree-encoding=UTF-16LE\n")
+    (repo / "notes.txt").write_text("original\nkeep one\nkeep two\n", encoding="utf-16le")
+    commit(repo, "notes")
+    assert b"\x00" in (repo / "notes.txt").read_bytes()  # NUL bytes in the work tree, UTF-8 text in git
+    # landed: three text lines, not one binary unit
+    assert line_levels(repo, "notes.txt", capsys) == [("G0", "H2")] * 3
+    git(repo, "switch", "-qc", "feature")
+    (repo / "notes.txt").write_text("changed\nkeep one\nkeep two\n", encoding="utf-16le")
+    commit(repo, "change the first line", G3)
+    capsys.readouterr()
+    assert main(["--root", str(repo), "diff", "main", "--json", "--files"]) == 0
+    row = next(r for r in json.loads(capsys.readouterr().out)["rows"] if r["name"] == "notes.txt")
+    assert (row["added"], row["removed"]) == (1, 1)
