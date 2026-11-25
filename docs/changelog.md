@@ -2,6 +2,14 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.22.0
+
+The decisions D2 and D6 of the [1.0 contract](contract.md#decisions): keys, and a text file after a binary version of it.
+
+- **Breaking:** every key of `SIGNOFF.toml` must be understood. An unknown key at the top level, in `[history]` or in `[review]` is a configuration error (exit code `2`), as it already was in entries, record files and `[policy]`. Before, it was a warning, so a typo such as `ignore-whitespce = false` passed plain `lint` and silently changed the levels. The message says that the key is a typo or a key of a newer aisignoff.
+- Added: `requires-aisignoff = "X.Y"` at the top level of `SIGNOFF.toml`, the oldest release that understands the file. An older release stops with a message that names it, before it looks at the keys.
+- **Breaking:** a text file's lines follow git's line diff also after a binary version of it, before the merge as after it. Before the merge, a text file that replaced a binary one counted as all new, while the landed history (`git blame`, which splits any content into lines) gave the lines it found in the binary version to the commit that added it, so the levels changed at the merge. Now both give those lines the levels of the commit that added the binary version, and `aisignoff diff` counts the binary version as one removed unit. A binary new side is still one unit.
+
 ## 0.21.0
 
 The fixes of the [1.0 feasibility report](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reports/2026-11-25-1.0-feasibility.md): exit codes, the machine's git setup, and files that git converts.
