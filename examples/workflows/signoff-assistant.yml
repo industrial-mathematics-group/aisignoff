@@ -38,7 +38,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "0.21.0"      # keep it at signoff-request.yml's
+  AISIGNOFF_VERSION: "0.22.0"      # keep it at signoff-request.yml's
   ANTHROPIC_VERSION: "2.8.0"          # the Anthropic Python SDK
   MODEL: claude-sonnet-5-5            # e.g. claude-opus-5-5 for harder conversations
   MODEL_NAME: Claude Sonnet 5.5 (Anthropic)   # as it is declared in the pull request; change it with MODEL

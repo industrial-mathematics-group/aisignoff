@@ -1,6 +1,6 @@
 # Compatibility
 
-aisignoff is at 0.21.0. While the format still changes, it stays below 1.0: a 0.x release may change what this page lists, with a **Breaking** note in the [changelog](changelog.md), so pin an exact version in a workflow or a pre-commit hook. From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers. The exact terms are in the draft of the [1.0 contract](contract.md).
+aisignoff is at 0.22.0. While the format still changes, it stays below 1.0: a 0.x release may change what this page lists, with a **Breaking** note in the [changelog](changelog.md), so pin an exact version in a workflow or a pre-commit hook. From 1.0.0 on, it follows [semantic versioning](https://semver.org), and this page lists what that covers. The exact terms are in the draft of the [1.0 contract](contract.md).
 
 ## What 1.x will keep stable
 
@@ -8,7 +8,7 @@ From 1.0, a minor or patch release (1.1, 1.0.1, …) won't break any of these; b
 
 - **The levels.** The three axes, their names (`AI-Generation`, `Human-Review`, `AI-Review`), the levels G0–G3, H0–H3 and A0–A3 and their meaning, and `TODO`.
 - **The names.** `Assisted-by`, `Reviewed-by` and `AI-Reviewed-by`, and the line `AI-Review-Findings`.
-- **[`SIGNOFF.toml`](signoff-toml.md)**, format `version = 4`. A file that is valid today stays valid and keeps its meaning. New optional keys or tables may be added; an older 1.x warns about a top-level or `[history]` key it doesn't know (`lint --strict` fails), instead of refusing the file.
+- **[`SIGNOFF.toml`](signoff-toml.md)**, format `version = 4`. A file that is valid today stays valid and keeps its meaning. Every key must be understood: an unknown key is a configuration error, never ignored. Should a later release add a key, a repository that uses it sets `requires-aisignoff`, and an older release says which release it needs.
 - **[Line-level](history.md) declarations**: commit trailers, the pull request template's checkboxes, `[[commits]]` and `[[attestations]]`, and the rules that decide which declaration a line takes. A line keeps its levels when you upgrade, unless a release fixes behaviour that contradicts these docs; the changelog names such a fix. Every line is worked out from the whole history on each run, so pin the version your CI uses and raise it on purpose. The levels don't depend on the git configuration of the machine (aisignoff pins the settings that would change them, and ignores text conversion and replace refs), but git's line diff can change between git releases, so a container image with a fixed git keeps them exactly.
 - **[Commands](commands.md)**: the commands, their options and the exit codes (`0` all fine, `1` `lint` found a problem, `2` the command couldn't run: usage, configuration, a file that can't be read or written, git missing or too old; `3` an internal error, a bug in aisignoff). New commands and options may be added.
 - **The `--json` output** of `report` and `diff`, with [the keys listed here](report.md#json-output). It starts with `"format": 1` (and `"aisignoff"`, the version that wrote it). New keys may appear at any time; a key that is removed, renamed or changes its meaning raises `format`, which (from 1.0) only happens in a major release. Readers should check `format` and ignore keys they don't know.

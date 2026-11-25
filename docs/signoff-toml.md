@@ -1,9 +1,10 @@
 # SIGNOFF.toml reference
 
-`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An invalid level, a malformed table, or an unknown key in an entry (`[[annotations]]`, `[[commits]]`, `[[attestations]]`, a record file) or in `[policy]` is a configuration error (exit code `2`). An unknown key at the top level, in `[history]` or in `[review]` is a warning (`lint --strict` fails on it). So is a file that isn't UTF-8 or can't be read.
+`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An invalid level, a malformed table, a file that isn't UTF-8 or can't be read, and an unknown key anywhere are configuration errors (exit code `2`). Every key changes what the file means, so an unknown one is never ignored: it is a typo, or a key of a newer aisignoff, for which the repository sets `requires-aisignoff`.
 
 ```toml
 version = 4
+requires-aisignoff = "0.22"
 exclude = ["docs/build/**"]   # the review folder (reviews/) is left out by itself
 
 [policy]
@@ -63,6 +64,7 @@ Reviewed-by = "Jane Doe"
 | Key | Value |
 |---|---|
 | `version` | `4`, required. A higher version is of a newer aisignoff, and a configuration error that says so. `3` is still read, as the AI review scale before 1.0.0rc6 taken over to today's, with a note from `lint`: see [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6). Versions 1 and 2 are no longer read |
+| `requires-aisignoff` | the oldest aisignoff that understands this file, such as `"0.22"` or `"1.2.3"`: an older one stops with a configuration error that names this release, instead of an unknown key. Set it when the file uses a key that a release added |
 | `exclude` | a glob or list of globs: files that need no declaration |
 
 ## Declaration keys
