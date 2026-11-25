@@ -292,6 +292,11 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
 def merge_base(root: Path, base: str) -> str:
     """The commit a change since BASE starts from: the merge base of BASE and HEAD, so the
     commits BASE got since don't count as the change's (as a pull request's diff on GitHub)."""
+    from .history import HistoryError, check_git
+    try:
+        check_git()
+    except HistoryError as e:
+        raise DiffError(str(e))
     sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
     if not sha:
         raise DiffError(f"{base} is not a commit")

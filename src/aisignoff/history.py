@@ -59,7 +59,35 @@ class HistoryError(Exception):
 GIT = ["git", "-c", "blame.markIgnoredLines=false",
        "-c", "blame.markUnblamableLines=false", "-c", "diff.algorithm=myers", "-c", "diff.renames=true",
        "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.relative=false",
-       "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false"]
+       "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false",
+       "-c", "diff.indentHeuristic=true"]
+
+# the oldest git that aisignoff runs with: older ones lack options it needs (--diff-merges, --path-format)
+# and would read some of the history wrong without saying so. CI tests it (Ubuntu 22.04's git).
+MIN_GIT = (2, 34)
+_git_version_cache: list = []
+
+
+def git_version() -> tuple[int, ...] | None:
+    """The version of git, as (major, minor, patch); None if git isn't installed or can't say."""
+    if not _git_version_cache:
+        try:
+            out = subprocess.run(["git", "--version"], capture_output=True, text=True, env=git_env()).stdout
+        except FileNotFoundError:
+            out = ""
+        m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out)
+        _git_version_cache.append(tuple(int(g or 0) for g in m.groups()) if m else None)
+    return _git_version_cache[0]
+
+
+def check_git() -> None:
+    """Stop (a configuration error) when git is missing or older than MIN_GIT."""
+    version = git_version()
+    if version is None:
+        raise HistoryError("git is not installed (or 'git --version' says no version)")
+    if version[:2] < MIN_GIT:
+        raise HistoryError(f"git {'.'.join(map(str, version))} is too old: aisignoff needs git "
+                           f"{'.'.join(map(str, MIN_GIT))} or later to read the history")
 
 
 def comparable(declaration: dict) -> str:
@@ -70,7 +98,8 @@ def comparable(declaration: dict) -> str:
 
 def git_env() -> dict[str, str]:
     """The environment for git: English messages, since a few of them are read (ambiguous hashes)."""
-    return {**os.environ, "LC_ALL": "C", "LANGUAGE": ""}
+    # GIT_NO_REPLACE_OBJECTS: refs/replace/ are local to a clone, so they'd make one machine see another history
+    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "", "GIT_NO_REPLACE_OBJECTS": "1"}
 
 
 def _event_default_branch() -> list[str]:
@@ -488,6 +517,7 @@ class History:
         when the caller knows it (aisignoff diff BASE, lint --base). landed: HEAD is a commit of
         the default branch, or will be one as it is (a merge queue's commit, a release branch).
         cache: the BlameCache to read the origins of earlier runs from and record this run's in."""
+        check_git()
         self.root = Path(root)
         self.config = config
         self.policy = config.policy
@@ -590,8 +620,9 @@ class History:
         if report:
             name = names[0]
             if self.config.history.default_branch:
-                self.problems.append(f"[history] default-branch: there is no branch {name} here (neither "
-                                     f"origin/{name} nor {name}), so every commit of HEAD counts as landed")
+                # a setting that names nothing: the configuration is wrong, whatever the command
+                raise HistoryError(f"[history] default-branch: there is no branch {name} here (neither "
+                                   f"origin/{name} nor {name}); fetch it (in CI: fetch-depth: 0), or correct the setting")
             else:
                 self.problems.append("there is no default branch here (none of " + ", ".join(names) + " as origin/<name> "
                                      "or a local branch), so every commit of HEAD counts as landed and nothing is "
@@ -757,7 +788,8 @@ class History:
         try:
             text = (self.root / name).read_text(encoding="utf-8", errors="replace")
         except OSError:
-            self.problems.append(f"[history] ignore-revs-file: {name} does not exist")
+            if self.config.history.ignore_revs_file is not None:  # a setting that names nothing
+                raise HistoryError(f"[history] ignore-revs-file: {name} does not exist")
             return []
         options = []
         for line in text.splitlines():
@@ -776,9 +808,8 @@ class History:
         if rev is None:
             return None
         sha = self._resolve(rev)
-        if sha is None or sha not in self.order:
-            self.problems.append(f"[history] require-trailers-since: {rev} is not a commit of the default branch")
-            return None
+        if sha is None or sha not in self.order:  # a setting that names nothing
+            raise HistoryError(f"[history] require-trailers-since: {rev} is not a commit of the default branch")
         return self.order[sha]
 
     def commit_pieces(self, sha: str) -> dict[int, Piece]:
@@ -1182,7 +1213,7 @@ class History:
         starts = [n for n, line in enumerate(lines) if header.match(line)]
         if len(starts) != count:
             return self._landed_entries(table, late)
-        blame = _git(self.root, "blame", "--porcelain", "--first-parent", "--ignore-revs-file=", "--",
+        blame = _git(self.root, "blame", "--porcelain", "--no-textconv", "--first-parent", "--ignore-revs-file=", "--",
                      path.name, check=False)
         if blame is None:
             return [late] * count
@@ -1398,7 +1429,9 @@ class History:
         that blame doesn't look behind: lines from it or before it come back as stopped there,
         with their line number and path in it. Paths are relative to the top of the repository."""
         # an empty --ignore-revs-file first clears the list of a personal blame.ignoreRevsFile
-        args = ["blame", "--porcelain", "--ignore-revs-file=", *self.blame_options] + (["--first-parent"] if first_parent else [])
+        # --no-textconv: a diff driver's text conversion (git-crypt, a document converter) would move the lines,
+        # or fail where it isn't set up
+        args = ["blame", "--porcelain", "--no-textconv", "--ignore-revs-file=", *self.blame_options] + (["--first-parent"] if first_parent else [])
         out = _git(self.root, *args, *([f"^{stop}"] if stop else []), *([rev] if rev else []), "--", path)
         from .diff import _unquote
         rows: list[tuple[str, int, bool, str]] = []
