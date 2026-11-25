@@ -180,5 +180,5 @@ With `--declare-from`, `report --json` also has `pull_request`: `applies` (`fals
 | `before`, `after` | the repository's shares by lines, per axis and level, in percent (0 to 100) |
 | `problems`, `notes`, `note` | messages for the reader |
 
-`lint` has no JSON output: its result is its exit code (0, 1 or 2).
+`lint` has no JSON output: its result is its exit code (0, 1, 2 or 3).
 

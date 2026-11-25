@@ -2,6 +2,19 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.23.0
+
+The fixes of the independent review of 0.22.0 ([reviews/2026-11-25-v0.22.0-fable.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-25-v0.22.0-fable.md)).
+
+- Fixed: `diff.interHunkContext` in the git configuration, or `GIT_DIFF_OPTS` in the environment, joined or widened the hunks that aisignoff reads as a change's lines, so lines next to an edit took the change's levels before the merge. Both are kept out now. Levels change only before the merge, and only where one of them was set.
+- Fixed: a file that git converts (`working-tree-encoding`, a filter such as Git LFS) and that a change edits, adds or renames was one unit before the merge and lines after it. It is read from `HEAD`'s blob when the work tree is as committed, as in a pull request's CI run.
+- Fixed: `diff` without `[history]` or for a file under `precedence = "override"`, and `report --html --since`, counted every removed line of a binary file replaced with text; the binary version counts as one removed unit everywhere, as with `[history]` since 0.22.0.
+- Fixed: a `HEAD` whose commit git can't read (a corrupt or missing object) passed `lint` as a repository without commits; it is a configuration error now (exit code `2`).
+- Fixed: an `AGENTS.md` or `CLAUDE.md` that isn't UTF-8 made `guide --agents-md` and `init` end with an internal error (exit code `3`), `init` after it had written `SIGNOFF.toml`. They exit with `2` and a message, and `init` writes nothing then.
+- Fixed: with `ignore-whitespace` (the default), `diff` counted a whitespace-only change as an added line, while the line keeps its owner. It compares with `-w` too now.
+- The unknown-key messages of `[policy]` and of record files say that the key is a typo or a key of a newer aisignoff, as the others do.
+- Docs: the contract and "The exact form" no longer say that a ticked human review box above an unticked one is an error (the highest ticked box counts, as everywhere else), that git's version is checked at the start of every command (it is checked wherever history is read), or that a key line needs a space after the colon.
+
 ## 0.22.0
 
 The decisions D2 and D6 of the [1.0 contract](contract.md#decisions): keys, and a text file after a binary version of it.

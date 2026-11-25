@@ -25,7 +25,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 |---|---|
 | `0` | the command did what was asked; for `lint`, everything is declared and valid |
 | `1` | `lint` found a problem (only `lint` returns it: `report`, `diff` and `badge` return `0` and show the problems) |
-| `2` | the command couldn't run: a usage error, an invalid or unreadable `SIGNOFF.toml` or record file, a setting that names nothing (`default-branch`, `ignore-revs-file`, `require-trailers-since`), a file that can't be read or written, git missing or older than 2.34 |
+| `2` | the command couldn't run: a usage error, an invalid or unreadable `SIGNOFF.toml` or record file, a setting that names nothing (`default-branch`, `ignore-revs-file`, `require-trailers-since`), a file that can't be read or written, git missing or older than 2.34 where history is read, a `HEAD` that git can't read |
 | `3` | an internal error: a bug in aisignoff, reported with a traceback |
 
 ## Level options

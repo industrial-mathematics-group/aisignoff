@@ -2,7 +2,7 @@
 
 ## The basic check
 
-`aisignoff lint` exits with `0` when every file (and, with `[history]`, every line) has a valid declaration, `1` when something is missing, invalid or below the policy, `2` when it couldn't run (a usage or configuration error, a file it can't read, git missing or older than 2.34), and `3` on an internal error, a bug in aisignoff. Run it on every push and pull request:
+`aisignoff lint` exits with `0` when every file (and, with `[history]`, every line) has a valid declaration, `1` when something is missing, invalid or below the policy, `2` when it couldn't run (a usage or configuration error, a file it can't read, git missing, or older than 2.34 where history is read), and `3` on an internal error, a bug in aisignoff. Run it on every push and pull request:
 
 ```yaml
 name: aisignoff
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.22.0"
+      - run: pip install "aisignoff==0.23.0"
       - run: aisignoff lint
 ```
 
@@ -188,7 +188,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.22.0   # the same version as in your workflows
+    rev: v0.23.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

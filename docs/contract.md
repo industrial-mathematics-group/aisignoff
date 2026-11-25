@@ -1,7 +1,7 @@
 # The 1.0 contract
 
 !!! warning "Draft"
-    This is the draft of what aisignoff 1.0.0 will promise. It is not in force yet: aisignoff is at 0.20.1, and 0.x releases may still break any of it ([Compatibility](compatibility.md)). The items marked **Before 1.0** were not true of 0.20.1 and must be done, or taken out of this page, before 1.0.0 is released; those marked with a release, such as *(0.21.0)*, are done in it. The decisions are listed [at the end](#decisions).
+    This is the draft of what aisignoff 1.0.0 will promise. It is not in force yet: aisignoff is still at 0.x, and 0.x releases may still break any of it ([Compatibility](compatibility.md)). The items marked **Before 1.0** were not true of 0.20.1 and must be done, or taken out of this page, before 1.0.0 is released; those marked with a release, such as *(0.21.0)*, are done in it. The decisions are listed [at the end](#decisions).
 
 This page says exactly what every 1.x release keeps: what a repository, a workflow or a script can rely on when it raises its pin from 1.x to a later 1.y. [Compatibility](compatibility.md) is the short version for readers; where the two differ, this page counts.
 
@@ -26,8 +26,8 @@ A result is the levels, names and findings of each file and line, the problems `
     - the commits, trees and blobs of the repository, and which commit the default branch is at ([`default-branch`](signoff-toml.md#history));
     - the options of the command, and the environment variables of [section 8](#8-environment);
     - the description given with `--declare-from`.
-2. **Not inputs.** It doesn't depend on the user's or the system's git configuration, on `git replace` refs, on `.gitattributes` diff drivers, text conversion or filters, on the blame cache, on the time, the locale, the number of processors, or the order in which the file system lists files. **Before 1.0** *(0.21.0)*: aisignoff pins `diff.indentHeuristic`, runs `git blame` with `--no-textconv`, and sets `GIT_NO_REPLACE_OBJECTS=1`. In 0.20.1 each of the three can change the levels of lines.
-3. **git.** aisignoff needs git 2.34 or later (Ubuntu 22.04's). It reads history only through git ([D5](#decisions)). **Before 1.0** *(0.21.0)*: it checks the version at start and stops with exit code `2` below it; 0.20.1 silently reads some history wrong on git 2.23–2.30.
+2. **Not inputs.** It doesn't depend on the user's or the system's git configuration, on `git replace` refs, on `.gitattributes` diff drivers, text conversion or filters, on the blame cache, on the time, the locale, the number of processors, or the order in which the file system lists files. **Before 1.0** *(0.21.0, 0.23.0)*: aisignoff pins `diff.indentHeuristic` and `diff.interHunkContext`, runs `git blame` with `--no-textconv`, sets `GIT_NO_REPLACE_OBJECTS=1` and leaves `GIT_DIFF_OPTS` out of git's environment. In 0.20.1 each of the three can change the levels of lines.
+3. **git.** aisignoff needs git 2.34 or later (Ubuntu 22.04's) to read history, and it reads history only through git ([D5](#decisions)). Wherever it reads history (with `[history]`: `lint`, `report`, `badge`, `gc`; and `diff`), it checks git's version first and stops with exit code `2` below it. Commands that don't read history, such as file-level `lint` or `attest`, run with any git. **Before 1.0** *(0.21.0)*: 0.20.1 silently read some history wrong on git 2.23–2.30.
 4. **Same input, same result.** Two runs with the same inputs and the same git version give the same result, whatever the machine. The cache changes only how long a run takes.
 5. **git versions.** git's line diff can change between git releases, and then so can the owner of a line next to an edit. A change of git version is not a change of aisignoff; pin git in CI if that matters to you (a container image does). **Before 1.0** *(0.21.0)*: the cache key includes the git version, so a CI cache written by another git isn't mixed in.
 
@@ -71,7 +71,7 @@ A commit message, or a pull request description read as the message of its merge
 
 **Key lines.**
 
-- A key line starts at the beginning of a line, with no whitespace, bullet or emphasis before the key, and has the form `Key: value`, with no space before the colon. It may be anywhere in the body, not only in git's trailer block.
+- A key line starts at the beginning of a line, with no whitespace, bullet or emphasis before the key, and has the form `Key: value`, with no space before the colon; the space after it is optional. It may be anywhere in the body, not only in git's trailer block.
 - Keys are matched without regard to case. Level values are matched exactly: `G3` and `TODO` are levels, `g3` or `todo` is an invalid level, which is an error.
 - An empty level (`Human-Review:`) is `TODO`.
 - Names keys may be repeated, and each line is one name, commas included. Repeated names count once.
@@ -86,7 +86,7 @@ A commit message, or a pull request description read as the message of its merge
 - A **level box** has the level in bold as the first thing after the box: `**G2**`, `**H1**`, `**A0**`.
 - **Generation:** exactly one ticked G box; two are an error. G boxes that are there with none ticked are `TODO`.
 - **Assisted-by:** the ticked boxes between the last G box and the first H box whose bold text has no colon, written `**Name** (Vendor)`, and the text after a ticked `**Other:**`.
-- **Human review:** the highest ticked H box. H boxes with none ticked are `TODO`. A ticked box above an unticked one is an error. The name is the commit's author, or before the merge `lint --author`, or the login of a line `Responsible person: @login` in a pull request opened by an account whose login ends in `[bot]`.
+- **Human review:** the highest ticked H box; the boxes below it don't matter, since the levels build on each other. H boxes with none ticked are `TODO`. The name is the commit's author, or before the merge `lint --author`, or the login of a line `Responsible person: @login` in a pull request opened by an account whose login ends in `[bot]`.
 - **AI review:** the highest ticked A box, or `A0` when A boxes are there and none is ticked. `AI-Reviewed-by` is the text after `Model` and the next colon in that box (`Model:`, `Model and report:`). An A1 box without that text names the models of `Assisted-by`, as a new session. A ticked A1 box whose text says "its own work" or "self-check" is the template of `version = 3` and an error under `version = 4`.
 - Key lines and ticked level boxes in one message are an error until a `[[commits]]` entry settles it.
 
@@ -128,7 +128,7 @@ The commands `init`, `annotate`, `lint`, `report`, `diff`, `attest`, `correct`, 
 |---|---|---|
 | `0` | The command did what was asked. For `lint`: everything is declared and valid | every command |
 | `1` | `lint` found a problem: a declaration missing, invalid or below the policy, a record that points nowhere, a problem the check before the merge reports, no files found, or with `--strict` a warning | `lint` only |
-| `2` | The command couldn't run: a usage error, an invalid or unreadable `SIGNOFF.toml` or record file, a setting that names something that doesn't exist (`default-branch`, `ignore-revs-file`, `require-trailers-since`), a file that can't be read or written, a git that is missing, too old or fails; with a message and no traceback | every command |
+| `2` | The command couldn't run: a usage error, an invalid or unreadable `SIGNOFF.toml` or record file, a setting that names something that doesn't exist (`default-branch`, `ignore-revs-file`, `require-trailers-since`), a file that can't be read or written, a git that is missing, too old to read history or fails, or a `HEAD` that git can't read; with a message and no traceback | every command |
 | `3` | An internal error: a bug in aisignoff, with the traceback and where to report it ([D3](#decisions)) | every command |
 
 `report`, `diff` and `badge` return `0` when they ran, whatever the declarations are; read `errors` in `--json`.
@@ -170,7 +170,7 @@ The cache lives in `.git/aisignoff/`, the path a CI workflow restores and saves;
 | `AISIGNOFF_NO_CACHE` | `1` turns the cache off | yes |
 | `GITHUB_SHA`, `GITHUB_REPOSITORY`, `GITHUB_SERVER_URL` | links in the HTML report | no (the report isn't covered) |
 
-**Platforms.** aisignoff 1.x supports Linux ([D4](#decisions)): its main use is in containers, such as GitHub Actions' runners. It supports the CPython versions that are not past their end of life when the release is made, from 3.11 on. A minor release may drop a Python version past its end of life. Other systems may work, but aren't tested. **Before 1.0:** CI tests every supported Python version, including 3.14, and the lowest supported git. The workflow change is in the description of pull request #68: the GitHub App that opens pull requests can't push workflow files.
+**Platforms.** aisignoff 1.x supports Linux ([D4](#decisions)): its main use is in containers, such as GitHub Actions' runners. It supports the CPython versions that are not past their end of life when the release is made, from 3.11 on. A minor release may drop a Python version past its end of life. Other systems may work, but aren't tested. *(0.21.0)* CI tests every supported Python version, including 3.14, and the lowest supported git (a job in an Ubuntu 22.04 container).
 
 ## 9. What a repository must do
 

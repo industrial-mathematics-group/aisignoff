@@ -159,7 +159,7 @@ This is how aisignoff reads a commit message, or a pull request description read
 
 **"Key: value" lines:**
 
-- A key line starts at the beginning of the line, with no space, bullet or emphasis before the key, and has the form `Key: value`, with no space before the colon. It may stand anywhere in the body.
+- A key line starts at the beginning of the line, with no space, bullet or emphasis before the key, and has the form `Key: value`, with no space before the colon; the space after it is optional. It may stand anywhere in the body.
 - Keys are matched without regard to case (`ai-generation:` works). Levels are matched exactly: `G3` and `TODO` are levels, `g3` is an invalid one, which is an error.
 - A level line left empty (`Human-Review:`) is `TODO`.
 - A name key may be given more than once; each line is one name, commas included, and a name given twice counts once.
@@ -175,7 +175,7 @@ This is how aisignoff reads a commit message, or a pull request description read
 - The model boxes are the ticked boxes between the last generation box and the first human review box whose whole text is a bold name without a colon, optionally followed by the vendor in brackets: `**Claude Opus** (Anthropic)`. A ticked `**Other:**` adds the text after it.
 - The reviewer of an AI review box is the text after the word `Model` and the next colon (`Model:`, `Model and report:`) in that box.
 - `Responsible person: @login` is read on a line of its own in a pull request opened by an account whose login ends in `[bot]`.
-- The rest is in the table [above](#pull-request-descriptions): one generation box, the highest human and AI review boxes, `TODO` for a group of boxes that is there with none ticked, and an error for a ticked human review box above an unticked one.
+- The rest is in the table [above](#pull-request-descriptions): one generation box, the highest ticked human and AI review boxes (the boxes below them don't matter), and `TODO` for a group of boxes that is there with none ticked.
 
 ## Commits that declare nothing
 
@@ -332,7 +332,7 @@ aisignoff finds the default branch as `origin`'s default branch, else the one Gi
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.
 - **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported. An ignored commit's lines go back to the commits before it, with their levels, so `lint` warns about an entry that declares levels, is a merge, or looks like a pull request. For the same reason, a pull request can't change the entries of that file, as it can't change `[history]` ([Checking the pull request description](ci.md#checking-the-pull-request-description)).
 - **Without history**, outside git, aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails instead. In a shallow clone, `lint` fails, since the lines can't be checked one by one.
-- **Binary** means a NUL byte among the first 16,384 bytes of the content as git stores it: for a file that git converts (`working-tree-encoding`, or a filter such as Git LFS), the blob, not the work tree's bytes.
+- **Binary** means a NUL byte among the first 16,384 bytes of the content as git stores it: for a file that git converts (`working-tree-encoding`, or a filter such as Git LFS), the blob, not the work tree's bytes: the default branch's, or for a change that is committed (as in a pull request's CI run) HEAD's. Only a converted file with changes that aren't committed is read from the work tree.
 - **A binary unit follows a rename** only when the file's content didn't change with it (git's `R100`); the lines of a text file follow renames as `git blame` finds them.
 - **A generation raised inside a merge** is read from a second blame of the file, which follows the commits that wrote the lines. When it gives the file another number of lines than the first-parent blame, aisignoff can't pair the lines, and no line takes a generation from a commit inside a merge.
 - **A line older than the history at hand** (a shallow boundary) or from a commit that isn't on the default branch's first-parent history has no owner: it takes the file-level declaration, raised by attestations.
