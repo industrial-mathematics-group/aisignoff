@@ -108,6 +108,28 @@ def write_skills(directory: Path) -> list[Path]:
     return written
 
 
+class GuideError(Exception):
+    """An agent instructions file that can't be read or written as UTF-8 text."""
+
+
+def read_pointer_file(path: Path) -> str | None:
+    """The text of an agent instructions file, None if it doesn't exist."""
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise GuideError(f"{path} is not UTF-8 text, so the aisignoff section can't be added to it: {e}") from e
+    except OSError as e:
+        raise GuideError(f"{path} can't be read: {e.strerror or e}") from e
+
+
+def check_pointer_files(root: Path) -> None:
+    """Fail before anything is written when AGENTS.md or CLAUDE.md can't take the section."""
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        read_pointer_file(root / name)
+
+
 def add_pointer(path: Path, create: bool) -> str | None:
     """Add the aisignoff section to an agent instructions file such as AGENTS.md, or bring it up to date.
 
@@ -117,7 +139,7 @@ def add_pointer(path: Path, create: bool) -> str | None:
             return None
         path.write_text("# Instructions for AI agents\n\n" + AGENTS_SNIPPET, encoding="utf-8")
         return "created"
-    old = path.read_text(encoding="utf-8")
+    old = read_pointer_file(path)
     begin, end = old.find(MARK_BEGIN), old.find(MARK_END)
     if begin != -1 and end > begin:
         new = old[:begin] + AGENTS_SNIPPET.rstrip("\n") + old[end + len(MARK_END):]

@@ -181,7 +181,8 @@ EMPTY_BLOBS = frozenset({"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
                          "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"})
 
 
-def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
+def changed_lines(root: Path, base: str, ignore_whitespace: bool = False,
+                  units: bool = False) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """(old path, new path) -> (removed line numbers at BASE, added line numbers now).
 
     Compares BASE with the working tree (tracked files, renames detected); untracked files
@@ -190,24 +191,34 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
     With ignore_whitespace, lines that differ only in whitespace are no change (git diff -w), as
     for git blame -w.
 
+    With units, a binary old side counts as one unit: its removed lines are [1], however many lines
+    of it git's text diff removed (for counting; without units they are the lines git's diff gives,
+    which the history pairs with git blame's).
+
     The file names come from the header of each file's block (from 'diff --git' to its first
     hunk) only: a removed line "-- comment" reads "--- comment" in the hunk, like a header."""
     args = ["-c", "core.quotePath=false", "diff", "-M", "--relative", "--unified=0", "--no-color", "--full-index",
             "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", *(["-w"] if ignore_whitespace else [])]
     suppressed: list[tuple[str, str]] = []
-    result = _parse_diff(root, _git(root, *args, base, "--"), suppressed)
+    binary_old: set = set()
+    result = _parse_diff(root, _git(root, *args, base, "--"), suppressed, binary_old)
     if suppressed:
         # text files whose patch git left out ('-diff' or a 'binary' diff driver in .gitattributes): their
         # lines, from a text diff of those files alone
         paths = sorted({f":(literal){p}" for pair in suppressed for p in pair})
-        forced = _parse_diff(root, _git(root, *args, "--text", base, "--", *paths), [])
+        forced = _parse_diff(root, _git(root, *args, "--text", base, "--", *paths), [], binary_old)
         for key in suppressed:
             if key in forced:
                 result[key] = forced[key]
+    if units:
+        for key in binary_old:
+            if key in result and result[key][0]:
+                result[key] = ([1], result[key][1])
     return result
 
 
-def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
+def _parse_diff(root: Path, out: str, suppressed: list,
+                binary_old: set | None = None) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
     """The changed lines of the output of changed_lines' git diff. A file whose new side is text but
     that git shows as binary is added to suppressed, as (old path, new path), for a text diff.
 
@@ -274,6 +285,8 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
     for (old, new), (removed, added, blobs, git_binary) in files.items():
         if blobs != ("", "") or git_binary:
             old_units, old_binary = units.get(blobs[0], (1, False)) if old is not None else (0, False)
+            if old_binary and binary_old is not None:
+                binary_old.add((old, new))
             stored = units.get(blobs[1]) if new is not None else None
             new_binary = new is not None and (stored[1] if stored else _file_is_binary(root, new))
             if old is not None and new is not None and not new_binary and (git_binary or old_binary):
@@ -398,7 +411,8 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
             _git(root, "worktree", "remove", "--force", str(top), check=False)
     base_map = {r.path: r for r in base_results}
 
-    changes = changed_lines(root, sha)
+    # with -w as the history resolves lines: a whitespace-only change keeps its line's owner, so it isn't added
+    changes = changed_lines(root, sha, project.history_used and project.config.history.ignore_whitespace, units=True)
     seen_new = {new for _, new in changes if new}
     tracked = set(_git(root, "ls-files", "-z").split("\0"))
     for path in head:
@@ -427,9 +441,6 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
                     for key, _, _ in AXES:
                         target["levels_added"][key][axis_level(d, errors, key)] += 1
         if r_old is not None:
-            if r_old.line_parts is not None:
-                # a binary old side is one unit, however many of its lines git's text diff removed
-                removed = sorted({min(n, len(r_old.line_parts)) for n in removed})
             for d, errors, _ in _line_declarations(r_old, removed):
                 for target in (row, total):
                     target["removed"] += 1

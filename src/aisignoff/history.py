@@ -60,7 +60,7 @@ GIT = ["git", "-c", "blame.markIgnoredLines=false",
        "-c", "blame.markUnblamableLines=false", "-c", "diff.algorithm=myers", "-c", "diff.renames=true",
        "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.relative=false",
        "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false",
-       "-c", "diff.indentHeuristic=true"]
+       "-c", "diff.indentHeuristic=true", "-c", "diff.interHunkContext=0"]
 
 # the oldest git that aisignoff runs with: older ones lack options it needs (--diff-merges, --path-format)
 # and would read some of the history wrong without saying so. 2.34 is Ubuntu 22.04's git.
@@ -99,7 +99,9 @@ def comparable(declaration: dict) -> str:
 def git_env() -> dict[str, str]:
     """The environment for git: English messages, since a few of them are read (ambiguous hashes)."""
     # GIT_NO_REPLACE_OBJECTS: refs/replace/ are local to a clone, so they'd make one machine see another history
-    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "", "GIT_NO_REPLACE_OBJECTS": "1"}
+    # GIT_DIFF_OPTS would replace --unified=0, whose hunks are read as the changed lines
+    env = {k: v for k, v in os.environ.items() if k != "GIT_DIFF_OPTS"}
+    return {**env, "LC_ALL": "C", "LANGUAGE": "", "GIT_NO_REPLACE_OBJECTS": "1"}
 
 
 def _event_default_branch() -> list[str]:
@@ -545,6 +547,13 @@ class History:
         self._silent: list[str] = []  # commits that look like pull requests, own lines and declare nothing
         self._renames: list[tuple[str, str]] | None = None
         self.head = self._resolve("HEAD")
+        if self.head is None:
+            # no commit yet (an unborn branch), or a HEAD whose commit git can't read: the latter must not
+            # pass for a repository without history
+            ref = (_git(self.root, "rev-parse", "--verify", "--quiet", "HEAD", check=False) or "").strip()
+            if ref:
+                raise HistoryError(f"HEAD is {ref}, but git can't read that commit: "
+                                   f"{_git_error(self.root, 'cat-file', '-t', ref).strip() or 'missing or corrupt'}")
         self.prefix = (_git(self.root, "rev-parse", "--show-prefix", check=False) or "").strip()
         self.declared = declared
         self.landed = landed
@@ -1611,19 +1620,25 @@ class History:
         """A file's content as git stores it, which blame and diff read: the work tree's bytes, except for
         a file that git converts (working-tree-encoding, or a filter such as Git LFS) and that is as on the
         default branch, whose blob is read (UTF-16 text has NUL bytes in the work tree; an LFS file is its
-        pointer in git). A converted file with changes that haven't landed is read from the work tree."""
-        if path in self.converted and path not in self.changes and path in self.base_blobs:
-            blob = _git_bytes(self.root, "cat-file", "blob", self.base_blobs[path])
-            if blob is not None:
-                return blob
+        pointer in git). A converted file that a change edits, adds or renames is read from HEAD's blob when
+        the work tree is as committed (a pull request's CI run), else from the work tree."""
+        if path in self.converted:
+            blob = None
+            if path not in self.changes and path in self.base_blobs:
+                blob = self.base_blobs[path]
+            elif path in self.head_files and not _git(self.root, "status", "--porcelain", "--", path, check=False):
+                blob = self.head_files[path]  # a change that is committed, as in a pull request's CI run
+            content = _git_bytes(self.root, "cat-file", "blob", blob) if blob else None
+            if content is not None:
+                return content
         try:
             return (self.root / path).read_bytes()
         except OSError:
             return b""
 
     def _converted(self) -> set[str]:
-        """The files of the default branch that git converts between the work tree and the repository."""
-        paths = sorted(self.base_blobs)
+        """The files of the default branch and of HEAD that git converts between the work tree and the repository."""
+        paths = sorted(set(self.base_blobs) | set(self.head_files))
         if not paths:
             return set()
         out = _git_bytes(self.root, "check-attr", "-z", "--stdin", "filter", "working-tree-encoding",

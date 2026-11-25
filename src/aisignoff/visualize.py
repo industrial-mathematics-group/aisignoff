@@ -99,14 +99,14 @@ def _decorate(node: dict, root: Path, source: bool, changes: dict | None) -> tup
     return tuple(totals)
 
 
-def changed_since(root: Path, base: str, files) -> tuple[str, dict]:
+def changed_since(root: Path, base: str, files, ignore_whitespace: bool = False) -> tuple[str, dict]:
     """(sha of base, {path: (added line numbers, removed line count)}) for the given files,
     comparing the merge base of base and HEAD with the working tree; untracked files count as
     added in full."""
     from .diff import _git, changed_lines, merge_base
     sha = merge_base(Path(root), base)
     out = {}
-    for (_, new), (removed, added) in changed_lines(Path(root), sha).items():
+    for (_, new), (removed, added) in changed_lines(Path(root), sha, ignore_whitespace, units=True).items():
         if new:
             out[new] = (added, len(removed))
     tracked = set(_git(Path(root), "ls-files", "-z").split("\0"))

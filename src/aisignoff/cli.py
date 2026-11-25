@@ -178,6 +178,8 @@ def cmd_init(args) -> int:
             '# AI-Review = "A0"',
             '# Reviewed-by = "Jane Doe"',
         ]
+    if not args.no_agents_md:
+        guide.check_pointer_files(root)  # before SIGNOFF.toml is written: init does all or nothing
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Created {target}")
     if not args.no_agents_md:
@@ -524,7 +526,9 @@ def cmd_report(args) -> int:
             if args.since:
                 from .diff import DiffError
                 try:
-                    sha, changes = visualize.changed_since(project.root, args.since, [r.path for r in results])
+                    sha, changes = visualize.changed_since(
+                        project.root, args.since, [r.path for r in results],
+                        project.history_used and project.config.history.ignore_whitespace)
                 except DiffError as e:
                     raise UsageError(str(e))
                 since = {"name": args.since, "commit": sha}
@@ -1235,7 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
     from .history import HistoryError
     try:
         return args.func(args)
-    except (UsageError, ConfigError, ProjectError, HistoryError, DiffError) as e:
+    except (UsageError, ConfigError, ProjectError, HistoryError, DiffError, guide.GuideError) as e:
         print(f"aisignoff {args.command}: {e}", file=sys.stderr)
         return EXIT_USAGE
     except BrokenPipeError:

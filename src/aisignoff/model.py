@@ -166,6 +166,9 @@ class Policy:
         return merged.get("human"), merged.get("ai")
 
 
+UNKNOWN_HINT = "a typo, or a key of a newer aisignoff"  # as config.NEWER, without the version
+
+
 def parse_policy(data, where: str = "policy") -> Policy:
     """Validate a [policy] table; raises ValueError with a readable message."""
     if data is None:
@@ -175,12 +178,12 @@ def parse_policy(data, where: str = "policy") -> Policy:
     rules = {}
     for gen, req in data.items():
         if gen != "*" and gen not in GENERATION:
-            raise ValueError(f"{where}: unknown key '{gen}' (use \"*\", G0, G1, G2 or G3)")
+            raise ValueError(f"{where}: unknown key '{gen}' ({UNKNOWN_HINT}; use \"*\", G0, G1, G2 or G3)")
         if not isinstance(req, dict):
             raise ValueError(f"{where}.{gen} must be a table like {{ human = \"H1\", ai = \"A2\" }}")
         unknown = set(req) - {"human", "ai"}
         if unknown:
-            raise ValueError(f"{where}.{gen}: unknown key(s) {', '.join(sorted(unknown))} (use human, ai)")
+            raise ValueError(f"{where}.{gen}: unknown key(s) {', '.join(sorted(unknown))} ({UNKNOWN_HINT}; use human, ai)")
         if "human" in req and (not isinstance(req["human"], str) or req["human"] not in HUMAN):
             raise ValueError(f"{where}.{gen}.human must be one of {', '.join(HUMAN)}")
         if "ai" in req and (not isinstance(req["ai"], str) or req["ai"] not in AI):
