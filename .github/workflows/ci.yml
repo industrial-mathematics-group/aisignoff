@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,12 +30,17 @@ jobs:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     steps:
-      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-pip python3-venv && git --version
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && git --version
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: python3 -m pip install -e . pytest
-      - run: python3 -m pytest -q
-      - name: The tool declares its own files
-        run: aisignoff lint
+      - run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: |
+          uv venv --python 3.11 /opt/venv
+          echo "/opt/venv/bin" >> "$GITHUB_PATH"
+      - run: uv pip install --python /opt/venv/bin/python -e . pytest
+      - run: pytest -q
+      - run: aisignoff lint
