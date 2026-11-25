@@ -163,7 +163,8 @@ def test_policy_in_config(tmp_path):
 # ------------------------------------------------------------------ config
 def test_config_errors(tmp_path):
     bad = {
-        'version = 5\n': "version = 4",
+        'version = 5\n': "a format of a newer aisignoff",
+        'version = "4"\n': "version = 4",
         'version = true\n': "version = 4",
         'version = 4\n[[annotations]]\nAI-Generation = "G0"\n': "'path' is required",
         'version = 4\n[[annotations]]\npath = "**"\nAI-Generation = "G7"\n': "invalid AI-Generation",

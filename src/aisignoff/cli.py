@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -26,6 +27,12 @@ AXIS_INFO = (  # key, short, title, levels, badge file, colour
     (AIR, "A", "AI review", AI, "aisignoff-ai-review.json", "9558B2"),
 )
 FINDINGS_BADGE = "aisignoff-findings.json"
+
+
+# exit codes: 0 fine, 1 lint found a problem, 2 the command couldn't run (usage, configuration, a file
+# that can't be read or written), 3 an internal error (a bug in aisignoff)
+EXIT_PROBLEMS, EXIT_USAGE, EXIT_INTERNAL = 1, 2, 3
+ISSUES_URL = "https://github.com/industrial-mathematics-group/aisignoff/issues"
 
 
 class UsageError(Exception):
@@ -1224,11 +1231,13 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_guide)
 
     args = parser.parse_args(argv)
+    from .diff import DiffError
+    from .history import HistoryError
     try:
         return args.func(args)
-    except UsageError as e:
+    except (UsageError, ConfigError, ProjectError, HistoryError, DiffError) as e:
         print(f"aisignoff {args.command}: {e}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
     except BrokenPipeError:
         # the reader stopped (report --json | head): not an error, and nothing more to say
         try:
@@ -1237,6 +1246,17 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             pass
         return 0
+    except OSError as e:
+        # a file that can't be read or written: the environment, not the declarations
+        where = f"{e.filename}: " if e.filename else ""
+        print(f"aisignoff {args.command}: {where}{e.strerror or e}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception:
+        # a bug in aisignoff: never exit 1, which says that the declarations failed the check
+        traceback.print_exc()
+        print(f"aisignoff {args.command}: internal error in aisignoff {__version__}, a bug: please report it with "
+              f"the traceback above at {ISSUES_URL}", file=sys.stderr)
+        return EXIT_INTERNAL
 
 
 if __name__ == "__main__":
