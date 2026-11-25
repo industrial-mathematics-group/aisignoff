@@ -30,6 +30,7 @@ nav = [
     { "Commands" = "commands.md" },
     { "SIGNOFF.toml" = "signoff-toml.md" },
     { "Compatibility" = "compatibility.md" },
+    { "1.0 contract (draft)" = "contract.md" },
     { "Upgrading" = "migrating.md" },
     { "Changelog" = "changelog.md" },
     { "Development" = "development.md" },
