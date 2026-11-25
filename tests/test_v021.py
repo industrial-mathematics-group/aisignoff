@@ -152,3 +152,21 @@ def test_the_git_version_is_part_of_the_cache_key(repo, monkeypatch):
         return BlameCache(repo).open(h).key
 
     assert key((2, 47, 3)) != key((2, 48, 0))
+
+
+# ------------------------------------------------------------------ smaller findings
+def test_guide_skills_in_a_folder_given_is_relative_to_where_it_runs(tmp_path, monkeypatch, capsys):
+    project, here = tmp_path / "project", tmp_path / "here"
+    project.mkdir()
+    here.mkdir()
+    monkeypatch.chdir(here)
+    assert main(["--root", str(project), "guide", "--skills", "skills"]) == 0
+    assert (here / "skills" / "aisignoff-dev" / "SKILL.md").is_file()
+    assert not (project / "skills").exists()
+    assert main(["--root", str(project), "guide", "--skills"]) == 0  # the default: the repository's .claude/skills
+    assert (project / ".claude" / "skills" / "aisignoff-review" / "SKILL.md").is_file()
+
+
+def test_init_no_longer_suggests_excluding_the_review_folder(tmp_path, capsys):
+    assert main(["--root", str(tmp_path), "init", "--no-agents-md"]) == 0
+    assert "reviews/**" not in (tmp_path / "SIGNOFF.toml").read_text(encoding="utf-8")

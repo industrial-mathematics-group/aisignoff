@@ -574,12 +574,27 @@ const LANGUAGE_BY_EXT = { py: "python", pyi: "python", pyw: "python", jl: "julia
   sql: "sql", diff: "diff", patch: "diff" };
 const LANGUAGE_BY_NAME = { makefile: "makefile", gnumakefile: "makefile", "cmakelists.txt": "cmake", dockerfile: "dockerfile",
   containerfile: "dockerfile" };
-const SHEBANG = /^#!.*\b(python|julia|bash|sh|zsh)[\d.]*\b/;
+// The interpreter of a "#!" line: the program it names, or with env the first word after env's options and
+// variable assignments (-S splits the rest into words); its arguments never decide the language.
+const ENV_OPTIONS_WITH_VALUE = new Set(["-u", "--unset", "-C", "--chdir"]);
+function shebangLanguage(first) {
+  if (!first || !first.startsWith("#!")) return null;
+  const words = first.slice(2).trim().split(/\s+/);
+  let k = 0, program = (words[0] || "").split("/").pop();
+  if (program === "env") {
+    k = 1;
+    while (k < words.length && (words[k].startsWith("-") || words[k].includes("="))) {
+      k += ENV_OPTIONS_WITH_VALUE.has(words[k]) ? 2 : 1;
+    }
+    program = (words[k] || "").split("/").pop();
+  }
+  const m = /^(python|julia|bash|sh|zsh)[\d.]*$/.exec(program);
+  return m ? (m[1] === "python" || m[1] === "julia" ? m[1] : "bash") : null;
+}
 function languageOf(path, first) {
   const name = path.split("/").pop().toLowerCase(), dot = name.lastIndexOf(".");
-  const shebang = SHEBANG.exec(first || "");
   const lang = LANGUAGE_BY_NAME[name] || (dot > 0 ? LANGUAGE_BY_EXT[name.slice(dot + 1)] : null)
-    || (shebang && (shebang[1] === "python" || shebang[1] === "julia" ? shebang[1] : "bash"));
+    || shebangLanguage(first);
   return lang && window.hljs && hljs.getLanguage(lang) ? lang : null;
 }
 const highlighted = new Map();  // path -> HTML of each line, or null

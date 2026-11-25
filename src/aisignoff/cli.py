@@ -32,6 +32,7 @@ FINDINGS_BADGE = "aisignoff-findings.json"
 # exit codes: 0 fine, 1 lint found a problem, 2 the command couldn't run (usage, configuration, a file
 # that can't be read or written), 3 an internal error (a bug in aisignoff)
 EXIT_PROBLEMS, EXIT_USAGE, EXIT_INTERNAL = 1, 2, 3
+DEFAULT_SKILLS = ".claude/skills"  # guide --skills without a folder: in the repository
 ISSUES_URL = "https://github.com/industrial-mathematics-group/aisignoff/issues"
 
 
@@ -127,8 +128,8 @@ def cmd_init(args) -> int:
         '# a line win over it unless the matching annotation sets precedence = "override".',
         f"version = {VERSION}",
         "",
-        '# exclude = ["reviews/**", "docs/build/**"]   # files that need no declaration,',
-        "# such as the committed AI reviews in reviews/ (CONTRIBUTING.md)",
+        '# exclude = ["docs/build/**"]   # files that need no declaration (the review folder,',
+        "# reviews/, needs none by itself)",
         "",
         "# Minimum review levels (optional).",
         "# [policy]",
@@ -197,9 +198,8 @@ def cmd_guide(args) -> int:
             for message in guide.point_agents(root) or ["AGENTS.md is up to date"]:
                 print(message)
         if args.skills:
-            directory = Path(args.skills)
-            if not directory.is_absolute():
-                directory = root / directory
+            # the default is the repository's .claude/skills; a folder given is where it says, from here
+            directory = root / DEFAULT_SKILLS if args.skills is True else Path(args.skills)
             for path in guide.write_skills(directory):
                 print(f"Wrote {path}")
     if args.role:
@@ -1074,7 +1074,7 @@ def cmd_badge(args) -> int:
                 counts[counted_level(d, errors, key)] += w
         label = {GEN: "AI generation", HUM: "human review", AIR: "AI review"}[key] + suffix
         (out / filename).write_text(json.dumps(badge_json(label, counts, [*levels, "undeclared"], color),
-                                               ensure_ascii=False))
+                                               ensure_ascii=False), encoding="utf-8")
         written.append(str(out / filename))
     counts = Counter()
     for r in results:
@@ -1084,7 +1084,7 @@ def cmd_badge(args) -> int:
     if badge["message"] != "no files":
         # the flags: an open critical or major finding
         badge["color"] = "red" if counts["F3"] else "orange" if counts["F2"] else "2DA44E"
-    (out / FINDINGS_BADGE).write_text(json.dumps(badge, ensure_ascii=False))
+    (out / FINDINGS_BADGE).write_text(json.dumps(badge, ensure_ascii=False), encoding="utf-8")
     written.append(str(out / FINDINGS_BADGE))
     print("Wrote " + ", ".join(written))
     return 0
@@ -1226,7 +1226,7 @@ def main(argv: list[str] | None = None) -> int:
                    "review: the independent AI reviewer")
     p.add_argument("--agents-md", action="store_true", help="add the section that points AI agents to this "
                    "command to AGENTS.md (created if missing) and to CLAUDE.md (if it exists), or update it")
-    p.add_argument("--skills", nargs="?", const=".claude/skills", metavar="DIR", help="write both guides as "
+    p.add_argument("--skills", nargs="?", const=True, metavar="DIR", help="write both guides as "
                    "Claude skills, aisignoff-dev and aisignoff-review (default DIR: .claude/skills)")
     p.set_defaults(func=cmd_guide)
 

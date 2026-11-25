@@ -554,11 +554,6 @@ def test_annotate_todo_human_adds_reviewed_by_todo(tmp_path):
     assert 'Reviewed-by = ["Jane"]' in (tmp_path / "SIGNOFF.toml").read_text()
 
 
-def test_init_suggests_excluding_reviews(tmp_path):
-    assert main(["--root", str(tmp_path), "init"]) == 0
-    assert "reviews/**" in (tmp_path / "SIGNOFF.toml").read_text()
-
-
 # ------------------------------------------------------------------ AIDECL.toml (name before aisignoff)
 def test_old_filename_is_refused(tmp_path, capsys):
     write(tmp_path, "AIDECL.toml", HEAD + '[[annotations]]\npath = "**"\n' + TOML_G0)
