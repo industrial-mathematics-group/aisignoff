@@ -59,7 +59,35 @@ class HistoryError(Exception):
 GIT = ["git", "-c", "blame.markIgnoredLines=false",
        "-c", "blame.markUnblamableLines=false", "-c", "diff.algorithm=myers", "-c", "diff.renames=true",
        "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.relative=false",
-       "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false"]
+       "-c", "diff.external=", "-c", "core.quotePath=true", "-c", "log.showSignature=false", "-c", "color.ui=false",
+       "-c", "diff.indentHeuristic=true"]
+
+# the oldest git that aisignoff runs with: older ones lack options it needs (--diff-merges, --path-format)
+# and would read some of the history wrong without saying so. 2.34 is Ubuntu 22.04's git.
+MIN_GIT = (2, 34)
+_git_version_cache: list = []
+
+
+def git_version() -> tuple[int, ...] | None:
+    """The version of git, as (major, minor, patch); None if git isn't installed or can't say."""
+    if not _git_version_cache:
+        try:
+            out = subprocess.run(["git", "--version"], capture_output=True, text=True, env=git_env()).stdout
+        except FileNotFoundError:
+            out = ""
+        m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out)
+        _git_version_cache.append(tuple(int(g or 0) for g in m.groups()) if m else None)
+    return _git_version_cache[0]
+
+
+def check_git() -> None:
+    """Stop (a configuration error) when git is missing or older than MIN_GIT."""
+    version = git_version()
+    if version is None:
+        raise HistoryError("git is not installed (or 'git --version' says no version)")
+    if version[:2] < MIN_GIT:
+        raise HistoryError(f"git {'.'.join(map(str, version))} is too old: aisignoff needs git "
+                           f"{'.'.join(map(str, MIN_GIT))} or later to read the history")
 
 
 def comparable(declaration: dict) -> str:
@@ -70,7 +98,8 @@ def comparable(declaration: dict) -> str:
 
 def git_env() -> dict[str, str]:
     """The environment for git: English messages, since a few of them are read (ambiguous hashes)."""
-    return {**os.environ, "LC_ALL": "C", "LANGUAGE": ""}
+    # GIT_NO_REPLACE_OBJECTS: refs/replace/ are local to a clone, so they'd make one machine see another history
+    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "", "GIT_NO_REPLACE_OBJECTS": "1"}
 
 
 def _event_default_branch() -> list[str]:
@@ -96,6 +125,15 @@ def _git(root: Path, *args: str, check: bool = True, stdin: bytes | None = None)
             raise HistoryError(f"git {args[0]} failed: {r.stderr.decode('utf-8', 'replace').strip()}")
         return None
     return r.stdout.decode("utf-8", "surrogateescape")
+
+
+def _git_bytes(root: Path, *args: str, stdin: bytes | None = None) -> bytes | None:
+    """git's output as bytes (a blob's content); None if it fails."""
+    try:
+        r = subprocess.run([*GIT, "-C", str(root), *args], env=git_env(), capture_output=True, input=stdin)
+    except FileNotFoundError:
+        raise HistoryError("git is not installed")
+    return r.stdout if r.returncode == 0 else None
 
 
 def _git_error(root: Path, *args: str) -> str:
@@ -488,6 +526,7 @@ class History:
         when the caller knows it (aisignoff diff BASE, lint --base). landed: HEAD is a commit of
         the default branch, or will be one as it is (a merge queue's commit, a release branch).
         cache: the BlameCache to read the origins of earlier runs from and record this run's in."""
+        check_git()
         self.root = Path(root)
         self.config = config
         self.policy = config.policy
@@ -542,6 +581,7 @@ class History:
         self.since = self._ordinal_of_setting(config.history.require_trailers_since)
         self.blame_options = (["-w"] if config.history.ignore_whitespace else []) + ["--root"] + self._ignore_revs()
         self.cache = cache.open(self) if cache is not None and self.base else None
+        self.converted = self._converted()  # before the files are resolved, which runs in threads
         self.gone: list = []  # attestations of files deleted since: they cover no line
         self.attestation_keys: list[tuple] = []  # (attestation, the file it is listed under, its tuple)
         self.origins: dict[str, set[tuple]] = {}  # the different origins of the lines of each file resolved
@@ -590,8 +630,9 @@ class History:
         if report:
             name = names[0]
             if self.config.history.default_branch:
-                self.problems.append(f"[history] default-branch: there is no branch {name} here (neither "
-                                     f"origin/{name} nor {name}), so every commit of HEAD counts as landed")
+                # a setting that names nothing: the configuration is wrong, whatever the command
+                raise HistoryError(f"[history] default-branch: there is no branch {name} here (neither "
+                                   f"origin/{name} nor {name}); fetch it (in CI: fetch-depth: 0), or correct the setting")
             else:
                 self.problems.append("there is no default branch here (none of " + ", ".join(names) + " as origin/<name> "
                                      "or a local branch), so every commit of HEAD counts as landed and nothing is "
@@ -757,7 +798,8 @@ class History:
         try:
             text = (self.root / name).read_text(encoding="utf-8", errors="replace")
         except OSError:
-            self.problems.append(f"[history] ignore-revs-file: {name} does not exist")
+            if self.config.history.ignore_revs_file is not None:  # a setting that names nothing
+                raise HistoryError(f"[history] ignore-revs-file: {name} does not exist")
             return []
         options = []
         for line in text.splitlines():
@@ -776,9 +818,8 @@ class History:
         if rev is None:
             return None
         sha = self._resolve(rev)
-        if sha is None or sha not in self.order:
-            self.problems.append(f"[history] require-trailers-since: {rev} is not a commit of the default branch")
-            return None
+        if sha is None or sha not in self.order:  # a setting that names nothing
+            raise HistoryError(f"[history] require-trailers-since: {rev} is not a commit of the default branch")
         return self.order[sha]
 
     def commit_pieces(self, sha: str) -> dict[int, Piece]:
@@ -1182,7 +1223,7 @@ class History:
         starts = [n for n, line in enumerate(lines) if header.match(line)]
         if len(starts) != count:
             return self._landed_entries(table, late)
-        blame = _git(self.root, "blame", "--porcelain", "--first-parent", "--ignore-revs-file=", "--",
+        blame = _git(self.root, "blame", "--porcelain", "--no-textconv", "--first-parent", "--ignore-revs-file=", "--",
                      path.name, check=False)
         if blame is None:
             return [late] * count
@@ -1398,7 +1439,9 @@ class History:
         that blame doesn't look behind: lines from it or before it come back as stopped there,
         with their line number and path in it. Paths are relative to the top of the repository."""
         # an empty --ignore-revs-file first clears the list of a personal blame.ignoreRevsFile
-        args = ["blame", "--porcelain", "--ignore-revs-file=", *self.blame_options] + (["--first-parent"] if first_parent else [])
+        # --no-textconv: a diff driver's text conversion (git-crypt, a document converter) would move the lines,
+        # or fail where it isn't set up
+        args = ["blame", "--porcelain", "--no-textconv", "--ignore-revs-file=", *self.blame_options] + (["--first-parent"] if first_parent else [])
         out = _git(self.root, *args, *([f"^{stop}"] if stop else []), *([rev] if rev else []), "--", path)
         from .diff import _unquote
         rows: list[tuple[str, int, bool, str]] = []
@@ -1564,15 +1607,37 @@ class History:
             return own
         return sorted(own + every, key=lambda a: a[6])
 
+    def _stored(self, path: str) -> bytes:
+        """A file's content as git stores it, which blame and diff read: the work tree's bytes, except for
+        a file that git converts (working-tree-encoding, or a filter such as Git LFS) and that is as on the
+        default branch, whose blob is read (UTF-16 text has NUL bytes in the work tree; an LFS file is its
+        pointer in git). A converted file with changes that haven't landed is read from the work tree."""
+        if path in self.converted and path not in self.changes and path in self.base_blobs:
+            blob = _git_bytes(self.root, "cat-file", "blob", self.base_blobs[path])
+            if blob is not None:
+                return blob
+        try:
+            return (self.root / path).read_bytes()
+        except OSError:
+            return b""
+
+    def _converted(self) -> set[str]:
+        """The files of the default branch that git converts between the work tree and the repository."""
+        paths = sorted(self.base_blobs)
+        if not paths:
+            return set()
+        out = _git_bytes(self.root, "check-attr", "-z", "--stdin", "filter", "working-tree-encoding",
+                         stdin="\0".join(paths).encode("utf-8", "surrogateescape") + b"\0")
+        fields = (out or b"").decode("utf-8", "surrogateescape").split("\0")
+        return {fields[k] for k in range(0, len(fields) - 2, 3)  # path, attribute, value
+                if fields[k + 2] not in ("unspecified", "unset")}
+
     def line_origins(self, path: str) -> list[tuple]:
         """Where each line of a file comes from: ("landed", ...) as in _base_origins, or ("pending", the commit of the change that wrote it, or None) for a line
         that isn't on the default branch."""
         if (self.root / path).is_symlink():  # one unit, as git sees it (never read what it points to)
             return [self._unit_origin(path)]
-        try:
-            data = (self.root / path).read_bytes()
-        except OSError:
-            data = b""
+        data = self._stored(path)
         if not data or b"\x00" in data[:BINARY_PROBE]:
             return [self._unit_origin(path)]
         lines = data.count(b"\n") + (not data.endswith(b"\n"))

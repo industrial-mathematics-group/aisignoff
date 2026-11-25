@@ -57,6 +57,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import __version__
 from .globbing import compile_glob, matches
 from .model import (AI_REVIEWED, AIR, AXES, FINDINGS, KEYS, LEVELS, LIST_KEYS, NO_FINDINGS, SEVERITIES, TODO, Declaration,
                     Policy, canonical_key, findings_value, valid_findings, from_version_3, parse_policy, policy_from_version_3)
@@ -203,6 +204,10 @@ def read_toml(root: Path) -> dict | None:
         return tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path.name}: invalid TOML: {e}") from e
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"{path.name}: not UTF-8 text, as TOML must be: {e}") from e
+    except OSError as e:
+        raise ConfigError(f"{path.name} can't be read: {e.strerror or e}") from e
 
 
 def load(root: Path) -> Config:
@@ -238,7 +243,9 @@ def load_review_records(root: Path, config: Config) -> list[Attestation]:
         try:
             text = file.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:
-            raise ConfigError(f"{name}: invalid TOML: {e}") from e
+            raise ConfigError(f"{name}: not UTF-8 text, as TOML must be: {e}") from e
+        except OSError as e:
+            raise ConfigError(f"{name} can't be read: {e.strerror or e}") from e
         out += parse_record_file(text, name)
     return out
 
@@ -286,6 +293,10 @@ def parse(data: dict, path: Path) -> Config:
     if type(version) is int and version in (1, 2):
         old = "V0-V3 levels" if version == 1 else "the AI review scale A-, A0-A3"
         raise ConfigError(f"{name} uses version {version} ({old}), which is no longer read; {CONVERT}")
+    if type(version) is int and version > VERSION:
+        raise ConfigError(f"{name} says version = {version}, a format of a newer aisignoff than this one "
+                          f"({__version__}), which reads version {VERSION} (and {VERSION_3}): upgrade aisignoff, or "
+                          "pin the release the repository's workflows use")
     if type(version) is not int or version not in (VERSION, VERSION_3):
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
     old = version == VERSION_3

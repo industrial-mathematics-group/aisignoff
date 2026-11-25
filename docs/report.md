@@ -161,23 +161,23 @@ raw.githubusercontent.com only serves public repositories.
 | `errors` | list of problems (empty when valid) |
 | `parts` | only with `[history]`: a list of runs of lines with one declaration |
 
-Each part has the six level and name keys above, `Findings` (and `AI-Review-Findings` where given), `source`, `errors`, `lines` (how many), `runs` (`[first, last]` line numbers), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
+Each part has the six level and name keys above, `Findings` (and `AI-Review-Findings` where given), `source`, `errors`, `lines` (how many), `runs` (a list of `[first, last]` pairs of line numbers, one per run of consecutive lines), `kinds` (an object with one key per axis: where it comes from, `commit`, `branch`, `attestation`, `file`, `declared`, `required` or `null`) and `advisory` (`true` for lines that haven't landed and wait for their pull request).
 
 With `--declare-from`, `report --json` also has `pull_request`: `applies` (`false` for a pull request into another branch than the default one, whose description declares nothing), the six level and name keys of what the description declares, `AI-Review-Findings` (its findings line as written, `null` without one), `source` and `errors` (what [`lint`](ci.md#checking-the-pull-request-description) would report about the description).
 
-**`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` (shares, 0 to 1) and `lines` (numbers), by level and `undeclared`; the axis `Findings` counts `F0`–`F3` and `F-` instead.
+**`report --tree --json`:** the root folder, with `name`, `path`, `type` (`dir` or `file`), `files`, `lines`, `errors` (files with errors), `counts` and `children` (the same, one per folder or file). `counts` has one object per axis, each with `files` and `lines`, by level and `undeclared`: `lines` counts lines, `files` counts files, a file whose lines have several levels split by their line shares (so `1.75` of two files can be G0); the axis `Findings` counts `F0`–`F3` and `F-` instead.
 
 **`diff --json`:**
 
 | Key | Value |
 |---|---|
-| `base`, `base_name`, `base_tip` | the commit compared with, as given, and the tip of that branch |
+| `base`, `base_name`, `base_tip` | the commit compared with (the merge base of `BASE` and `HEAD`), `BASE` as given, and the commit `BASE` names |
 | `files` | how many files changed |
 | `history` | whether lines were resolved from history |
 | `rows` | one per folder (or file with `--files`): `name`, `added`, `removed`, `levels_added`, `levels_removed` (per axis, lines by level) |
 | `total` | the same for the whole change |
-| `attested` | attestations the change adds, or entries it changes: `path`, `blob`, `levels`, and `findings` for an AI review of A2 or A3 |
-| `before`, `after` | the repository's shares by lines, per axis and level |
+| `attested` | attestations the change adds, or entries it changes: `path` and `blob` for a review of a file, or `commit` and `path` (`null` for every file) for a review of a commit's lines; `levels`; and `findings` for an AI review of A1, A2 or A3 |
+| `before`, `after` | the repository's shares by lines, per axis and level, in percent (0 to 100) |
 | `problems`, `notes`, `note` | messages for the reader |
 
 `lint` has no JSON output: its result is its exit code (0, 1 or 2).

@@ -9,7 +9,7 @@ import pytest
 from aisignoff import visualize
 from aisignoff.cli import main
 from aisignoff.diff import _unquote, changed_lines
-from aisignoff.project import Project, line_count
+from aisignoff.project import Project, ProjectError, line_count
 
 from test_aisignoff import write
 from test_history import BASE_TOML, G3, commit, edit_lines, git, repo, result, shares  # noqa: F401
@@ -250,11 +250,11 @@ def test_ignore_revs_with_an_abbreviated_hash(repo):
     assert shares(r) == {"G0 H2 A0": 10}  # the reformatting commit is skipped
 
 
-def test_missing_ignore_revs_file_is_a_problem(repo):
+def test_missing_ignore_revs_file_is_a_configuration_error(repo):
     text = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", 'enabled = true\nignore-revs-file = "nope"')
     (repo / "SIGNOFF.toml").write_text(text)
-    _, project = result(repo)
-    assert any("nope does not exist" in p for p in project.history_problems)
+    with pytest.raises(ProjectError, match="nope does not exist"):
+        result(repo)
 
 
 def test_corrections_apply_with_an_ignore_revs_file(repo):

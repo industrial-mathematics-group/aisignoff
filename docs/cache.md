@@ -15,7 +15,7 @@ The cache is in the repository's git folder, `.git/aisignoff/`, one file per com
 
 A run uses the newest cached commit on the default branch's first-parent history. `git blame` then stops there, and a line from before it is what blame found at that commit: blame passes a line that a commit didn't change on to the commit's parent, so what comes after doesn't change where it ends up. A file the cache doesn't have, or a line it can't place, is blamed over the whole history as without it.
 
-The cache is only used with the same blame options it was written with: `[history]` `ignore-whitespace` and the commits of the ignore-revs file. With others, or when its file can't be read, the run doesn't use it. It is never committed, needs no check, and deleting it only makes the next run slower. Set `AISIGNOFF_NO_CACHE=1` to turn it off.
+The cache is only used with the same blame options it was written with, `[history]` `ignore-whitespace` and the commits of the ignore-revs file, and by the same version of git, whose line diff it holds. With others, or when its file can't be read, the run doesn't use it. It is never committed, needs no check, and deleting it only makes the next run slower. Set `AISIGNOFF_NO_CACHE=1` to turn it off.
 
 ## In CI
 
@@ -30,7 +30,7 @@ A CI run starts from a fresh checkout, so it has no cache unless the workflow ke
           path: .git/aisignoff
           key: aisignoff-${{ github.sha }}
           restore-keys: aisignoff-
-      - run: pip install "aisignoff==0.20.1"
+      - run: pip install "aisignoff==0.21.0"
       - run: aisignoff lint
 ```
 

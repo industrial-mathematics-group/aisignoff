@@ -263,13 +263,18 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
             git_binary = True
     flush()
 
-    # a pure rename or a mode change has no content change, so no blobs to read
-    olds = _blob_units(root, [b[0] for (o, _), (_, _, b, _) in files.items() if o is not None and b[0]])
+    # a pure rename or a mode change has no content change, so no blobs to read. The new side is read as
+    # git stores it too, from its blob where that exists (committed or staged): a file that git converts
+    # (working-tree-encoding, a clean filter such as Git LFS) differs in the work tree, as UTF-16 text has
+    # NUL bytes there. A blob that isn't in the repository (an edit not staged) is read from the work tree.
+    units = _blob_units(root, [b[0] for (o, _), (_, _, b, _) in files.items() if o is not None and b[0]]
+                        + [b[1] for (_, n), (_, _, b, _) in files.items() if n is not None and b[1]])
     result: dict = {}
     for (old, new), (removed, added, blobs, git_binary) in files.items():
         if blobs != ("", "") or git_binary:
-            old_units, old_binary = olds.get(blobs[0], (1, False)) if old is not None else (0, False)
-            new_binary = new is not None and _file_is_binary(root, new)
+            old_units, old_binary = units.get(blobs[0], (1, False)) if old is not None else (0, False)
+            stored = units.get(blobs[1]) if new is not None else None
+            new_binary = new is not None and (stored[1] if stored else _file_is_binary(root, new))
             if git_binary and old is not None and new is not None and not old_binary and not new_binary:
                 # text on both sides: git left the patch out because of an attribute, not the content
                 suppressed.append((old, new))
@@ -278,7 +283,8 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
                 # a binary file counts as one unit, as everywhere else; when only one side is binary,
                 # the other side's text lines are all removed or added (none of them is in the other side)
                 removed = list(range(1, old_units + 1)) if old is not None else []
-                added = list(range(1, line_count(root, new) + 1)) if new is not None else []
+                new_units = stored[0] if stored else line_count(root, new) if new is not None else 0
+                added = list(range(1, new_units + 1)) if new is not None else []
         # an empty file is one unit, as everywhere else, though git shows no hunk for it: added or
         # deleted empty, or emptied, or written into
         if old is not None and not removed and blobs[0] in EMPTY_BLOBS:
@@ -292,6 +298,11 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
 def merge_base(root: Path, base: str) -> str:
     """The commit a change since BASE starts from: the merge base of BASE and HEAD, so the
     commits BASE got since don't count as the change's (as a pull request's diff on GitHub)."""
+    from .history import HistoryError, check_git
+    try:
+        check_git()
+    except HistoryError as e:
+        raise DiffError(str(e))
     sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False).strip()
     if not sha:
         raise DiffError(f"{base} is not a commit")

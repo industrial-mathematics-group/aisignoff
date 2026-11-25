@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -26,6 +27,13 @@ AXIS_INFO = (  # key, short, title, levels, badge file, colour
     (AIR, "A", "AI review", AI, "aisignoff-ai-review.json", "9558B2"),
 )
 FINDINGS_BADGE = "aisignoff-findings.json"
+
+
+# exit codes: 0 fine, 1 lint found a problem, 2 the command couldn't run (usage, configuration, a file
+# that can't be read or written), 3 an internal error (a bug in aisignoff)
+EXIT_PROBLEMS, EXIT_USAGE, EXIT_INTERNAL = 1, 2, 3
+DEFAULT_SKILLS = ".claude/skills"  # guide --skills without a folder: in the repository
+ISSUES_URL = "https://github.com/industrial-mathematics-group/aisignoff/issues"
 
 
 class UsageError(Exception):
@@ -120,8 +128,8 @@ def cmd_init(args) -> int:
         '# a line win over it unless the matching annotation sets precedence = "override".',
         f"version = {VERSION}",
         "",
-        '# exclude = ["reviews/**", "docs/build/**"]   # files that need no declaration,',
-        "# such as the committed AI reviews in reviews/ (CONTRIBUTING.md)",
+        '# exclude = ["docs/build/**"]   # files that need no declaration (the review folder,',
+        "# reviews/, needs none by itself)",
         "",
         "# Minimum review levels (optional).",
         "# [policy]",
@@ -190,9 +198,8 @@ def cmd_guide(args) -> int:
             for message in guide.point_agents(root) or ["AGENTS.md is up to date"]:
                 print(message)
         if args.skills:
-            directory = Path(args.skills)
-            if not directory.is_absolute():
-                directory = root / directory
+            # the default is the repository's .claude/skills; a folder given is where it says, from here
+            directory = root / DEFAULT_SKILLS if args.skills is True else Path(args.skills)
             for path in guide.write_skills(directory):
                 print(f"Wrote {path}")
     if args.role:
@@ -1067,7 +1074,7 @@ def cmd_badge(args) -> int:
                 counts[counted_level(d, errors, key)] += w
         label = {GEN: "AI generation", HUM: "human review", AIR: "AI review"}[key] + suffix
         (out / filename).write_text(json.dumps(badge_json(label, counts, [*levels, "undeclared"], color),
-                                               ensure_ascii=False))
+                                               ensure_ascii=False), encoding="utf-8")
         written.append(str(out / filename))
     counts = Counter()
     for r in results:
@@ -1077,7 +1084,7 @@ def cmd_badge(args) -> int:
     if badge["message"] != "no files":
         # the flags: an open critical or major finding
         badge["color"] = "red" if counts["F3"] else "orange" if counts["F2"] else "2DA44E"
-    (out / FINDINGS_BADGE).write_text(json.dumps(badge, ensure_ascii=False))
+    (out / FINDINGS_BADGE).write_text(json.dumps(badge, ensure_ascii=False), encoding="utf-8")
     written.append(str(out / FINDINGS_BADGE))
     print("Wrote " + ", ".join(written))
     return 0
@@ -1219,16 +1226,18 @@ def main(argv: list[str] | None = None) -> int:
                    "review: the independent AI reviewer")
     p.add_argument("--agents-md", action="store_true", help="add the section that points AI agents to this "
                    "command to AGENTS.md (created if missing) and to CLAUDE.md (if it exists), or update it")
-    p.add_argument("--skills", nargs="?", const=".claude/skills", metavar="DIR", help="write both guides as "
+    p.add_argument("--skills", nargs="?", const=True, metavar="DIR", help="write both guides as "
                    "Claude skills, aisignoff-dev and aisignoff-review (default DIR: .claude/skills)")
     p.set_defaults(func=cmd_guide)
 
     args = parser.parse_args(argv)
+    from .diff import DiffError
+    from .history import HistoryError
     try:
         return args.func(args)
-    except UsageError as e:
+    except (UsageError, ConfigError, ProjectError, HistoryError, DiffError) as e:
         print(f"aisignoff {args.command}: {e}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
     except BrokenPipeError:
         # the reader stopped (report --json | head): not an error, and nothing more to say
         try:
@@ -1237,6 +1246,17 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             pass
         return 0
+    except OSError as e:
+        # a file that can't be read or written: the environment, not the declarations
+        where = f"{e.filename}: " if e.filename else ""
+        print(f"aisignoff {args.command}: {where}{e.strerror or e}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception:
+        # a bug in aisignoff: never exit 1, which says that the declarations failed the check
+        traceback.print_exc()
+        print(f"aisignoff {args.command}: internal error in aisignoff {__version__}, a bug: please report it with "
+              f"the traceback above at {ISSUES_URL}", file=sys.stderr)
+        return EXIT_INTERNAL
 
 
 if __name__ == "__main__":

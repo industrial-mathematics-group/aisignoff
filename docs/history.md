@@ -151,6 +151,32 @@ With `squash`, the branch commits' generation is ignored, since the squash commi
 
 **Stacked pull requests.** When B is merged into A and A into the default branch, A's commit owns all the lines, B's included, and B's description is never read. `lint` warns when B's merge commit declares a higher `AI-Generation` than A's description does: declare the highest generation of everything that lands in A's description. When B is retargeted and lands on the default branch itself, it owns the lines its merge brings in.
 
+## The exact form
+
+This is how aisignoff reads a commit message, or a pull request description read as the message of its merge or squash commit. Text that doesn't have this form declares nothing. Where `lint` sees text that looks like a declaration but isn't one, it may warn (as it does for `AI-Review-Finding:`); it never reads it as one.
+
+**What isn't read:** the subject line, and the lines in fenced code blocks (```` ``` ```` or `~~~`) and HTML comments (`<!-- … -->`). A fence or comment that is never closed opens none.
+
+**"Key: value" lines:**
+
+- A key line starts at the beginning of the line, with no space, bullet or emphasis before the key, and has the form `Key: value`, with no space before the colon. It may stand anywhere in the body.
+- Keys are matched without regard to case (`ai-generation:` works). Levels are matched exactly: `G3` and `TODO` are levels, `g3` is an invalid one, which is an error.
+- A level line left empty (`Human-Review:`) is `TODO`.
+- A name key may be given more than once; each line is one name, commas included, and a name given twice counts once.
+- A level key given twice with the same value counts once; with different values it is an error.
+- An axis counts when its level is given: a name on its own declares nothing.
+- Other keys are ignored.
+- The line `AI-Review-Findings:` is read in a looser form too: after a bullet, emphasis or spaces, and in any case. With several such lines, the most severe counts. A value other than `none`, `trivial`, `minor`, `major` and `critical` is an error.
+
+**Checkboxes of a template:**
+
+- A box is a line that starts, after optional indentation, with `-` or `*`, whitespace, `[ ]`, `[x]` or `[X]`, and whitespace. Other list markers (`+`, numbers) aren't boxes.
+- A level box has the level in bold right after the box: `**G2**`, `**H1**`, `**A0**`.
+- The model boxes are the ticked boxes between the last generation box and the first human review box whose whole text is a bold name without a colon, optionally followed by the vendor in brackets: `**Claude Opus** (Anthropic)`. A ticked `**Other:**` adds the text after it.
+- The reviewer of an AI review box is the text after the word `Model` and the next colon (`Model:`, `Model and report:`) in that box.
+- `Responsible person: @login` is read on a line of its own in a pull request opened by an account whose login ends in `[bot]`.
+- The rest is in the table [above](#pull-request-descriptions): one generation box, the highest human and AI review boxes, `TODO` for a group of boxes that is there with none ticked, and an error for a ticked human review box above an unticked one.
+
 ## Commits that declare nothing
 
 By default (`undeclared = "baseline"`), a landing commit whose message declares nothing leaves its lines to the file-level declaration, so a quick push stays quick. To require a declaration from every commit that lands lines on the default branch:
@@ -294,7 +320,7 @@ On a feature branch, in the merge preview that a pull request's CI run checks ou
 - **A pull request into another branch** than the default one declares nothing: the pull request that lands its lines on the default branch does. `lint --base` and `diff` recognise it and say so.
 - **`--landed`** says that `HEAD` is a commit of the default branch, or lands on it exactly as it is: a [merge queue's commit](ci.md#merge-queues) (recognised by itself on GitHub Actions) or a [release branch](ci.md#release-branches).
 
-aisignoff finds the default branch as `origin`'s default branch, else the one GitHub Actions' event names, else `main` or `master`. Set `default-branch = "develop"` in `[history]` if it's called otherwise and you run CI elsewhere. When that branch is checked out, all of `HEAD` counts as landed; otherwise `origin/<name>` is used, or the local branch if it's ahead. With none found, every commit counts as landed; `lint --declare-from`, `--base` and `--landed` then fail, since there is nothing to check the change against. CI needs the whole history: check out with `fetch-depth: 0`. In a shallow clone, `lint` fails when `[history]` is enabled.
+aisignoff finds the default branch as `origin`'s default branch, else the one GitHub Actions' event names, else `main` or `master`. Set `default-branch = "develop"` in `[history]` if it's called otherwise and you run CI elsewhere; a `default-branch` that names no branch here is a configuration error (exit code `2`). When that branch is checked out, all of `HEAD` counts as landed; otherwise `origin/<name>` is used, or the local branch if it's ahead. With none found, every commit counts as landed; `lint --declare-from`, `--base` and `--landed` then fail, since there is nothing to check the change against. CI needs the whole history: check out with `fetch-depth: 0`. In a shallow clone, `lint` fails when `[history]` is enabled.
 
 ## Details
 
@@ -304,4 +330,9 @@ aisignoff finds the default branch as `origin`'s default branch, else the one Gi
 - **Moved lines** belong to the commit that moved them: a line moved to another file is a new line there.
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.
 - **Reformatting commits** would take over every line they touch. List them in `.git-blame-ignore-revs` (used automatically, or set `ignore-revs-file`). An entry that isn't a commit of the repository is reported. An ignored commit's lines go back to the commits before it, with their levels, so `lint` warns about an entry that declares levels, is a merge, or looks like a pull request. For the same reason, a pull request can't change the entries of that file, as it can't change `[history]` ([Checking the pull request description](ci.md#checking-the-pull-request-description)).
-- **Without history**, outside git or in a shallow clone, aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails instead.
+- **Without history**, outside git, aisignoff warns and uses the file-level declarations; with `undeclared = "error"` or `require-trailers-since`, `lint` fails instead. In a shallow clone, `lint` fails, since the lines can't be checked one by one.
+- **Binary** means a NUL byte among the first 16,384 bytes of the content as git stores it: for a file that git converts (`working-tree-encoding`, or a filter such as Git LFS), the blob, not the work tree's bytes.
+- **A binary unit follows a rename** only when the file's content didn't change with it (git's `R100`); the lines of a text file follow renames as `git blame` finds them.
+- **A generation raised inside a merge** is read from a second blame of the file, which follows the commits that wrote the lines. When it gives the file another number of lines than the first-parent blame, aisignoff can't pair the lines, and no line takes a generation from a commit inside a merge.
+- **A line older than the history at hand** (a shallow boundary) or from a commit that isn't on the default branch's first-parent history has no owner: it takes the file-level declaration, raised by attestations.
+- **The order of reviews recorded in one commit:** the entries of `SIGNOFF.toml` first, then the record files of the review folder by path, each in the order of its entries. An entry of `SIGNOFF.toml` counts as recorded by the commit that last changed one of its lines (comments and blank lines aside). A record file that was deleted and added again counts from when it was added last.

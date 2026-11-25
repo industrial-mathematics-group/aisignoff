@@ -2,8 +2,10 @@
 the highest; the message formats that declare (scenarios of the second declaration review)."""
 import json
 
+import pytest
+
 from aisignoff.history import parse_checkboxes, parse_trailers
-from aisignoff.project import Project
+from aisignoff.project import Project, ProjectError
 
 from test_aisignoff import write
 from test_history import G3, commit, edit_lines, git, repo, result, shares  # noqa: F401
@@ -410,8 +412,8 @@ def test_what_is_landed_follows_the_default_branch_not_the_subject_or_the_enviro
     toml = (repo / "SIGNOFF.toml").read_text().replace("enabled = true", 'enabled = true\ndefault-branch = "trunk"')
     (repo / "SIGNOFF.toml").write_text(toml)
     project = Project(repo)
-    project.results(quiet=True)
-    assert any("default-branch: there is no branch trunk" in p for p in project.history_problems)
+    with pytest.raises(ProjectError, match="default-branch: there is no branch trunk"):  # a configuration error
+        project.results(quiet=True)
 
 
 # ------------------------------------------------------------------ 0.10.1 review

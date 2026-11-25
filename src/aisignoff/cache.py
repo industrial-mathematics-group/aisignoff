@@ -74,7 +74,9 @@ class BlameCache:
         folder = _folder(self.root)
         if folder is None:
             return None
-        key = hashlib.sha256(json.dumps([FORMAT, history.blame_options]).encode()).hexdigest()[:16]
+        # git's version too: another git's line diff may place a line elsewhere, so its blames aren't mixed in
+        from .history import git_version
+        key = hashlib.sha256(json.dumps([FORMAT, history.blame_options, git_version()]).encode()).hexdigest()[:16]
         return CacheRun(folder, key, history.base, history.order)
 
 
