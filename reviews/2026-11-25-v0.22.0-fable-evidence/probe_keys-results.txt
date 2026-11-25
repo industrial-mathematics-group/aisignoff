@@ -1,0 +1,81 @@
+=== K1: an unknown key anywhere in SIGNOFF.toml (expected: exit 2 for every command)
+
+top level                    {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml: unknown key(s) foo (a typo, or a key of a newer aisignoff than this one, 0.22.0)
+[history]                    {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [history]: unknown key(s) ignore-whitespce (a typo, or a key of a newer aisignoff than this one, 0.22.0; this version kno
+[review]                     {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [review]: unknown key(s) directory (a typo, or a key of a newer aisignoff than this one, 0.22.0)
+[policy] generation          {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [policy]: unknown key 'G4' (use "*", G0, G1, G2 or G3)
+[policy] rule                {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [policy].*: unknown key(s) note (use human, ai)
+[[annotations]]              {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml annotation [1]: unknown key 'note' (a typo, or a key of a newer aisignoff than this one, 0.22.0; allowed: path, precedenc
+[[commits]]                  {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [[commits]] entry 1: unknown key 'note' (a typo, or a key of a newer aisignoff than this one, 0.22.0; allowed: commit, AI
+[[attestations]]             {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [[attestations]] entry 1: unknown key 'note' (a typo, or a key of a newer aisignoff than this one, 0.22.0; allowed: path,
+a sub-table of [history]     {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml [history]: unknown key(s) extra (a typo, or a key of a newer aisignoff than this one, 0.22.0; this version knows enabled,
+a table that isn't one       {'lint': 2, 'report': 2, 'badge': 2, 'diff': 2, 'gc': 2}  aisignoff lint: SIGNOFF.toml: unknown key(s) annotation (a typo, or a key of a newer aisignoff than this one, 0.22.0)
+
+=== K2: record files of the review folder
+
+valid                                  exit 0  1 of 1 files have a valid declaration.
+unknown key in an entry                exit 2  aisignoff lint: reviews/r.toml [[attestations]] entry 1: unknown key 'note' (a typo, or a key of a newer aisignoff than this one, 0.22.0; allowed: path, blob, commit, AI-Generation, Human-Review, AI-Review, Assisted-by, AI-Reviewe
+unknown top-level key                  exit 2  aisignoff lint: reviews/r.toml: a record file in the review folder holds [[attestations]] tables only, not note (a [[commits]] entry is a person's correction: it goes into SIGNOFF.toml)
+requires-aisignoff in a record file    exit 2  aisignoff lint: reviews/r.toml: a record file in the review folder holds [[attestations]] tables only, not requires-aisignoff (a [[commits]] entry is a person's correction: it goes into SIGNOFF.toml)
+Human-Review in an entry               exit 2  aisignoff lint: reviews/r.toml [[attestations]] entry 1: a record file in the review folder records an AI review, so it gives AI-Review, AI-Reviewed-by and AI-Review-Findings only, not Human-Review, Reviewed-by (a person's review 
+
+=== K3: requires-aisignoff
+
+requires-aisignoff = "0.22"     exit 0  
+requires-aisignoff = "0.22.0"   exit 0  
+requires-aisignoff = "0.22.1"   exit 2  aisignoff lint: SIGNOFF.toml needs aisignoff 0.22.1 or later (requires-aisignoff), and this is 0.22.0: upgrade aisignoff, or pin the release the repository's workflows us
+requires-aisignoff = "0.23"     exit 2  aisignoff lint: SIGNOFF.toml needs aisignoff 0.23 or later (requires-aisignoff), and this is 0.22.0: upgrade aisignoff, or pin the release the repository's workflows use
+requires-aisignoff = "1.0"      exit 2  aisignoff lint: SIGNOFF.toml needs aisignoff 1.0 or later (requires-aisignoff), and this is 0.22.0: upgrade aisignoff, or pin the release the repository's workflows use
+requires-aisignoff = " 0.22 "   exit 0  
+requires-aisignoff = "0.22.0.0" exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+requires-aisignoff = "v0.22"    exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+requires-aisignoff = "0"        exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+requires-aisignoff = 0.22       exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+requires-aisignoff = ["0.22"]   exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+requires-aisignoff = ""         exit 2  aisignoff lint: SIGNOFF.toml: 'requires-aisignoff' must be a version such as "1.2" or "1.2.3"
+--- a newer key with requires-aisignoff: the release is named, not the key
+exit code: 2
+[stderr]
+aisignoff lint: SIGNOFF.toml needs aisignoff 9.0 or later (requires-aisignoff), and this is 0.22.0: upgrade aisignoff, or pin the release the repository's workflows use
+
+--- version = 5
+exit code: 2
+[stderr]
+aisignoff lint: SIGNOFF.toml says version = 5, a format of a newer aisignoff than this one (0.22.0), which reads version 4 (and 3): upgrade aisignoff, or pin the release the repository's workflows use
+
+=== K4: the default branch has a key that 0.20.1 only warned about; a pull request removes it
+
+--- lint on the fix branch
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+--- lint --base main --declare-from (the check before the merge)
+exit code: 2
+[stderr]
+aisignoff lint: SIGNOFF.toml on main: unknown key(s) notes (a typo, or a key of a newer aisignoff than this one, 0.22.0)
+
+--- lint --declare-from, without --base
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+--- diff main
+exit code: 0
+Changes since main (9d69296): +0 −0 lines in 0 file(s)
+
+  +lines  -lines  Generation (added)  Human review (added)  AI review (added)  Findings (added)
+
+Whole repository, by lines:
+  Generation: G3 0.0% → 100.0% (+100.0)
+  Human review: H1 0.0% → 100.0% (+100.0)
+  AI review: A0 0.0% → 100.0% (+100.0)
+  Findings: F- 0.0% → 100.0% (+100.0)
+
+note: the declarations at main could not be read (SIGNOFF.toml: unknown key(s) notes (a typo, or a key of a newer aisignoff than this one, 0.22.0)); removed lines count as undeclared
+
+=== K5: wrong types (expected: exit 2, never 3 and never 0)
+
+internal errors (exit 3 or a traceback): none

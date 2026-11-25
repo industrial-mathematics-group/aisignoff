@@ -1,0 +1,3 @@
+
+300 cases (seed 20261125; old side: {'text': 79, 'probe': 71, 'binary': 150}), 0 failed
+99 case(s) with ignore-whitespace where 'diff' counts whitespace-only changes as added lines (noted, not a failure)

@@ -1,0 +1,39 @@
+$ git -C <clone> rev-parse HEAD   # the clone of /workspace/python/aisignoff, checked out at the reviewed commit
+e0388d5a0864e29f0a09952dbbe95052d3354c05
+
+$ git --version; python --version
+git version 2.47.3
+Python 3.13.5
+
+$ uv run pytest -q -rs   # in the clone at e0388d5
+..................................................................       [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_signoff_assistant.py:17: could not import 'anthropic': No module named 'anthropic'
+426 passed, 1 skipped in 19.80s
+
+$ AISIGNOFF_NO_CACHE=1 uv run aisignoff lint --strict   # in /workspace/python/aisignoff, branch claude/v022-keys-binary (e0388d5)
+! 236 line(s) that aren't on the default branch yet are not fully declared: the pull request that lands them declares them (--declare-from reads its description)
+
+94 of 94 files have a valid declaration.
+17783 of 17783 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+exit code: 0
+
+$ aisignoff lint --strict   # a copy at GitHub main 1d8c259 (the merge of #69, same tree as e0388d5), with this review added
+
+94 of 94 files have a valid declaration.
+17783 of 17783 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+exit code: 0
+
+$ aisignoff lint --strict --base main --declare-from empty.md   # the same copy: the check before the merge of the review pull request
+! this change only adds files to the review folder (reviews/): it is a review, so its description needs no declaration; its record files record what it reviewed
+
+94 of 94 files have a valid declaration.
+17783 of 17783 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+exit code: 0
+
+$ aisignoff gc --dry-run   # the same copy
+Every record covers a line. Nothing to delete.
+exit code: 0
