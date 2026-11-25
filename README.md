@@ -18,7 +18,7 @@ It works like [REUSE](https://reuse.software) does for licences: a path-based `S
 pipx install aisignoff        # or: uv tool install aisignoff, or: pip install aisignoff
 ```
 
-Requires Python 3.11 or newer and git; no other dependencies.
+Requires Linux, Python 3.11 or newer and git 2.34 or newer; no other dependencies.
 
 ## Quick start
 

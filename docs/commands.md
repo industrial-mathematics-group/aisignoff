@@ -12,12 +12,21 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 | [`report`](#report) | summaries, the folder tree and the interactive report |
 | [`diff`](#diff) | the levels of the lines changed since a commit |
 | [`attest`](#attest) | raise the reviews of whole files, or of the lines of a commit (`[history]`) |
+| [`correct`](#correct) | correct the declaration of a commit (`[history]`) |
+| [`gc`](#gc) | delete the records that cover no line any more (`[history]`) |
 | [`badge`](#badge) | write shields.io badge files |
 | [`guide`](#guide) | the brief for an AI agent that writes or reviews a change |
 
 **Global options** go before the command: `--root DIR` runs on another directory (default `.`), `--version` prints the version.
 
-**Exit codes:** `0` success, `1` problems found (`lint`), `2` usage or configuration error.
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | the command did what was asked; for `lint`, everything is declared and valid |
+| `1` | `lint` found a problem (only `lint` returns it: `report`, `diff` and `badge` return `0` and show the problems) |
+| `2` | the command couldn't run: a usage error, an invalid or unreadable `SIGNOFF.toml` or record file, a setting that names nothing (`default-branch`, `ignore-revs-file`, `require-trailers-since`), a file that can't be read or written, git missing or older than 2.34 |
+| `3` | an internal error: a bug in aisignoff, reported with a traceback |
 
 ## Level options
 
@@ -54,7 +63,7 @@ aisignoff [--root DIR] COMMAND [OPTIONS]
 aisignoff init [-g G -H H -a A --reviewed-by … [--assisted-by …] [--ai-reviewed-by …]] [--history]
 ```
 
-Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--history` turns on `[history]` ([Line-level declarations](history.md)); without it, it stays commented out. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
+Creates a commented `SIGNOFF.toml`. With the three levels, it adds a default annotation for `**`; without them, a commented example. `--history` turns on `[history]` ([Line-level declarations](history.md)); without it, the file has no `[history]` table. Refuses if `SIGNOFF.toml` exists, or an `AIDECL.toml` that was never converted.
 
 It also adds a short section to `AGENTS.md` (created if missing, and to `CLAUDE.md` if that exists) that tells AI agents to run [`aisignoff guide`](#guide) before they commit or review. `--no-agents-md` leaves both files alone.
 
@@ -142,7 +151,7 @@ Deletes the records that cover no line any more: the `[[attestations]]` and `[[c
 aisignoff badge [--out DIR] [--weight files|lines] [--landed]
 ```
 
-Writes `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff-ai-review.json` into `DIR` (default `badges`). See [Badges](report.md#badges).
+Writes `aisignoff-generation.json`, `aisignoff-human-review.json`, `aisignoff-ai-review.json` and `aisignoff-findings.json` into `DIR` (default `badges`), as UTF-8. See [Badges](report.md#badges).
 
 `migrate`, which converted `AIDECL.toml` and the format versions 1 and 2, was removed in 1.0.0rc2; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2).
 
@@ -152,7 +161,7 @@ Writes `aisignoff-generation.json`, `aisignoff-human-review.json` and `aisignoff
 aisignoff guide --role dev       # the agent that writes the change and declares it
 aisignoff guide --role review    # the independent AI reviewer
 aisignoff guide --agents-md      # point AGENTS.md (and an existing CLAUDE.md) at the two commands
-aisignoff guide --skills [DIR]   # write both guides as Claude skills (default DIR: .claude/skills)
+aisignoff guide --skills [DIR]   # write both guides as Claude skills (default: the repository's .claude/skills)
 ```
 
 Prints a one-page brief for an AI agent, so that it doesn't have to read the documentation or the package. The text comes with the installed aisignoff, so it matches the version the repository pins, and ends with what the repository's `SIGNOFF.toml` sets: whether the pull request description or each commit declares the change, the minimum levels, and `exclude`.

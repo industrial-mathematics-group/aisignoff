@@ -2,6 +2,22 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.21.0
+
+The fixes of the [1.0 feasibility report](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reports/2026-11-25-1.0-feasibility.md): exit codes, the machine's git setup, and files that git converts.
+
+- **Breaking:** aisignoff needs git 2.34 or later, and stops with exit code `2` on an older one. Before, git 2.23 to 2.30 ran without an error but read the order of record files and renames as empty, and the cache was off.
+- **Breaking:** a `default-branch`, `ignore-revs-file` or `require-trailers-since` in `[history]` that names nothing (no such branch, file or commit of the default branch) is a configuration error, exit code `2`, for every command. Before, `lint` failed with `1` and `report` and `badge` went on with wrong data.
+- **Breaking:** an internal error (a bug) exits with the new code `3`, with the traceback and where to report it, and a file that can't be read or written exits with `2` and a message. Before, both printed a traceback and exited with `1`, the code that says the declarations failed the check. A `SIGNOFF.toml` or record file that isn't UTF-8, or a `SIGNOFF.toml` that is a folder, is a configuration error.
+- Fixed: the git configuration of the machine could change the levels of lines. `diff.indentHeuristic` is pinned, `git blame` runs with `--no-textconv` (a diff driver's text conversion moved lines, or stopped the run where git-crypt was locked), and replace refs (`refs/replace/`, local to a clone) are ignored. Levels change only where such a setting was in effect.
+- Fixed: a file that git converts (`working-tree-encoding`, or a filter such as Git LFS) is read as git stores it. `diff` read the new side from the work tree, so a one-line edit of a UTF-16 file counted one added and three removed lines; a landed UTF-16 file was one binary unit instead of its lines.
+- Fixed: a `SIGNOFF.toml` with a version above 4 says that it needs a newer aisignoff, instead of "'version = 4' is required".
+- Fixed: the folder report's syntax colours took the language from the last word of a shebang line, so `#!/usr/bin/env -S python3 -X pycache_prefix=/tmp/sh` was Bash; the interpreter decides now.
+- Fixed: `guide --skills DIR` resolved a relative `DIR` against `--root` instead of the current folder (the default, the repository's `.claude/skills`, is unchanged).
+- Fixed: badge files are written as UTF-8 whatever the locale. `init` no longer suggests excluding `reviews/**`, which needs no declaration since 0.16.
+- The blame cache is keyed by the git version too, so a CI cache written by another git isn't used.
+- The docs give the exact form of "Key: value" lines and template boxes ([The exact form](history.md#the-exact-form)), and the rules of line resolution that were only in the code (binary content, renames of binary files, the order of reviews recorded in one commit, lines older than the history at hand). The JSON reference matches the output: `runs` is a list of pairs, the tree's `counts.*.files` are file counts, `diff`'s `before`/`after` are percentages, and `attested` has `commit` and `findings` for A1.
+
 ## 0.20.1
 
 The fix of the major finding of the independent review of 0.20.0 ([reviews/2026-11-22-v0.20.0-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-22-v0.20.0-codex.md)): binary content near the probe boundaries.

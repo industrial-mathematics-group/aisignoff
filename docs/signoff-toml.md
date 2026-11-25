@@ -1,6 +1,6 @@
 # SIGNOFF.toml reference
 
-`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An unknown key, an invalid level or a malformed table is a configuration error (exit code `2`).
+`SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An invalid level, a malformed table, or an unknown key in an entry (`[[annotations]]`, `[[commits]]`, `[[attestations]]`, a record file) or in `[policy]` is a configuration error (exit code `2`). An unknown key at the top level, in `[history]` or in `[review]` is a warning (`lint --strict` fails on it). So is a file that isn't UTF-8 or can't be read.
 
 ```toml
 version = 4
@@ -62,7 +62,7 @@ Reviewed-by = "Jane Doe"
 
 | Key | Value |
 |---|---|
-| `version` | `4`, required. `3` is still read, as the AI review scale before 1.0.0rc6 taken over to today's, with a note from `lint`: see [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6). Versions 1 and 2 are no longer read |
+| `version` | `4`, required. A higher version is of a newer aisignoff, and a configuration error that says so. `3` is still read, as the AI review scale before 1.0.0rc6 taken over to today's, with a note from `lint`: see [Upgrading](migrating.md#to-signofftoml-version-4-the-ai-review-scale-of-100rc6). Versions 1 and 2 are no longer read |
 | `exclude` | a glob or list of globs: files that need no declaration |
 
 ## Declaration keys
@@ -108,12 +108,12 @@ Line-level declarations from git, described in [Declaring lines](history.md).
 | Key | Default | Value |
 |---|---|---|
 | `enabled` | `true` once the table is there | `true` or `false` |
-| `default-branch` | `origin`'s default branch, else the one GitHub Actions names, else `main` or `master` | the branch whose commits own the lines |
+| `default-branch` | `origin`'s default branch, else the one GitHub Actions names, else `main` or `master` | the branch whose commits own the lines; one that isn't here is a configuration error |
 | `merge-method` | `"merge"` | `"merge"`, `"squash"` or `"rebase"`: how pull requests land, for checks before the merge |
 | `undeclared` | `"baseline"` | `"baseline"`: lines of a commit that declares nothing take the file-level declaration. `"error"`: `lint` fails |
-| `require-trailers-since` | none | a commit of the default branch: `undeclared = "error"` for the commits after it only |
+| `require-trailers-since` | none | a commit of the default branch: `undeclared = "error"` for the commits after it only; one that isn't a commit of the default branch is a configuration error |
 | `ignore-whitespace` | `true` | `git blame -w`: whitespace-only changes keep a line's owner |
-| `ignore-revs-file` | `.git-blame-ignore-revs` if it exists | a file of commits for `git blame` to skip, such as reformatting commits |
+| `ignore-revs-file` | `.git-blame-ignore-revs` if it exists | a file of commits for `git blame` to skip, such as reformatting commits; a file that doesn't exist is a configuration error |
 
 ## `[[commits]]`
 
