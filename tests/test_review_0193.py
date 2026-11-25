@@ -73,13 +73,14 @@ def test_a_textconv_driver_doesnt_change_the_lines(repo, tmp_path):
     assert totals(repo) == (1, 1)
 
 
-def test_a_binary_file_replaced_with_text_is_still_all_new(repo, tmp_path):
-    """The control: when one side really is binary, the text side's lines are all the change's."""
+def test_a_binary_file_replaced_with_text_follows_git(repo, tmp_path):
+    """When the old side is binary, the text side's lines still follow git's line diff (0.22.0), as
+    git blame follows them once the change has landed: lines 2 and 3 were in the binary version."""
     repo.write(".gitattributes", ["data -diff"])
     (repo.d / "data").write_bytes(b"\x00binary\nline 2\nline 3\n")
     repo.commit("add\n\n" + DECL)
     repo.g("switch", "-qc", "feature")
     repo.write("data", ["new 1", "line 2", "line 3"])
     repo.commit("text\n\n" + H3)
-    assert report(repo, "data", tmp_path) == [([[1, 3]], "H3")]
-    assert totals(repo) == (3, 1)
+    assert sorted(report(repo, "data", tmp_path)) == [([[1, 1]], "H3"), ([[2, 3]], "H1")]
+    assert totals(repo) == (1, 1)

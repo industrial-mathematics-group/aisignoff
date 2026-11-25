@@ -208,13 +208,14 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False) -> dic
 
 
 def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None, str | None], tuple[list[int], list[int]]]:
-    """The changed lines of the output of changed_lines' git diff. A file that git shows as binary
-    though both sides are text is added to suppressed, as (old path, new path).
+    """The changed lines of the output of changed_lines' git diff. A file whose new side is text but
+    that git shows as binary is added to suppressed, as (old path, new path), for a text diff.
 
     Which side is binary follows the history's rule (a NUL among the first BINARY_PROBE bytes) on
     both sides, not git's: git reads fewer bytes, and .gitattributes can make it show a patch of
-    binary content or none of text. A binary side is one unit, so when either side is binary, every
-    unit of each side is removed or added, whatever git's patch says."""
+    binary content or none of text. A text new side takes git's line diff, whatever the old side is,
+    as git blame does after the merge; a binary new side is one unit, and every unit of the old side
+    is removed."""
     files: dict = {}  # (old, new) -> [removed, added, (old blob, new blob), git showed it as binary]
     old = new = None
     removed: list[int] = []
@@ -275,13 +276,17 @@ def _parse_diff(root: Path, out: str, suppressed: list) -> dict[tuple[str | None
             old_units, old_binary = units.get(blobs[0], (1, False)) if old is not None else (0, False)
             stored = units.get(blobs[1]) if new is not None else None
             new_binary = new is not None and (stored[1] if stored else _file_is_binary(root, new))
-            if git_binary and old is not None and new is not None and not old_binary and not new_binary:
-                # text on both sides: git left the patch out because of an attribute, not the content
-                suppressed.append((old, new))
-                continue
-            if git_binary or old_binary or new_binary:
-                # a binary file counts as one unit, as everywhere else; when only one side is binary,
-                # the other side's text lines are all removed or added (none of them is in the other side)
+            if old is not None and new is not None and not new_binary and (git_binary or old_binary):
+                # the new side is text: its lines follow git's line diff of the two sides, as git blame
+                # follows them once the change has landed, also when the old side is binary (blame splits
+                # any content into lines). Where git left the patch out (binary content, or an attribute),
+                # the lines come from a text diff of the file alone.
+                if git_binary:
+                    suppressed.append((old, new))
+                    continue
+            elif git_binary or old_binary or new_binary:
+                # a binary new side counts as one unit, as everywhere else: the old side's units are all
+                # removed and the unit added
                 removed = list(range(1, old_units + 1)) if old is not None else []
                 new_units = stored[0] if stored else line_count(root, new) if new is not None else 0
                 added = list(range(1, new_units + 1)) if new is not None else []
@@ -422,6 +427,9 @@ def compute(project: Project, base: str, declared=None, depth: int = 1, by_file:
                     for key, _, _ in AXES:
                         target["levels_added"][key][axis_level(d, errors, key)] += 1
         if r_old is not None:
+            if r_old.line_parts is not None:
+                # a binary old side is one unit, however many of its lines git's text diff removed
+                removed = sorted({min(n, len(r_old.line_parts)) for n in removed})
             for d, errors, _ in _line_declarations(r_old, removed):
                 for target in (row, total):
                     target["removed"] += 1
