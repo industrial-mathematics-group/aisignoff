@@ -7,6 +7,7 @@
 [![AI generation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-generation.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
 [![Human review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-human-review.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
 [![AI review](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-ai-review.json)](https://industrial-mathematics-group.github.io/aisignoff/signoff/)
+![AI review findings](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/industrial-mathematics-group/aisignoff/badges/aisignoff-findings.json)
 
 **aisignoff records how each file, and each line, of a repository was made and checked:** how much an AI generated (G0–G3), how thoroughly a human reviewed it (H0–H3), and how thoroughly an AI reviewed it (A0–A3). `aisignoff lint` checks those declarations in CI.
 
