@@ -1,0 +1,10 @@
+aisignoff 0.22.0
+Changed multiline link target (+, -): (3, 1)
+Insert one line before the binary region (+, -): (1, 0)
+Remove unknown base key: plain=0, with base=2
+aisignoff lint: SIGNOFF.toml on main: unknown key(s) notes (a typo, or a key of a newer aisignoff than this one, 0.22.0)
+aisignoff 0.23.0
+Changed multiline link target (+, -): (2, 2)
+Insert one line before the binary region (+, -): (1, 0)
+Remove unknown base key: plain=0, with base=2
+aisignoff lint: SIGNOFF.toml on main: unknown key(s) notes (a typo, or a key of a newer aisignoff than this one, 0.23.0)
