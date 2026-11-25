@@ -151,7 +151,7 @@ class Config:
     review_dir: str = REVIEW_DIR  # the review folder, relative to the project root
     # the [[attestations]] of the record files in the review folder, by path
     review_attestations: list[Attestation] = field(default_factory=list)
-    # keys this version doesn't know (a later 1.x may add optional ones): lint warns, --strict fails
+    # what lint shows as warnings (--strict fails on them), such as [review] recheck of 1.0.0rc8
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # for the reader, never a failure
     # version = 3: AI review levels here, and in commit messages are of the scale before version 4
@@ -260,9 +260,9 @@ def parse_record_file(text: str, name: str) -> list[Attestation]:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{name}: invalid TOML: {e}") from e
     if set(data) - {"attestations"}:
-        raise ConfigError(f"{name}: a record file in the review folder holds [[attestations]] tables only, not "
-                          f"{', '.join(sorted(set(data) - {'attestations'}))} (a [[commits]] entry is a person's "
-                          f"correction: it goes into {FILENAME})")
+        raise ConfigError(f"{name}: unknown key(s) {', '.join(sorted(set(data) - {'attestations'}))} ({NEWER}, "
+                          f"{__version__}): a record file in the review folder holds [[attestations]] tables only "
+                          f"(a [[commits]] entry is a person's correction: it goes into {FILENAME})")
     entries = _attestations(data, name, False)  # always on today's scale
     if not entries:
         raise ConfigError(f"{name}: a record file in the review folder needs [[attestations]] tables")
@@ -361,7 +361,7 @@ def parse(data: dict, path: Path) -> Config:
             raise ConfigError(f"{where}: precedence must be 'closest' or 'override'")
         values = _parse_values(table, ("path", "precedence"), where, old)
         annotations.append(Annotation(index=i, paths=paths, precedence=precedence, values=values, filename=name))
-    history = _parse_history(data.get("history"), name, warnings)
+    history = _parse_history(data.get("history"), name)
     review = data.get("review", {})
     if not isinstance(review, dict):
         raise ConfigError(f"{name}: use a [review] table")
@@ -484,7 +484,7 @@ def _check_axes(values: dict, where: str) -> None:
         raise ConfigError(f"{where}: {FINDINGS} without {AIR}")
 
 
-def _parse_history(table, name: str, warnings: list[str]) -> HistorySettings:
+def _parse_history(table, name: str) -> HistorySettings:
     if table is None:
         return HistorySettings()
     where = f"{name} [history]"
