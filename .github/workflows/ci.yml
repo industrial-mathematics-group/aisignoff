@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e . pytest
+      - run: python -m pip install -e . pytest
       - run: pytest -q
       - name: The tool declares its own files
         run: aisignoff lint
