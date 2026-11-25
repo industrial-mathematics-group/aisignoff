@@ -63,7 +63,7 @@ GIT = ["git", "-c", "blame.markIgnoredLines=false",
        "-c", "diff.indentHeuristic=true"]
 
 # the oldest git that aisignoff runs with: older ones lack options it needs (--diff-merges, --path-format)
-# and would read some of the history wrong without saying so. CI tests it (Ubuntu 22.04's git).
+# and would read some of the history wrong without saying so. 2.34 is Ubuntu 22.04's git.
 MIN_GIT = (2, 34)
 _git_version_cache: list = []
 
