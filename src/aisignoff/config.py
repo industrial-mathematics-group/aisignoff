@@ -53,6 +53,7 @@ no longer covers any line).
 """
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -286,6 +287,37 @@ def load_text(text: str, path: Path) -> Config:
     return parse(data, path)
 
 
+REQUIRES = "requires-aisignoff"
+TOP_KEYS = ("version", REQUIRES, "exclude", "policy", "annotations", "history", "commits", "attestations", "review")
+NEWER = "a typo, or a key of a newer aisignoff than this one"
+
+
+def _refuse_unknown(unknown: set, where: str, known=None) -> None:
+    """Every key is one this version must understand: an unknown one is a typo or a key of a newer
+    aisignoff, and ignoring it would work out other levels than the file says."""
+    if unknown:
+        allowed = f"; this version knows {', '.join(known)}" if known else ""
+        raise ConfigError(f"{where}: unknown key(s) {', '.join(sorted(unknown))} ({NEWER}, {__version__}{allowed})")
+
+
+def _version_tuple(text: str) -> tuple[int, ...] | None:
+    m = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", text.strip())
+    return tuple(int(g or 0) for g in m.groups()) if m else None
+
+
+def _check_required_version(required, name: str) -> None:
+    """requires-aisignoff = "1.2": the oldest aisignoff that understands this file."""
+    if required is None:
+        return
+    want = _version_tuple(required) if isinstance(required, str) else None
+    if want is None:
+        raise ConfigError(f"{name}: '{REQUIRES}' must be a version such as \"1.2\" or \"1.2.3\"")
+    have = _version_tuple(re.split(r"[^\d.]", __version__, maxsplit=1)[0].rstrip("."))
+    if have is not None and have < want:
+        raise ConfigError(f"{name} needs aisignoff {required} or later ({REQUIRES}), and this is {__version__}: "
+                          "upgrade aisignoff, or pin the release the repository's workflows use")
+
+
 def parse(data: dict, path: Path) -> Config:
     name = path.name
 
@@ -301,10 +333,8 @@ def parse(data: dict, path: Path) -> Config:
         raise ConfigError(f"{name}: 'version = {VERSION}' is required")
     old = version == VERSION_3
     warnings = []
-    unknown = set(data) - {"version", "exclude", "policy", "annotations", "history", "commits", "attestations", "review"}
-    if unknown:
-        warnings.append(f"{name}: unknown top-level key(s) {', '.join(sorted(unknown))}, ignored (a typo, or a "
-                        "setting of a later aisignoff?)")
+    _check_required_version(data.get(REQUIRES), name)  # first: a newer key is then explained by it
+    _refuse_unknown(set(data) - set(TOP_KEYS), name)
     exclude = _str_list(data.get("exclude", []), f"{name}: 'exclude'")
     for p in exclude:
         compile_glob(p)
@@ -345,9 +375,7 @@ def parse(data: dict, path: Path) -> Config:
         # findings level of the lines the review covered, and block nothing
         warnings.append(f"{name} [review]: 'recheck' is no longer used (a finding blocks nothing: it is shown as the "
                         "findings level of the lines the review covered); remove it")
-    if set(review) - set(REVIEW_KEYS):
-        warnings.append(f"{name} [review]: unknown key(s) {', '.join(sorted(set(review) - set(REVIEW_KEYS)))}, ignored "
-                        "(a typo, or a setting of a later aisignoff?)")
+    _refuse_unknown(set(review) - set(REVIEW_KEYS), f"{name} [review]")
     commits = _commits(data, name, old)
     attestations = _attestations(data, name, old)
     notes = []
@@ -419,7 +447,8 @@ def _parse_values(table: dict, skip: tuple, where: str, old: bool = False) -> di
             continue
         key = canonical_key(k, (*KEYS, FINDINGS))
         if key is None:
-            raise ConfigError(f"{where}: unknown key '{k}' (allowed: {', '.join((*skip, *KEYS, FINDINGS))})")
+            raise ConfigError(f"{where}: unknown key '{k}' ({NEWER}, {__version__}; allowed: "
+                              f"{', '.join((*skip, *KEYS, FINDINGS))})")
         if key in values:
             raise ConfigError(f"{where}: '{key}' is given more than once")
         if key == FINDINGS:
@@ -461,10 +490,7 @@ def _parse_history(table, name: str, warnings: list[str]) -> HistorySettings:
     where = f"{name} [history]"
     if not isinstance(table, dict):
         raise ConfigError(f"{where} must be a table")
-    unknown = set(table) - set(HISTORY_KEYS)
-    if unknown:
-        warnings.append(f"{where}: unknown key(s) {', '.join(sorted(unknown))}, ignored (this version knows "
-                        f"{', '.join(HISTORY_KEYS)})")
+    _refuse_unknown(set(table) - set(HISTORY_KEYS), where, HISTORY_KEYS)
     enabled = table.get("enabled", True)
     if not isinstance(enabled, bool):
         raise ConfigError(f"{where}: 'enabled' must be true or false")

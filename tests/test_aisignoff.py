@@ -216,9 +216,12 @@ def test_the_findings_line_of_a_review():
 
 
 def test_the_review_table_of_rc8_is_no_longer_read(tmp_path):
-    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[review]\nrecheck = "minor"\nlater = 1\n')
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[review]\nrecheck = "minor"\n')
     config = load(tmp_path)
-    assert "'recheck' is no longer used" in config.warnings[0] and "[review]: unknown key(s) later" in config.warnings[1]
+    assert "'recheck' is no longer used" in config.warnings[0]
+    (tmp_path / "SIGNOFF.toml").write_text('version = 4\n[review]\nlater = 1\n')
+    with pytest.raises(ConfigError, match=r"\[review\]: unknown key\(s\) later"):
+        load(tmp_path)
     (tmp_path / "SIGNOFF.toml").write_text('version = 4\nreview = "major"\n')
     with pytest.raises(ConfigError, match="review"):
         load(tmp_path)
@@ -253,11 +256,13 @@ def test_findings_in_signoff_toml(tmp_path):
     with pytest.raises(ConfigError, match="AI-Review-Findings without AI-Review"):
         load(tmp_path)
 
-def test_unknown_settings_are_warnings(tmp_path):
-    # a later 1.x may add optional settings: an older install warns about them instead of failing
-    (tmp_path / "SIGNOFF.toml").write_text('version = 4\nfoo = 1\n[history]\nbar = 2\n')
-    config = load(tmp_path)
-    assert len(config.warnings) == 2 and "foo" in config.warnings[0] and "bar" in config.warnings[1]
+def test_unknown_settings_are_errors(tmp_path):
+    # every key changes what the file means: a typo, or a key of a newer aisignoff, stops instead of being ignored
+    for text, key in [('version = 4\nfoo = 1\n', "foo"), ('version = 4\n[history]\nignore-whitespce = false\n',
+                                                            "ignore-whitespce")]:
+        (tmp_path / "SIGNOFF.toml").write_text(text)
+        with pytest.raises(ConfigError, match=f"unknown key\\(s\\) {key} \\(a typo, or a key of a newer aisignoff"):
+            load(tmp_path)
 
 
 def test_last_annotation_wins(tmp_path):
