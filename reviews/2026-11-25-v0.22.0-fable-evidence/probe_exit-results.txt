@@ -1,0 +1,132 @@
+=== X1: git 2.30 (a wrapper that only changes 'git --version'); contract 2.3: stops with exit code 2
+
+ok   exit 2 (expected 2)  [history] on: lint
+        aisignoff lint: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+ok   exit 2 (expected 2)  [history] on: report
+        aisignoff report: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+ok   exit 2 (expected 2)  [history] on: report --tree
+        aisignoff report: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+ok   exit 2 (expected 2)  [history] on: badge --out
+        aisignoff badge: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+ok   exit 2 (expected 2)  [history] on: diff HEAD
+        aisignoff diff: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+DIFF exit 0 (expected 2)  [history] on: attest a.txt
+        Attested 1 file(s) at H2 in SIGNOFF.toml
+DIFF exit 0 (expected 2)  [history] on: correct HEAD
+        Corrected 4609ab9 (H2) in SIGNOFF.toml
+ok   exit 2 (expected 2)  [history] on: gc --dry-run
+        aisignoff gc: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+DIFF exit 0 (expected 2)  no [history]: lint
+        All files are declared. ✓
+DIFF exit 0 (expected 2)  no [history]: report
+          F-         No independent AI review since last change         1  100.0%
+DIFF exit 0 (expected 2)  no [history]: report --tree
+        .      1  G3 100%     H1 100%       A0 100%    F- 100%
+DIFF exit 0 (expected 2)  no [history]: badge --out
+        Wrote /tmp/review-0220/work/b/aisignoff-generation.json, /tmp/review-0220/work/b/aisignoff-human-review.json, /tmp/review-0220/work/b/aisignoff-ai-review.json, /tmp/revie
+ok   exit 2 (expected 2)  no [history]: diff HEAD
+        aisignoff diff: git 2.30.2 is too old: aisignoff needs git 2.34 or later to read the history
+DIFF exit 0 (expected 2)  no [history]: attest a.txt
+        note: attestations count only with [history] enabled in SIGNOFF.toml
+DIFF exit 0 (expected 2)  no [history]: correct HEAD
+        Corrected f07f083 (H2) in SIGNOFF.toml
+ok   exit 2 (expected 2)  no [history]: gc --dry-run
+        aisignoff gc: gc needs [history]: without it, every entry counts as written
+
+=== X2: git not installed
+
+ok   exit 2 (expected 2)  [history] on: lint
+        aisignoff lint: this is a git repository, but git is not installed, so .gitignore cannot be respected
+ok   exit 2 (expected 2)  [history] on: report
+        aisignoff report: this is a git repository, but git is not installed, so .gitignore cannot be respected
+ok   exit 2 (expected 2)  [history] on: diff HEAD
+        aisignoff diff: git: No such file or directory
+ok   exit 2 (expected 2)  no [history]: lint
+        aisignoff lint: this is a git repository, but git is not installed, so .gitignore cannot be respected
+ok   exit 2 (expected 2)  no [history]: report
+        aisignoff report: this is a git repository, but git is not installed, so .gitignore cannot be respected
+ok   exit 2 (expected 2)  no [history]: diff HEAD
+        aisignoff diff: git: No such file or directory
+
+=== X3: settings that name nothing: exit 2 for every command
+
+ok   exit 2 (expected 2)  default-branch = "develop": lint
+        aisignoff lint: [history] default-branch: there is no branch develop here (neither origin/develop nor develop); fetch it (in CI: fetch-depth: 0), or correct the setting
+ok   exit 2 (expected 2)  default-branch = "develop": report
+        aisignoff report: [history] default-branch: there is no branch develop here (neither origin/develop nor develop); fetch it (in CI: fetch-depth: 0), or correct the setting
+ok   exit 2 (expected 2)  default-branch = "develop": badge
+        aisignoff badge: [history] default-branch: there is no branch develop here (neither origin/develop nor develop); fetch it (in CI: fetch-depth: 0), or correct the setting
+ok   exit 2 (expected 2)  default-branch = "develop": diff
+        aisignoff diff: [history] default-branch: there is no branch develop here (neither origin/develop nor develop); fetch it (in CI: fetch-depth: 0), or correct the setting
+ok   exit 2 (expected 2)  default-branch = "develop": gc
+        aisignoff gc: [history] default-branch: there is no branch develop here (neither origin/develop nor develop); fetch it (in CI: fetch-depth: 0), or correct the setting
+ok   exit 2 (expected 2)  ignore-revs-file = "missing-file": lint
+        aisignoff lint: [history] ignore-revs-file: missing-file does not exist
+ok   exit 2 (expected 2)  ignore-revs-file = "missing-file": report
+        aisignoff report: [history] ignore-revs-file: missing-file does not exist
+ok   exit 2 (expected 2)  ignore-revs-file = "missing-file": badge
+        aisignoff badge: [history] ignore-revs-file: missing-file does not exist
+ok   exit 2 (expected 2)  ignore-revs-file = "missing-file": diff
+        aisignoff diff: [history] ignore-revs-file: missing-file does not exist
+ok   exit 2 (expected 2)  ignore-revs-file = "missing-file": gc
+        aisignoff gc: [history] ignore-revs-file: missing-file does not exist
+ok   exit 2 (expected 2)  require-trailers-since = "abc1234": lint
+        aisignoff lint: [history] require-trailers-since: abc1234 is not a commit of the default branch
+ok   exit 2 (expected 2)  require-trailers-since = "abc1234": report
+        aisignoff report: [history] require-trailers-since: abc1234 is not a commit of the default branch
+ok   exit 2 (expected 2)  require-trailers-since = "abc1234": badge
+        aisignoff badge: [history] require-trailers-since: abc1234 is not a commit of the default branch
+ok   exit 2 (expected 2)  require-trailers-since = "abc1234": diff
+        aisignoff diff: [history] require-trailers-since: abc1234 is not a commit of the default branch
+ok   exit 2 (expected 2)  require-trailers-since = "abc1234": gc
+        aisignoff gc: [history] require-trailers-since: abc1234 is not a commit of the default branch
+
+=== X4: files that can't be read or written, and usage errors: exit 2, no traceback
+
+ok   exit 2 (expected 2)  no command
+        aisignoff: error: the following arguments are required: command
+ok   exit 2 (expected 2)  lint --declare-from a missing file
+        aisignoff lint: cannot read missing.md: [Errno 2] No such file or directory: 'missing.md'
+ok   exit 2 (expected 2)  lint --declare-from a folder
+        aisignoff lint: cannot read .: [Errno 21] Is a directory: '.'
+ok   exit 2 (expected 2)  lint --declare-from a file that isn't UTF-8
+        aisignoff lint: cannot read latin1.md: 'utf-8' codec can't decode byte 0xe9 in position 18: invalid continuation byte
+ok   exit 2 (expected 2)  report --html into a path below a file
+        aisignoff report: cannot write a.txt/report.html: [Errno 17] File exists: 'a.txt'
+ok   exit 2 (expected 2)  diff of a commit that doesn't exist
+        aisignoff diff: nope is not a commit
+ok   exit 2 (expected 2)  --root names a file
+        aisignoff lint: project root a.txt is not a directory
+DIFF exit 3 (expected 2) TRACEBACK  guide --agents-md with an AGENTS.md that isn't UTF-8
+        aisignoff guide: internal error in aisignoff 0.22.0, a bug: please report it with the traceback above at https://github.com/industrial-mathematics-group/aisignoff/issues
+ok   exit 2 (expected 2)  guide --skills into a path below a file
+        aisignoff guide: skills/x/aisignoff-dev: Not a directory
+ok   exit 2 (expected 2)  attest -a when the review folder is a file
+        aisignoff attest: /tmp/review-0220/work/exit/reviews: File exists
+ok   exit 2 (expected 2)  a record file that isn't UTF-8
+        aisignoff lint: reviews/r.toml: not UTF-8 text, as TOML must be: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+ok   exit 0 (expected 0)  a folder named like a record file (skipped)
+        All files are declared. ✓
+ok   exit 2 (expected 2)  a record file that can't be read
+        aisignoff lint: reviews/r.toml can't be read: Permission denied
+ok   exit 2 (expected 2)  SIGNOFF.toml can't be read
+        aisignoff lint: SIGNOFF.toml can't be read: Permission denied
+ok   exit 2 (expected 2)  SIGNOFF.toml can't be written: annotate
+        aisignoff annotate: SIGNOFF.toml: Permission denied
+ok   exit 2 (expected 2)  SIGNOFF.toml can't be written: correct
+        aisignoff correct: /tmp/review-0220/work/exit/SIGNOFF.toml: Permission denied
+
+=== X5: git fails
+
+DIFF exit 0 (expected 2)  HEAD's commit object is corrupt: lint
+        All files are declared. ✓
+DIFF exit 0 (expected 2)  HEAD's commit object is corrupt: report
+          F-         No independent AI review since last change         2  100.0%
+ok   exit 2 (expected 2)  HEAD's commit object is corrupt: diff HEAD
+        aisignoff diff: HEAD is not a commit
+
+=== X6: init next to an AGENTS.md that isn't UTF-8
+
+DIFF exit 3 (expected 2) TRACEBACK  init (expected 2, and no SIGNOFF.toml left behind half-done)
+        aisignoff init: internal error in aisignoff 0.22.0, a bug: please report it with the traceback above at https://github.com/industrial-mathematics-group/aisignoff/issues
+        SIGNOFF.toml was written: True

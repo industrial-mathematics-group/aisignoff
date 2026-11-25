@@ -1,0 +1,130 @@
+--- G1: H2 ticked, H0 and H1 unticked (the contract: an error)
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H2 A0 ['Dev'] 
+
+--- control: H0, H1, H2 all ticked
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H2 A0 ['Dev'] 
+
+--- G2a: key lines without a space after the colon
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H1 A0 ['Dev'] 
+
+--- G2b: key line with a space before the colon (must declare nothing)
+exit code: 1
+✗ the pull request description: missing Human-Review
+✗ the declaration of this change declares levels, but no Human-Review (nor does an attestation): 1 file(s)
+    a.txt
+
+0 of 1 files have a valid declaration.
+0 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: G3 None A0 [] 
+
+--- G2c: indented key lines (must declare nothing)
+exit code: 1
+✗ the pull request description: it declares nothing: fill in the AI declaration of the template (or "Key: value" lines)
+✗ the declaration of this change declares no AI-Generation (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no AI-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no Human-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+
+0 of 1 files have a valid declaration.
+0 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: None None None [] 
+
+--- G2d: lower-case level (an invalid level, an error)
+exit code: 1
+✗ the pull request description: invalid AI-Generation 'g3' (use G0, G1, G2, G3)
+✗ invalid AI-Generation 'g3' (use G0, G1, G2, G3): 1 file(s)
+    a.txt
+
+0 of 1 files have a valid declaration.
+0 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: g3 H1 A0 ['Dev'] 
+
+--- G2e: the first line of a description is not a subject line
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H1 A0 ['Dev'] 
+
+--- G3: '+' list markers are not boxes
+exit code: 1
+✗ the pull request description: it declares nothing: fill in the AI declaration of the template (or "Key: value" lines)
+✗ the declaration of this change declares no AI-Generation (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no AI-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no Human-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+
+0 of 1 files have a valid declaration.
+0 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: None None None [] 
+
+--- G4: an unclosed fence before the declaration hides nothing
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H1 A0 ['Dev'] 
+
+--- G5: a declaration inside a closed HTML comment declares nothing
+exit code: 1
+✗ the pull request description: it declares nothing: fill in the AI declaration of the template (or "Key: value" lines)
+✗ the declaration of this change declares no AI-Generation (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no AI-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+✗ the declaration of this change declares no Human-Review (required for a pull request into the default branch): 1 file(s)
+    a.txt
+
+0 of 1 files have a valid declaration.
+0 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: None None None [] 
+
+--- G6: two findings lines, the most severe counts
+exit code: 0
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+All files are declared. ✓
+
+   a.txt: G3 H1 A1 ['Dev'] 
+
+--- G7: an invalid findings value is an error
+exit code: 1
+✗ the pull request description: invalid AI-Review-Findings 'some': must be one of none, trivial, minor, major, critical
+
+1 of 1 files have a valid declaration.
+1 of 1 lines have a valid declaration (line by line, from git history).
+See https://github.com/industrial-mathematics-group/.github/blob/main/.github/CONTRIBUTING.md#ai-assisted-contributions
+
+   a.txt: G3 H1 A1 ['Dev'] 
+

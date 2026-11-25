@@ -1,0 +1,12 @@
+DIFF exit 1 (expected 2) TRACEBACK  guide --agents-md with an AGENTS.md that isn't UTF-8
+        UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 9: invalid start byte
+--
+DIFF exit 0 (expected 2)  HEAD's commit object is corrupt: lint
+        All files are declared. ✓
+DIFF exit 0 (expected 2)  HEAD's commit object is corrupt: report
+          F-         No independent AI review since last change         2  100.0%
+ok   exit 2 (expected 2)  HEAD's commit object is corrupt: diff HEAD
+        aisignoff diff: HEAD is not a commit
+--
+=== X6: init next to an AGENTS.md that isn't UTF-8
+
