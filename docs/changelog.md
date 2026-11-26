@@ -2,6 +2,13 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.24.0
+
+Badges of the merged changes, for the organisation's *Signoff-Badges* workflow, which counted them with its own parser.
+
+- Added: `aisignoff badge --commits` counts the declarations of the commits on `HEAD`'s first-parent history (merged pull requests) instead of the files, and writes `ai-generation.json`, `ai-human-review.json` and `ai-review.json`, with the names, labels and colours *Signoff-Badges* publishes. It needs no `SIGNOFF.toml`. `--markdown` prints a summary for the job summary. A message is read as everywhere else in aisignoff, so the badges now agree with the check before the merge where the workflow's parser didn't: the highest ticked human review box counts (the workflow counted `unknown` when a lower box was left unticked), and "Key: value" lines count wherever they are in the message, not only in its last paragraph. The `AI-Verification: V0`–`V3` lines of the first policy and `AI-Review: A-` are still counted as the workflow did.
+- The example workflows, the CI and docs workflows and the docs use the current major versions of the GitHub actions (`actions/checkout@v7`, `actions/setup-python@v7`, `actions/cache@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`, `actions/create-github-app-token@v3`).
+
 ## 0.23.0
 
 The fixes of the independent review of 0.22.0 ([reviews/2026-11-25-v0.22.0-fable.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-25-v0.22.0-fable.md)).

@@ -21,16 +21,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AISIGNOFF_VERSION: "0.23.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.24.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, for line-by-line declarations ([history])
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
@@ -39,7 +39,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/site"
           aisignoff report --html "$RUNNER_TEMP/site/index.html"
           # add --with-source to show the text of each file in the report (it is then public, like the repository)
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/site
 
@@ -54,4 +54,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

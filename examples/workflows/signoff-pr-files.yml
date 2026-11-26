@@ -17,16 +17,16 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.23.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.24.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   changed-files:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the base commit is needed for the diff
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"

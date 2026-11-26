@@ -144,6 +144,8 @@ Publish the files somewhere public, such as a `badges` branch (`signoff-badges.y
 
 raw.githubusercontent.com only serves public repositories.
 
+For a repository that declares its changes in pull requests but not its files, `aisignoff badge --commits` counts the declarations of the merged changes instead (`ai-generation.json`, `ai-human-review.json`, `ai-review.json`; see [badge](commands.md#badge)).
+
 ## JSON output
 
 `report --json`, `report --tree --json` and `diff --json` start with `"format": 1` and `"aisignoff"` (the version that wrote it). These are the keys of format 1. New keys may appear; readers ignore keys they don't know.
