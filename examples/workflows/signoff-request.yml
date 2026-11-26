@@ -57,7 +57,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "0.23.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.24.0"   # pin a release, so a new version can't break your CI unannounced
 
 jobs:
   request:
@@ -75,15 +75,15 @@ jobs:
       - name: Token of the bot app
         id: app
         if: vars.SIGNOFF_APP_ID != ''
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.SIGNOFF_APP_ID }}
           private-key: ${{ secrets.SIGNOFF_APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history: aisignoff lint with [history], and commit corrections
           token: ${{ steps.app.outputs.token || github.token }}   # pushes the branch as the app
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install aisignoff

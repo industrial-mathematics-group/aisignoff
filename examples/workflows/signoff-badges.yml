@@ -27,17 +27,17 @@ permissions:
   contents: read
 
 env:
-  AISIGNOFF_VERSION: "0.23.0"   # pin a release, so a new version can't break your CI unannounced
+  AISIGNOFF_VERSION: "0.24.0"   # pin a release, so a new version can't break your CI unannounced
   WEIGHT: files                # or "lines": weight each file by its number of lines
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, for line-by-line declarations ([history])
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"
@@ -53,7 +53,7 @@ jobs:
           SINCE=""
           if [ "${{ github.event_name }}" = pull_request ]; then SINCE=HEAD^1; fi
           aisignoff report --html "$RUNNER_TEMP/aisignoff-report.html" --with-source ${SINCE:+--since "$SINCE"} || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aisignoff-report
           path: ${{ runner.temp }}/aisignoff-report.html
@@ -71,10 +71,10 @@ jobs:
       group: aisignoff-badges
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, for line-by-line declarations ([history])
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install "aisignoff==${AISIGNOFF_VERSION}"

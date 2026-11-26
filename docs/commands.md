@@ -149,9 +149,12 @@ Deletes the records that cover no line any more: the `[[attestations]]` and `[[c
 
 ```bash
 aisignoff badge [--out DIR] [--weight files|lines] [--landed]
+aisignoff badge --commits [--out DIR] [--markdown]
 ```
 
 Writes `aisignoff-generation.json`, `aisignoff-human-review.json`, `aisignoff-ai-review.json` and `aisignoff-findings.json` into `DIR` (default `badges`), as UTF-8. See [Badges](report.md#badges).
+
+With `--commits`, it counts changes instead of files: the declaration of each commit on `HEAD`'s first-parent history (a merged pull request's merge or squash commit), read from its message as the check before the merge reads a pull request description, the ticked boxes of the template or "Key: value" lines. It writes `ai-generation.json`, `ai-human-review.json` and `ai-review.json`, needs no `SIGNOFF.toml`, and skips commits without a generation level (from before the declarations). A human or AI review that a commit leaves out counts as `unknown`. `--markdown` prints a summary for a CI job summary. The organisation's *Signoff-Badges* workflow runs it.
 
 `migrate`, which converted `AIDECL.toml` and the format versions 1 and 2, was removed in 1.0.0rc2; see [Upgrading](migrating.md#from-aidecl-or-format-version-1-or-2).
 

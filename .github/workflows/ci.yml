@@ -15,10 +15,10 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, for line-by-line declarations ([history])
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e . pytest
@@ -31,7 +31,7 @@ jobs:
     container: ubuntu:22.04
     steps:
       - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && git --version
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

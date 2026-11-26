@@ -1063,7 +1063,53 @@ def badge_json(label: str, counts: Counter, keys: list[str], color: str) -> dict
             "color": "red" if counts["undeclared"] else color}
 
 
+# badge --commits: the declarations of the merged changes, as the organisation's Signoff-Badges workflow
+# publishes them (the file names, labels and colours its README badges link to)
+COMMIT_BADGES = (  # file, label, levels, colour
+    ("ai-generation.json", "AI generation", [*GENERATION], "4063D8"),
+    ("ai-human-review.json", "human review", [*HUMAN, "unknown"], "389826"),
+    ("ai-review.json", "AI review", [*AI, "unknown"], "9558B2"),
+)
+
+
+def commit_badge_json(label: str, counts: Counter, keys: list[str], color: str) -> dict:
+    shown = {k: counts[k] for k in keys if counts[k]}
+    if not shown:
+        return {"schemaVersion": 1, "label": label, "message": "no declarations yet", "color": "lightgrey"}
+    pct = percentages(shown)
+    parts = [f"{k} {pct[k]}%" if pct[k] else f"{k} <1%" for k in shown]
+    return {"schemaVersion": 1, "label": label, "message": " · ".join(parts), "color": color}
+
+
+def cmd_badge_commits(args) -> int:
+    from . import changes
+    from .history import HistoryError
+    root = Path(args.root)
+    try:
+        found = changes.count(root)
+    except HistoryError as e:
+        raise UsageError(str(e))
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for (filename, label, levels, color), counts in zip(COMMIT_BADGES, (found.generation, found.human, found.ai)):
+        (out / filename).write_text(json.dumps(commit_badge_json(label, counts, levels, color), ensure_ascii=False),
+                                    encoding="utf-8")
+        written.append(str(out / filename))
+    for problem in found.problems:
+        print(f"warning: {problem}", file=sys.stderr)
+    if args.markdown:
+        print(changes.summary_markdown(found), end="")
+    else:
+        print(f"{found.declared} of {found.commits} commits are declared. Wrote " + ", ".join(written))
+    return 0
+
+
 def cmd_badge(args) -> int:
+    if args.commits:
+        return cmd_badge_commits(args)
+    if args.markdown:
+        raise UsageError("--markdown goes with --commits")
     project = _open(args.root)
     project.landed = args.landed
     results = _results(project)
@@ -1223,6 +1269,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default="badges", help="output directory (default: badges)")
     p.add_argument("--weight", choices=["files", "lines"], default="files")
     _add_landed(p)
+    p.add_argument("--commits", action="store_true", help="count the declarations of the commits on HEAD's "
+                   "first-parent history (merged pull requests) instead of the files: ai-generation.json, "
+                   "ai-human-review.json and ai-review.json; needs no SIGNOFF.toml")
+    p.add_argument("--markdown", action="store_true", help="with --commits: print a summary for a CI job summary")
     p.set_defaults(func=cmd_badge)
 
     p = sub.add_parser("guide", help="what an AI agent needs to know: the developer's or the reviewer's brief")

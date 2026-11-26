@@ -38,7 +38,7 @@ permissions:
   actions: write         # without an app: start the lint workflow on the branch
 
 env:
-  AISIGNOFF_VERSION: "0.23.0"      # keep it at signoff-request.yml's
+  AISIGNOFF_VERSION: "0.24.0"      # keep it at signoff-request.yml's
   ANTHROPIC_VERSION: "2.8.0"          # the Anthropic Python SDK
   MODEL: claude-sonnet-5-5            # e.g. claude-opus-5-5 for harder conversations
   MODEL_NAME: Claude Sonnet 5.5 (Anthropic)   # as it is declared in the pull request; change it with MODEL
@@ -70,15 +70,15 @@ jobs:
       - name: Token of the bot app
         id: app
         if: vars.SIGNOFF_APP_ID != ''
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.SIGNOFF_APP_ID }}
           private-key: ${{ secrets.SIGNOFF_APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the commits, for commit corrections
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install aisignoff and the Anthropic SDK

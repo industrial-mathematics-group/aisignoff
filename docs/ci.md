@@ -20,18 +20,18 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, for [history]
-      - uses: actions/cache@v4   # what git blame found, so that a run only blames the commits since
+      - uses: actions/cache@v6   # what git blame found, so that a run only blames the commits since
         with:
           path: .git/aisignoff
           key: aisignoff-${{ github.sha }}
           restore-keys: aisignoff-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install "aisignoff==0.23.0"
+      - run: pip install "aisignoff==0.24.0"
       - run: aisignoff lint
 ```
 
@@ -188,7 +188,7 @@ Because an AI turned the requester's words into the answers, the pull request ti
 ```yaml
 repos:
   - repo: https://github.com/industrial-mathematics-group/aisignoff
-    rev: v0.23.0   # the same version as in your workflows
+    rev: v0.24.0   # the same version as in your workflows
     hooks:
       - id: aisignoff-lint
 ```

@@ -22,15 +22,15 @@ The cache is only used with the same blame options it was written with, `[histor
 A CI run starts from a fresh checkout, so it has no cache unless the workflow keeps it. With GitHub Actions, restore it before `aisignoff lint` and save it after:
 
 ```yaml
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .git/aisignoff
           key: aisignoff-${{ github.sha }}
           restore-keys: aisignoff-
-      - run: pip install "aisignoff==0.23.0"
+      - run: pip install "aisignoff==0.24.0"
       - run: aisignoff lint
 ```
 
