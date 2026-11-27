@@ -1,0 +1,12 @@
+Version-3 self-check
+aisignoff-ai-review.json A0 100%
+aisignoff-human-review.json H1 100%
+commit badge stderr: (empty)
+ai-human-review.json H1 100%
+ai-review.json A1 100%
+Conflicting H0 and H3
+lint exit: 1
+✗ the pull request description: the pull request description has conflicting Human-Review trailers (H0, H3)
+commit badge stderr: (empty)
+ai-human-review.json H3 100%
+ai-review.json A0 100%

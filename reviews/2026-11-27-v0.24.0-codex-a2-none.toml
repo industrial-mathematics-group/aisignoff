@@ -1,0 +1,163 @@
+# An independent AI review, recorded by 'aisignoff attest'. The review folder keeps it as it is:
+# a later review goes into a new file.
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = ".github/workflows/ci.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = ".github/workflows/docs.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = ".github/workflows/publish.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = ".github/workflows/signoff-badges.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/cache.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/changelog.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/ci.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/commands.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/compatibility.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "docs/report.md"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/pre-commit-config.yaml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-assistant.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-badges.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-lint.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-pages.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-pr-diff.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-pr-files.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-release.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "examples/workflows/signoff-request.yml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "pyproject.toml"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "src/aisignoff/cli.py"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "tests/test_badge_commits.py"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
+
+[[attestations]]
+commit = "a311e013f8c972509fb8e0f2ce2986c3bba17c15"
+path = "uv.lock"
+AI-Review = "A2"
+AI-Reviewed-by = ["GPT Sol (OpenAI), new session without the generating conversation, reviews/2026-11-27-v0.24.0-codex.md"]
+AI-Review-Findings = "none"
