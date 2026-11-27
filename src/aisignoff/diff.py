@@ -176,6 +176,8 @@ def _file_is_binary(root: Path, path: str) -> bool:
         return False
 
 
+SYMLINK_MODE = "120000"
+
 # the empty blob, in SHA-1 and SHA-256 repositories
 EMPTY_BLOBS = frozenset({"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
                          "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"})
@@ -212,7 +214,8 @@ def changed_lines(root: Path, base: str, ignore_whitespace: bool = False,
                 result[key] = forced[key]
     if units:
         for key in binary_old:
-            if key in result and result[key][0]:
+            # the binary version is replaced, also where git's text diff only inserts lines before it
+            if key in result and key[0] is not None:
                 result[key] = ([1], result[key][1])
     return result
 
@@ -227,17 +230,18 @@ def _parse_diff(root: Path, out: str, suppressed: list,
     binary content or none of text. A text new side takes git's line diff, whatever the old side is,
     as git blame does after the merge; a binary new side is one unit, and every unit of the old side
     is removed."""
-    files: dict = {}  # (old, new) -> [removed, added, (old blob, new blob), git showed it as binary]
+    files: dict = {}  # (old, new) -> [removed, added, (old blob, new blob), git showed it as binary, (old, new) mode]
     old = new = None
     removed: list[int] = []
     added: list[int] = []
     blobs: tuple[str, str] = ("", "")
     git_binary = False
     in_header = False
+    modes = ["", ""]
 
     def flush():
         if old is not None or new is not None:
-            files[(old, new)] = [removed, added, blobs, git_binary]
+            files[(old, new)] = [removed, added, blobs, git_binary, tuple(modes)]
 
     for line in out.split("\n"):
         if line.startswith("diff --git "):
@@ -247,6 +251,7 @@ def _parse_diff(root: Path, out: str, suppressed: list,
             blobs = ("", "")
             git_binary = False
             in_header = True
+            modes = ["", ""]
         elif line.startswith("@@ "):
             in_header = False
             a, b = line.split(" ")[1:3]
@@ -257,12 +262,21 @@ def _parse_diff(root: Path, out: str, suppressed: list,
         elif not in_header:
             continue  # a line of a hunk
         elif line.startswith("index ") and ".." in line:
-            a, _, b = line[len("index "):].split(" ")[0].partition("..")
+            fields = line[len("index "):].split(" ")
+            a, _, b = fields[0].partition("..")
             blobs = (a, b)
+            if len(fields) > 1:  # the mode of both sides, when it didn't change
+                modes = [fields[1], fields[1]]
         elif line.startswith("new file mode"):
             old = None
+            modes[1] = line.split()[-1]
         elif line.startswith("deleted file mode"):
             new = None
+            modes[0] = line.split()[-1]
+        elif line.startswith("old mode "):
+            modes[0] = line.split()[-1]
+        elif line.startswith("new mode "):
+            modes[1] = line.split()[-1]
         elif line.startswith("--- "):
             old = _header_path(line[4:])
         elif line.startswith("+++ "):
@@ -279,15 +293,20 @@ def _parse_diff(root: Path, out: str, suppressed: list,
     # git stores it too, from its blob where that exists (committed or staged): a file that git converts
     # (working-tree-encoding, a clean filter such as Git LFS) differs in the work tree, as UTF-16 text has
     # NUL bytes there. A blob that isn't in the repository (an edit not staged) is read from the work tree.
-    units = _blob_units(root, [b[0] for (o, _), (_, _, b, _) in files.items() if o is not None and b[0]]
-                        + [b[1] for (_, n), (_, _, b, _) in files.items() if n is not None and b[1]])
+    units = _blob_units(root, [b[0] for (o, _), (_, _, b, _, _) in files.items() if o is not None and b[0]]
+                        + [b[1] for (_, n), (_, _, b, _, _) in files.items() if n is not None and b[1]])
     result: dict = {}
-    for (old, new), (removed, added, blobs, git_binary) in files.items():
+    for (old, new), (removed, added, blobs, git_binary, modes) in files.items():
         if blobs != ("", "") or git_binary:
             old_units, old_binary = units.get(blobs[0], (1, False)) if old is not None else (0, False)
+            stored = units.get(blobs[1]) if new is not None else None
+            # a symlink is one unit, as git stores it (its target text), however many lines that text has
+            if old is not None and modes[0] == SYMLINK_MODE:
+                old_units, old_binary = 1, True
+            if new is not None and modes[1] == SYMLINK_MODE:
+                stored = (1, True)
             if old_binary and binary_old is not None:
                 binary_old.add((old, new))
-            stored = units.get(blobs[1]) if new is not None else None
             new_binary = new is not None and (stored[1] if stored else _file_is_binary(root, new))
             if old is not None and new is not None and not new_binary and (git_binary or old_binary):
                 # the new side is text: its lines follow git's line diff of the two sides, as git blame

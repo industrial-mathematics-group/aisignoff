@@ -2,6 +2,8 @@
 
 `SIGNOFF.toml` sits in the repository root. It is the file a person signs off: the rules, the annotations, a person's reviews and the corrections of a commit. AI reviews go into the [review folder](history.md#the-review-folder) instead ([Who writes what](#who-writes-what)). Every key below is optional except `version`. An invalid level, a malformed table, a file that isn't UTF-8 or can't be read, and an unknown key anywhere are configuration errors (exit code `2`). Every key changes what the file means, so an unknown one is never ignored: it is a typo, or a key of a newer aisignoff, for which the repository sets `requires-aisignoff`.
 
+A pull request that removes an unknown key from the default branch's `SIGNOFF.toml` fails the [check before the merge](ci.md#checking-the-pull-request-description), which reads the default branch's rules: a maintainer merges it past the check, after looking at it closely. (Before raising a workflow's pin to 0.22 or later, a key that only warned so far can still be removed in an ordinary pull request.)
+
 ```toml
 version = 4
 requires-aisignoff = "0.22"

@@ -1066,7 +1066,7 @@ def badge_json(label: str, counts: Counter, keys: list[str], color: str) -> dict
 # badge --commits: the declarations of the merged changes, as the organisation's Signoff-Badges workflow
 # publishes them (the file names, labels and colours its README badges link to)
 COMMIT_BADGES = (  # file, label, levels, colour
-    ("ai-generation.json", "AI generation", [*GENERATION], "4063D8"),
+    ("ai-generation.json", "AI generation", [*GENERATION, "unknown"], "4063D8"),
     ("ai-human-review.json", "human review", [*HUMAN, "unknown"], "389826"),
     ("ai-review.json", "AI review", [*AI, "unknown"], "9558B2"),
 )
