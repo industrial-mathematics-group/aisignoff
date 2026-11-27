@@ -85,3 +85,65 @@ def test_old_template_a1_box_is_the_self_check(tmp_path):
 
 def test_markdown_needs_commits(tmp_path, capsys):
     assert main(["--root", str(tmp_path), "badge", "--markdown"]) == 2
+
+
+# ------------------------------------------------------------------ 0.25.0: the review of 0.24.0
+SELF_CHECK = ("AI-Generation: G3\nAssisted-by: Claude Opus (Anthropic)\nHuman-Review: H1\nReviewed-by: R\n"
+              "AI-Review: A1\nAI-Reviewed-by: Claude Opus (Anthropic), self-check by the generating session")
+
+
+def repo_with(tmp_path, toml=None):
+    root = tmp_path / "repo"
+    root.mkdir()
+    init(root)
+    if toml is not None:
+        write(root, "SIGNOFF.toml", toml)
+    write(root, "a.txt", "1\n")
+    return root
+
+
+def test_a_version_3_repository_counts_on_its_scale(tmp_path):
+    """version = 3: an A1 trailer was the generating session's self-check, today's A0, as the file badge says."""
+    root = repo_with(tmp_path, "version = 3\n")
+    commit(root, "legacy", SELF_CHECK.replace(", self-check by the generating session", ""))
+    write(root, "a.txt", "2\n")
+    commit(root, "a new session, on the old scale", SELF_CHECK.replace("AI-Review: A1", "AI-Review: A2")
+           .replace("self-check by the generating session", "new session"))
+    assert badges(root, tmp_path)["ai-review.json"] == "A0 50% · A1 50%"
+
+
+def test_a_self_check_counts_as_no_review(tmp_path):
+    """Without SIGNOFF.toml (today's scale), an A1 whose reviewer is only a self-check is A0 by definition."""
+    root = repo_with(tmp_path)
+    commit(root, "self-check", SELF_CHECK)
+    assert badges(root, tmp_path)["ai-review.json"] == "A0 100%"
+
+
+def test_a_different_model_level_by_the_writing_model_is_a1(tmp_path):
+    root = repo_with(tmp_path)
+    commit(root, "same model", SELF_CHECK.replace("AI-Review: A1", "AI-Review: A2")
+           .replace("self-check by the generating session", "new session, reviews/r.md"))
+    assert badges(root, tmp_path)["ai-review.json"] == "A1 100%"
+
+
+def test_conflicting_levels_are_unknown_and_reported(tmp_path, capsys):
+    root = repo_with(tmp_path)
+    commit(root, "conflict", "AI-Generation: G0\nHuman-Review: H0\nHuman-Review: H3\nReviewed-by: R\nAI-Review: A0\n")
+    found = badges(root, tmp_path, "--markdown")
+    assert found["ai-human-review.json"] == "unknown 100%"
+    assert found["ai-generation.json"] == "G0 100%" and found["ai-review.json"] == "A0 100%"  # the other axes stand
+    out = capsys.readouterr()
+    assert "conflicting Human-Review" in out.err and "conflicting levels" in out.out
+
+
+def test_commits_entries_of_signoff_toml_correct_the_counts(tmp_path):
+    root = repo_with(tmp_path, "version = 4\n")
+    sha = commit(root, "undeclared")
+    write(root, "a.txt", "2\n")
+    commit(root, "declared", "AI-Generation: G3\nAssisted-by: M (V)\nHuman-Review: TODO\nAI-Review: A0\n")
+    with open(root / "SIGNOFF.toml", "a") as f:
+        f.write(f'\n[[commits]]\ncommit = "{sha}"\nAI-Generation = "G0"\nHuman-Review = "H2"\nAI-Review = "A0"\n'
+                'Reviewed-by = "R"\n')
+    found = badges(root, tmp_path)
+    assert found["ai-generation.json"] == "G0 50% · G3 50%"
+    assert found["ai-human-review.json"] == "H2 50% · unknown 50%"
