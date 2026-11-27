@@ -2,6 +2,16 @@
 
 What changed in each release. Changes that can break a workflow are marked **Breaking**; see [Compatibility](compatibility.md) for what counts.
 
+## 0.25.0
+
+The fixes of the independent review of 0.24.0 ([reviews/2026-11-27-v0.24.0-codex.md](https://github.com/industrial-mathematics-group/aisignoff/blob/main/reviews/2026-11-27-v0.24.0-codex.md)) and the two counts left from the review of 0.23.0.
+
+- Fixed: `badge --commits` read every commit message on today's scale, as written. In a repository with `version = 3` an `AI-Review: A1` trailer, the self-check of the scale before version 4, counted as an independent review, where the file badges count A0. Now the repository's scale and its `[[commits]]` entries count, an AI review whose reviewer is only a self-check counts as A0 and an A2 or A3 by only a model that wrote the change as A1, as the definitions say, and the job summary says how the levels were counted.
+- Fixed: `badge --commits` counted the last of two conflicting levels in one message (`Human-Review: H0` and `H3` as H3), which `lint` rejects. That axis counts as `unknown` now, with a warning; the generation badge has an `unknown` share for it.
+- Fixed: `diff` counted a symlink by the lines of its target text, so retargeting a link from a three-line target counted two removed and two added units. A symlink is one unit, as in the history.
+- Fixed: a binary version replaced by text with only an insertion before it (the NUL moved past the probe) counted no removal; the binary version counts as one removed unit.
+- Docs: how a pull request removes an unknown key from the default branch's `SIGNOFF.toml` (the check before the merge reads the default branch's rules, so a maintainer merges it past the check).
+
 ## 0.24.0
 
 Badges of the merged changes, for the organisation's *Signoff-Badges* workflow, which counted them with its own parser.

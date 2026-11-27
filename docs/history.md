@@ -326,7 +326,7 @@ aisignoff finds the default branch as `origin`'s default branch, else the one Gi
 
 - **`TODO` is below every level.** A `TODO` review of an owner stays until a `[[commits]]` entry or an attestation fills it in.
 - **An AI review covers every line of its change,** hand-written ones too: a line that a `[[commits]]` entry declares G0, in a pull request that declares A1, is G0 with A1.
-- **Binary and empty files and symlinks** are one unit, counted as one line: the commit that last changed the file declares it.
+- **Binary and empty files and symlinks** are one unit, counted as one line: the commit that last changed the file declares it. A symlink is one unit whatever its target text, also when that has several lines.
 - **A text file after a binary version of it:** its lines follow git's line diff, as for any text file. `git blame` splits any content into lines, so a line that was already in the binary version keeps the levels of the commit that added that version. The check before the merge shows the same, and `aisignoff diff` counts the binary version as one removed unit.
 - **Moved lines** belong to the commit that moved them: a line moved to another file is a new line there.
 - **Whitespace-only changes** are ignored (`git blame -w`), so reindented lines keep their owner. In Python, indentation can change what code does; set `ignore-whitespace = false` to give reindented lines to the commit that reindented them.
